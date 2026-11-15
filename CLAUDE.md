@@ -7,7 +7,7 @@ edits, opening shells, or composing commit messages.
 ## Project identity
 
 TAK-XVoice (XV) is a **public, Apache-2.0-licensed ATAK plugin**. The
-repository at `https://github.com/TX-RX/TAK-XVoice` is public and the
+repository at `https://github.com/TX-TAK/TAK-XVoice` is public and the
 default branch is `main`. Anything that lands on `main` is, for
 practical purposes, world-readable forever — assume git history is a
 publication surface, not a private workspace.
