@@ -8,6 +8,7 @@ import android.util.Log
 import com.atakmap.android.xv.aina.AinaBleReader
 import com.atakmap.android.xv.aina.AinaButton
 import com.atakmap.android.xv.aina.AinaSppReader
+import com.atakmap.android.xv.aina.Bt02BleReader
 import com.atakmap.android.xv.aina.PrymeBleReader
 import com.atakmap.android.xv.audio.AinaA2dpController
 import com.atakmap.android.xv.audio.AinaA2dpWiring
@@ -520,6 +521,14 @@ class VoicePlant(
     // did this go?" search lands here.
 
     @Volatile private var prymeBle: PrymeBleReader? = null
+
+    // Inrico BT02 Zello speaker-mic on the PRIMARY slot. Wired for
+    // symmetry with the external-button path; the primary connect path
+    // does not currently classify a device as "bt02" (the BT02 is
+    // auto-assigned to the External Button slot on scan-add), so this
+    // stays null in practice today — but the teardown drops it so the
+    // field is correct if primary-slot routing is added later.
+    @Volatile private var bt02Ble: Bt02BleReader? = null
 
     // External-button PTT slot (e.g. a Pryme handlebar puck for
     // motorcyclists who already wear an AINA speakermic). Independent
@@ -1433,13 +1442,6 @@ class VoicePlant(
             Log.w(TAG, "connectAina: no device for mac=$mac name=$name")
             return
         }
-        // Tell AudioRouter which BT device to prefer when multiple are
-        // connected (e.g. AINA + AirPods). Without this hint,
-        // preferredDevice() picks "first BT" which is non-deterministic.
-        // The operator's BT-audio-override picker still wins over this
-        // — it's an opt-in explicit override.
-        router.preferredBtMacHint = device.address
-        connectedAinaMac = device.address
         val resolvedKind =
             if (kind == "auto" || kind.isNullOrBlank()) {
                 when (device.type) {
@@ -1451,6 +1453,51 @@ class VoicePlant(
             } else {
                 kind
             }
+        // Tell AudioRouter which BT device to prefer when multiple are
+        // connected (e.g. AINA + AirPods). Without this hint,
+        // preferredDevice() picks "first BT" which is non-deterministic.
+        // The operator's BT-audio-override picker still wins over this
+        // — it's an opt-in explicit override.
+        //
+        // For the Inrico BT02, the BLE button peripheral (B02PTT-*) uses
+        // a separate address from the Classic Bluetooth HFP audio device.
+        // Setting preferredBtMacHint to the BLE MAC would never match an
+        // AudioManager output, causing AudioRouter to trip speaker-fallback
+        // and ScoLink to miss the HFP comm device. Look for a bonded Classic
+        // B02/Inrico audio device if present; otherwise leave the hint null
+        // so AudioRouter/ScoLink route cleanly to the active HFP headset.
+        router.preferredBtMacHint =
+            if (resolvedKind == "bt02") {
+                val devType =
+                    try {
+                        device.type
+                    } catch (_: Throwable) {
+                        android.bluetooth.BluetoothDevice.DEVICE_TYPE_UNKNOWN
+                    }
+                if (devType == android.bluetooth.BluetoothDevice.DEVICE_TYPE_CLASSIC) {
+                    device.address
+                } else {
+                    val classicBt02 =
+                        try {
+                            adapter.bondedDevices?.firstOrNull { bonded ->
+                                val n = bonded.name?.trim().orEmpty()
+                                n.isNotEmpty() &&
+                                    (
+                                        Bt02BleReader.isBt02Name(n) ||
+                                            n.contains("B02", ignoreCase = true) ||
+                                            n.contains("BT02", ignoreCase = true) ||
+                                            n.contains("Inrico", ignoreCase = true)
+                                        )
+                            }
+                        } catch (_: Throwable) {
+                            null
+                        }
+                    classicBt02?.address
+                }
+            } else {
+                device.address
+            }
+        connectedAinaMac = device.address
         // Per-reader onConn so the disconnect edge can tag the correct
         // [PttSource] when releasing a stuck PTT-down. Field bug
         // 2026-07-08: operator keyed AINA V2, turned BT off mid-TX,
@@ -1509,6 +1556,19 @@ class VoicePlant(
                     )
                 prymeBle = r
                 r.connect(device)
+            }
+            "bt02" -> {
+                // Inrico BT02 Zello speaker-mic — Classic HFP for audio +
+                // companion BLE GATT peripheral for PTT & emergency buttons
+                // (see Bt02BleReader.connectBt02).
+                val r =
+                    Bt02BleReader(
+                        context,
+                        primaryAinaEvent(PttSource.PRYME_BLE),
+                        { up -> onConn(PttSource.PRYME_BLE, up) },
+                    )
+                bt02Ble = r
+                r.connectBt02(device)
             }
             else -> Log.w(TAG, "unknown AINA kind '$resolvedKind'")
         }
@@ -1751,7 +1811,7 @@ class VoicePlant(
      * sources.
      */
     fun disconnectAinaReaderOnly() {
-        val hadReader = ainaBle != null || ainaSpp != null || prymeBle != null
+        val hadReader = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
         // dispose() rather than disconnect() — see the analogous
         // block in [disconnectExternalButton] for the rationale.
         ainaBle?.dispose()
@@ -1760,6 +1820,8 @@ class VoicePlant(
         ainaSpp = null
         prymeBle?.dispose()
         prymeBle = null
+        bt02Ble?.dispose()
+        bt02Ble = null
         // Mirror [disconnectExternalButton]: if the operator (or a wholesale
         // BT-adapter-off cascade) is tearing us down mid-burst, drop any
         // held button state from the primary source so the OR-gate can
@@ -1850,7 +1912,7 @@ class VoicePlant(
         }
     }
 
-    fun isAinaConnected(): Boolean = ainaBle != null || ainaSpp != null || prymeBle != null
+    fun isAinaConnected(): Boolean = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
 
     // Per-source button-handler factory for the primary input. Captures
     // [source] so PttDispatcher's OR-gate can distinguish concurrent

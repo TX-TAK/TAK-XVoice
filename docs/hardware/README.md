@@ -15,12 +15,14 @@ is or isn't listed), see the top-level [README](../../README.md).
 
 ## Bluetooth speakermics
 
-The curated / validated Bluetooth speakermics (AINA APTT V1 / V2, Pryme
-BT-PTT-Z) are registered per-MAC and mapped to channels automatically;
+The curated / validated Bluetooth speakermics (AINA APTT V2 — #1
+recommended, AINA APTT V1 — #2 recommended, and Pryme BT-PTT-Z external
+button) are registered per-MAC and mapped to channels automatically;
 see the top-level README's "What's different" and "Hardware tested"
 sections.
 
 - [Pryme BT-PTT-Z Pairing Guide](pryme-bt-ptt-z.md) — instructions and troubleshooting for Pryme BLE PTT buttons.
+- [Inrico BT02 (B02)](inrico-bt02.md) — **budget / experimental** speaker-mic with limited support (available for testing, subject to removal).
 
 ## Retired hardware
 

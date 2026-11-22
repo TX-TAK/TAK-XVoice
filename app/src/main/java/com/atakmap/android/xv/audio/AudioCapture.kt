@@ -393,6 +393,9 @@ class AudioCapture(
         }
     }
 
+    @Volatile
+    private var activeMicGain: Float = 1.0f
+
     private fun logStarted(
         r: AudioRecord,
         restart: Boolean,
@@ -410,14 +413,17 @@ class AudioCapture(
             } catch (t: Throwable) {
                 null
             }
+        val effectiveDev = routed ?: r.preferredDevice
+        activeMicGain = micGainForDevice(effectiveDev?.type, effectiveDev?.productName?.toString())
         val verb = if (restart) "restarted in place (#$restartCount)" else "started"
         Log.i(
             TAG,
             "AudioRecord $verb (rate=$sampleRateHz frame=$frameSamples " +
                 "preferred=${r.preferredDevice?.productName} " +
-                "routed=${routed?.productName}/${routed?.let { typeName(it.type) }})",
+                "routed=${routed?.productName}/${routed?.let { typeName(it.type) }} " +
+                "micGain=${activeMicGain}x)",
         )
-        capDiag("AudioRecord $verb routed=${routed?.productName}/${routed?.let { typeName(it.type) }}")
+        capDiag("AudioRecord $verb routed=${routed?.productName}/${routed?.let { typeName(it.type) }} gain=${activeMicGain}x")
     }
 
     // Returns the AudioDeviceInfo.TYPE_* of the picked input, or
@@ -626,6 +632,11 @@ class AudioCapture(
             frameCount++
             totalFrames++
 
+            val gain = activeMicGain
+            if (gain != 1.0f) {
+                applyPcmGain(buf, n, gain)
+            }
+
             // Diagnostic: compute RMS and show first few samples
             var sumSq = 0.0
             for (i in 0 until n) {
@@ -739,5 +750,37 @@ class AudioCapture(
         // the HAL's route re-provisioning a beat to finish so the fresh
         // open lands on the post-reroute path.
         private const val RESTART_SETTLE_MS = 50L
+
+        // Software mic-gain boost (+5 dB, 10^(5/20) ≈ 1.78x) applied
+        // specifically when capturing from an Inrico BT02 over Bluetooth
+        // SCO, whose uplink level is noticeably quieter than AINA
+        // speakermics. Kept as a fixed boost rather than app-level AGC so
+        // it doesn't fight Android's VOICE_COMMUNICATION platform DSP.
+        const val BT02_SCO_MIC_GAIN: Float = 1.78f
+
+        fun micGainForDevice(
+            deviceType: Int?,
+            productName: String?,
+        ): Float {
+            if (deviceType == AudioDeviceInfo.TYPE_BLUETOOTH_SCO &&
+                com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(productName)
+            ) {
+                return BT02_SCO_MIC_GAIN
+            }
+            return 1.0f
+        }
+
+        fun applyPcmGain(
+            buf: ShortArray,
+            count: Int,
+            gain: Float,
+        ) {
+            if (gain == 1.0f) return
+            val limit = count.coerceAtMost(buf.size)
+            for (i in 0 until limit) {
+                val scaled = (buf[i] * gain).toInt()
+                buf[i] = scaled.coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
+            }
+        }
     }
 }

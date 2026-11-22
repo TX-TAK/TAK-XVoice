@@ -267,11 +267,14 @@ Test devices:
 - Motorola legacy Android (AINA APTT V1 SPP rig)
 - Samsung Galaxy Tab (XV + existing voice-plugin coexistence)
 
-Curated / validated speakermics:
+Curated / supported speakermics and external PTT hardware:
 
-- AINA APTT V1 (BR/EDR SPP)
-- AINA APTT V2 (BLE GATT)
-- Pryme BT-PTT-Z (HM-10 UART)
+| Rank / Tier | Device | Transport | Status & Notes |
+| --- | --- | --- | --- |
+| **#1 Recommended** | **AINA APTT V2** | Classic HFP + BLE GATT | Primary recommended speakermic. Full PTT, secondary channel, and LMR-style emergency (short press triggers; 1s long press disables / turns off emergency directly from the mic). |
+| **#2 Recommended** | **AINA APTT V1** | Classic HFP + BR/EDR SPP | Proven fallback speakermic with full PTT, secondary channel, and LMR-style emergency (short press triggers; 1s long press disables / turns off emergency directly from the mic). |
+| **Budget / Experimental** | **Inrico BT02 (B02)** | Classic HFP + companion BLE | **Limited support — available for testing, subject to removal.** Included due to interest in lower-cost speaker-mics. Budget capabilities: lower mic gain/fidelity than AINA (XV applies a `+5 dB` SCO software boost); **emergency button ONLY triggers (2s hold) and CANNOT disable/disarm** — you must turn off an active emergency in the ATAK app (unlike AINA Voice Responders, where a long press disables it); top button unmapped. See [docs/hardware/inrico-bt02.md](docs/hardware/inrico-bt02.md). |
+| **External Button** | **Pryme BT-PTT-Z** | BLE GATT (HM-10 UART) | Button-only external PTT puck (no speaker/mic). See [docs/hardware/pryme-bt-ptt-z.md](docs/hardware/pryme-bt-ptt-z.md). |
 
 Curated / validated ruggedized handsets (on-device hardware keys):
 
