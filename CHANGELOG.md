@@ -2,6 +2,10 @@
 
 All notable user-visible and operationally significant changes to TAK-XVoice are documented in this file.
 
+## [1.1.1]
+
+`versionCode` 31. Supersedes 1.1.0 as the shipping build of the Inrico BT02 (B02) speaker-mic feature. No functional change: an internal, behavior-preserving refactor of the BT02 BLE paths (`Bt02BleReader`, `BlePttScanner`, `BitmaskGattPttReader`, `XvMapComponent`) to satisfy the detekt `ReturnCount` and loop-jump rules. The unit suite is unchanged. See [1.1.0] below for the feature itself.
+
 ## [1.1.0]
 
 `versionCode` 30. Minor version bump adding experimental hardware support for the Inrico BT02 (B02) budget Bluetooth speaker-mic.
