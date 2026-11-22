@@ -166,10 +166,9 @@ class Bt02BleReader(
                     callbackType: Int,
                     result: ScanResult?,
                 ) {
-                    val r = result ?: return
-                    val dev = r.device ?: return
+                    val dev = result?.device ?: return
                     val advName =
-                        r.scanRecord?.deviceName?.trim()
+                        result.scanRecord?.deviceName?.trim()
                             ?: try {
                                 dev.name?.trim()
                             } catch (_: Throwable) {
@@ -181,7 +180,7 @@ class Bt02BleReader(
                         Log.i(
                             TAG,
                             "resolved companion BLE peripheral ${redactMac(dev.address)} " +
-                                "name=$advName rssi=${r.rssi}",
+                                "name=$advName rssi=${result.rssi}",
                         )
                         discoveryStopped = true
                         scanHandler.removeCallbacks(stopDiscoveryRunnable)
@@ -255,8 +254,7 @@ class Bt02BleReader(
             val adv = advertisedName?.trim().orEmpty()
             if (!isBt02Name(adv)) return false
             val exp = expectedClassicName?.trim().orEmpty()
-            if (exp.isEmpty() || !isBt02Name(exp)) return true
-            return adv.equals(exp, ignoreCase = true)
+            return exp.isEmpty() || !isBt02Name(exp) || adv.equals(exp, ignoreCase = true)
         }
 
         /**

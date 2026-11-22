@@ -4606,8 +4606,7 @@ class XvMapComponent : AbstractMapComponent() {
         if (mac == null) return false
         val entry =
             settings.knownBlePttDevices().firstOrNull { (m, _) -> m.equals(mac, ignoreCase = true) }
-                ?: return false
-        return com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(entry.second)
+        return entry != null && com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(entry.second)
     }
 
     // One-time (idempotent) cleanup: purge any legacy Inrico BT02 entries

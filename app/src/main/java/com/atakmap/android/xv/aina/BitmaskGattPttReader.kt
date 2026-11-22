@@ -369,16 +369,16 @@ open class BitmaskGattPttReader(
                     }
                 var subscribed = 0
                 for (ch in targetChars) {
-                    if ((ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) == 0) continue
-                    if (!g.setCharacteristicNotification(ch, true)) {
+                    val notify = (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
+                    val notifyEnabled = notify && g.setCharacteristicNotification(ch, true)
+                    if (notify && !notifyEnabled) {
                         Log.w(config.tag, "setCharacteristicNotification(true) failed for ${ch.uuid}")
-                        continue
                     }
-                    val cccd = ch.getDescriptor(CCCD_UUID)
-                    if (cccd == null) {
+                    val cccd = if (notifyEnabled) ch.getDescriptor(CCCD_UUID) else null
+                    if (notifyEnabled && cccd == null) {
                         Log.w(config.tag, "CCCD missing on ${ch.uuid} — cannot enable notifications")
-                        continue
                     }
+                    if (cccd == null) continue
                     val enableValue = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                     val ok =
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {

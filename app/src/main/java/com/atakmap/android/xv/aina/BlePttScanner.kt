@@ -210,9 +210,7 @@ class BlePttScanner(
         ): Boolean {
             if (HM10_SERVICE_UUID in serviceUuids) return true
             val n = name?.trim().orEmpty()
-            if (n.isEmpty()) return false
-            if (n.equals(PTT_Z01_NAME, ignoreCase = true)) return true
-            return false
+            return n.equals(PTT_Z01_NAME, ignoreCase = true)
         }
     }
 }
