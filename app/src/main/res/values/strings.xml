@@ -16,4 +16,16 @@
     <string name="xv_cd_back">Back</string>
     <string name="xv_cd_members">Channel members</string>
     <string name="xv_cd_brand_mark">Texas TAK mark</string>
+
+    <!-- Public help / documentation site (MkDocs on GitHub Pages). This is
+         the single source of truth for the in-app "Help & Documentation"
+         link in XV Settings; the Settings row opens this URL in the
+         device browser via ACTION_VIEW. Update this one value if the
+         docs site ever moves. Must stay in sync with the Google Play
+         listing's privacy/support URLs, which live under the same site.
+         Subject to the same sensitive-content rules as the rest of the
+         repo: only the public tx-tak.github.io site belongs here. -->
+    <string name="xv_help_url" translatable="false">https://tx-tak.github.io/TAK-XVoice/</string>
+    <string name="xv_help_label">Help &amp; Documentation</string>
+    <string name="xv_help_caption">Quick start, user setup, supported hardware, server setup, and the privacy policy — opens in your browser.</string>
 </resources>
