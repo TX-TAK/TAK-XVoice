@@ -115,6 +115,15 @@ regexes = [
     '''(?i)gov\.tak\.''',
 ]
 
+# Public GitHub Pages host and published support domain for this repo.
+[[rules.allowlists]]
+description = "Public TX-TAK GitHub Pages URL and support domain"
+regexTarget = "line"
+regexes = [
+    '''(?i)tx-tak\.github\.io''',
+    '''(?i)texas-tak\.com''',
+]
+
 # GPS coordinate literal — a lat/lon keyword next to a decimal with at
 # least three fractional digits. The keyword anchor keeps this from
 # firing on the many unrelated float literals in the audio/timing code.

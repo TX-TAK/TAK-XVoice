@@ -101,3 +101,6 @@ diagnostics/
 
 # ---------- Local agent / tooling settings ----------
 .claude/
+
+# ---------- MkDocs local build output ----------
+site/
