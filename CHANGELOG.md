@@ -2,6 +2,18 @@
 
 All notable user-visible and operationally significant changes to TAK-XVoice are documented in this file.
 
+## [1.1.0]
+
+`versionCode` 30. Minor version bump adding experimental hardware support for the Inrico BT02 (B02) budget Bluetooth speaker-mic.
+
+### Added
+- **Experimental Inrico BT02 (B02) speaker-mic support** (budget tier, limited support, available for testing, subject to removal):
+  - Recognized directly in the Primary Speaker-Mic workflow via Classic Bluetooth pairing (`B02PTT-*`), just like AINA hardware — not exposed in the BLE button scanner or External Button slot.
+  - Automatic background discovery and GATT connection to the companion `B02PTT-*` BLE button peripheral (`894c8042-e841-461c-a5c9-5a73d25db08e`) for primary PTT (`0x01`/`0x00`) and one-shot 2-second hold SOS/Emergency (`0x08`, fire-only — cancel in ATAK's Emergency tool). Top button (`0x03`) is intentionally unmapped.
+  - Automatic `+5 dB` (`1.78x`) software microphone gain boost in `AudioCapture` when capturing over BT02 Bluetooth SCO to compensate for lower hardware mic gain.
+  - Startup cleanup that removes any legacy `B02PTT-*` entries from the BLE-button store / External Button slot.
+- Added [docs/hardware/inrico-bt02.md](docs/hardware/inrico-bt02.md) and updated the ranked hardware support table in [README.md](README.md) (AINA V2 #1, AINA V1 #2, Inrico BT02 budget/experimental).
+
 ## [0.3.0]
 
 `versionCode` 21. Minor rather than patch: this release drops a

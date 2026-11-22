@@ -3,13 +3,11 @@ package com.atakmap.android.xv.aina
 import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.le.ScanCallback
-import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.os.ParcelUuid
 import android.util.Log
 import java.util.UUID
 
@@ -27,8 +25,12 @@ import java.util.UUID
  *      service in their scan record but still identify themselves by
  *      name.
  *
- * The service-UUID and name-substring filters are OR-ed by the platform
- * scan API, so a device matches if it hits either. Discovered devices
+ * The platform scan itself runs UNFILTERED; the service-UUID / name
+ * matching is applied client-side in [matchesKnownPttDevice] (a device
+ * matches if it hits any supported signature), because the supported
+ * buttons don't share one advertised signature a platform ScanFilter
+ * could express — notably the Inrico BT02 advertises only a per-unit
+ * local name, which ScanFilter can't prefix-match. Discovered devices
  * are de-duplicated by MAC before being surfaced to the caller — a
  * single button typically advertises 3-10 times per second, and the UI
  * should treat each MAC as one entry, not one entry per advertisement.
@@ -70,7 +72,6 @@ class BlePttScanner(
                 val mac = dev.address ?: return
                 mainHandler.post {
                     if (!scanning) return@post
-                    if (!seenMacs.add(mac)) return@post
                     val name =
                         r.scanRecord?.deviceName
                             ?: try {
@@ -84,6 +85,11 @@ class BlePttScanner(
                             ?.map { it.uuid }
                             ?.toSet()
                             ?: emptySet()
+                    // Platform scan is unfiltered; decide here whether this
+                    // result is a BLE PTT device we recognize before we
+                    // consume a de-dup slot or surface it to the operator.
+                    if (!matchesKnownPttDevice(name, services)) return@post
+                    if (!seenMacs.add(mac)) return@post
                     Log.i(
                         TAG,
                         "scan hit ${redactMac(mac)} name=$name rssi=${r.rssi} services=$services",
@@ -126,22 +132,15 @@ class BlePttScanner(
         seenMacs.clear()
         scanning = true
 
-        val filters =
-            listOf(
-                // HM-10 transparent-UART service UUID — catches Pryme
-                // BT-PTT-Z, PTT-Z01, and similar HM-10-based buttons.
-                ScanFilter
-                    .Builder()
-                    .setServiceUuid(ParcelUuid(HM10_SERVICE_UUID))
-                    .build(),
-                // Name-substring fallback for devices whose scan record
-                // doesn't include the service UUID but does advertise
-                // "PTT" in the local name.
-                ScanFilter
-                    .Builder()
-                    .setDeviceName("PTT-Z01")
-                    .build(),
-            )
+        // Scan UNFILTERED at the platform level and allow-list results in
+        // [matchesKnownPttDevice]. The supported buttons don't share a
+        // single advertised signature a platform [android.bluetooth.le.ScanFilter]
+        // could catch — HM-10 pucks advertise service 0xFFE0, while the
+        // Inrico BT02 advertises only a per-unit local name (prefix
+        // "B02PTT") plus the generic Battery service — and ScanFilter
+        // can't prefix-match a name. This is a short, foreground,
+        // operator-initiated scan, so the extra callback volume from an
+        // unfiltered scan is a non-issue.
         val settings =
             ScanSettings
                 .Builder()
@@ -149,7 +148,7 @@ class BlePttScanner(
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 .build()
         try {
-            scanner.startScan(filters, settings, scanCallback)
+            scanner.startScan(null, settings, scanCallback)
             Log.i(TAG, "scan started (timeoutMs=$timeoutMs)")
         } catch (t: Throwable) {
             Log.w(TAG, "startScan threw", t)
@@ -183,6 +182,38 @@ class BlePttScanner(
         // this UUID is a positive signal that the device speaks the
         // simple bitmask-byte-on-notify protocol PrymeBleReader decodes.
         val HM10_SERVICE_UUID: UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
+
+        // Exact advertised name of the Zello-branded PTT-Z01 / Pryme
+        // BT-PTT-Z puck — some units advertise it with no service UUID
+        // in the scan record, so a name match is the reliable catch.
+        private const val PTT_Z01_NAME = "PTT-Z01"
+
+        /**
+         * Client-side allow-check deciding whether a scanned BLE device
+         * is a PTT button XV supports. The platform scan runs unfiltered
+         * (see [start]), so this is the real filter. Pure function — no
+         * BT stack — so it is unit-tested directly.
+         *
+         * A device matches if EITHER:
+         *   - it advertises the HM-10 transparent-UART service
+         *     ([HM10_SERVICE_UUID]) — Pryme BT-PTT-Z / PTT-Z01 and other
+         *     HM-10-based buttons; or
+         *   - its advertised local name is `PTT-Z01`, or carries the
+         *     Inrico BT02 prefix (see [Bt02BleReader.isBt02Name]).
+         *
+         * Everything else — including devices advertising only generic
+         * services like Battery (0x180F) — is ignored.
+         */
+        fun matchesKnownPttDevice(
+            name: String?,
+            serviceUuids: Set<UUID>,
+        ): Boolean {
+            if (HM10_SERVICE_UUID in serviceUuids) return true
+            val n = name?.trim().orEmpty()
+            if (n.isEmpty()) return false
+            if (n.equals(PTT_Z01_NAME, ignoreCase = true)) return true
+            return false
+        }
     }
 }
 

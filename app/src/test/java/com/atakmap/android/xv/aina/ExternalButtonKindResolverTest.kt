@@ -92,6 +92,36 @@ class ExternalButtonKindResolverTest {
         )
     }
 
+    @Test
+    fun `knownBlePtt honors a non-default kind (Inrico BT02)`() {
+        // The live wrapper passes knownBlePttKind="bt02" when the known
+        // device's advertised name identifies a BT02. That must win over
+        // any classifier / hint, exactly like the default ble-hid does.
+        assertEquals(
+            "bt02",
+            ExternalButtonKindResolver.resolve(
+                isInKnownBlePtt = true,
+                classifierResult = "v2",
+                persistedHint = "ble-hid",
+                knownBlePttKind = "bt02",
+            ),
+        )
+    }
+
+    @Test
+    fun `knownBlePttKind is ignored when the MAC is not a known BLE PTT device`() {
+        // The special kind only applies to the known-membership branch.
+        assertEquals(
+            "v1",
+            ExternalButtonKindResolver.resolve(
+                isInKnownBlePtt = false,
+                classifierResult = "v1",
+                persistedHint = null,
+                knownBlePttKind = "bt02",
+            ),
+        )
+    }
+
     // ---- Classifier wins when its result is concrete ----
 
     @Test

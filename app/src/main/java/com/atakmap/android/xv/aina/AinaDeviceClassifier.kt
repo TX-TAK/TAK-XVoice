@@ -47,6 +47,7 @@ object AinaDeviceClassifier {
     //     AINA V2 vendor service (so dual-mode AINAs are still in).
     fun isPlausibleSpeakermic(device: BluetoothDevice): Boolean {
         if (isAinaByName(device)) return true
+        if (isBt02ByName(device)) return true
         if (isPrymeByName(device)) return true
         val uuids = safeUuids(device) ?: return false
         for (pu in uuids) {
@@ -62,6 +63,9 @@ object AinaDeviceClassifier {
         val name = safeName(device) ?: return false
         return name.startsWith("APTT", ignoreCase = true)
     }
+
+    fun isBt02ByName(device: BluetoothDevice): Boolean =
+        Bt02BleReader.isBt02Name(safeName(device))
 
     fun isPrymeByName(device: BluetoothDevice): Boolean {
         val name = safeName(device) ?: return false
@@ -97,6 +101,7 @@ object AinaDeviceClassifier {
                 }
             }
         }
+        if (isBt02ByName(device)) return AinaDeviceInfo.ButtonProtocol.BLE
         if (isPrymeByName(device)) return AinaDeviceInfo.ButtonProtocol.BLE_HID
         if (isAinaByName(device)) {
             // V1 (SPP) is the assumed kind for an APTT-prefixed device

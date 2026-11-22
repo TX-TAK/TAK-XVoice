@@ -83,6 +83,29 @@ open class BitmaskGattPttReader(
         val tag: String,
         val candidateServiceUuids: List<UUID>,
         val decodeMask: (mask: Int) -> Set<AinaButton>,
+        /**
+         * Optional notify characteristic UUID(s) to subscribe to,
+         * matched across ALL discovered services regardless of which
+         * service contains them. When non-empty this REPLACES the
+         * [candidateServiceUuids]-based match: use it for hardware whose
+         * button-state characteristic UUID is known but whose parent
+         * vendor service UUID is unknown, unstable across firmware, or
+         * simply not worth pinning (e.g. the Inrico BT02, which buries
+         * its button characteristic under one of several vendor
+         * services). Defaults to empty, so every existing
+         * service-matched reader (Pryme / AINA / Zello) is byte-for-byte
+         * unaffected.
+         */
+        val candidateCharacteristicUuids: List<UUID> = emptyList(),
+        /**
+         * Optional one-shot pulse decoder for hardware codes that emit a
+         * single notification with no matching `0x00` release packet (e.g.
+         * the Inrico BT02 SOS button, which waits ~2s internally and sends
+         * a single `0x08` frame without a release). When non-empty for a
+         * given byte, each returned button fires `down=true` followed
+         * immediately by `down=false` without mutating [lastHeld].
+         */
+        val decodePulse: (mask: Int) -> Set<AinaButton> = { emptySet() },
     )
 
     private val handler = Handler(Looper.getMainLooper())
@@ -149,13 +172,15 @@ open class BitmaskGattPttReader(
         gatt = device.connectGatt(context, useAutoConnect, callback, BluetoothDevice.TRANSPORT_LE)
     }
 
-    fun disconnect() {
+    open fun disconnect() {
         intentionalDisconnect = true
         targetDevice = null
         handler.removeCallbacks(retryRunnable)
         closeGatt()
         dispatchConnectionState(false)
     }
+
+    protected fun isReaderDisposed(): Boolean = disposed
 
     /**
      * Permanent teardown. Marks the reader disposed so any late
@@ -300,24 +325,50 @@ open class BitmaskGattPttReader(
                         Log.i(config.tag, "  char: ${ch.uuid} [$props]")
                     }
                 }
-                val service =
-                    config.candidateServiceUuids
-                        .asSequence()
-                        .mapNotNull { uuid ->
-                            g.getService(uuid)?.also {
-                                Log.i(config.tag, "matched service $uuid")
-                            }
-                        }.firstOrNull()
-                if (service == null) {
-                    Log.w(
-                        config.tag,
-                        "no known service on device " +
-                            "(tried ${config.candidateServiceUuids}) — bond may be wrong protocol",
-                    )
-                    return
-                }
+                val targetChars: List<BluetoothGattCharacteristic> =
+                    if (config.candidateCharacteristicUuids.isNotEmpty()) {
+                        // Characteristic-first matching: locate the known
+                        // button-state characteristic(s) wherever they
+                        // live in the GATT tree, without needing to know
+                        // (or trust) the parent vendor service UUID.
+                        val found =
+                            g.services
+                                .asSequence()
+                                .flatMap { it.characteristics.asSequence() }
+                                .filter { it.uuid in config.candidateCharacteristicUuids }
+                                .toList()
+                        if (found.isEmpty()) {
+                            Log.w(
+                                config.tag,
+                                "no known characteristic on device " +
+                                    "(tried ${config.candidateCharacteristicUuids}) — wrong device or firmware",
+                            )
+                        } else {
+                            for (ch in found) Log.i(config.tag, "matched characteristic ${ch.uuid}")
+                        }
+                        found
+                    } else {
+                        val service =
+                            config.candidateServiceUuids
+                                .asSequence()
+                                .mapNotNull { uuid ->
+                                    g.getService(uuid)?.also {
+                                        Log.i(config.tag, "matched service $uuid")
+                                    }
+                                }.firstOrNull()
+                        if (service == null) {
+                            Log.w(
+                                config.tag,
+                                "no known service on device " +
+                                    "(tried ${config.candidateServiceUuids}) — bond may be wrong protocol",
+                            )
+                            emptyList()
+                        } else {
+                            service.characteristics
+                        }
+                    }
                 var subscribed = 0
-                for (ch in service.characteristics) {
+                for (ch in targetChars) {
                     if ((ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) == 0) continue
                     if (!g.setCharacteristicNotification(ch, true)) {
                         Log.w(config.tag, "setCharacteristicNotification(true) failed for ${ch.uuid}")
@@ -346,7 +397,7 @@ open class BitmaskGattPttReader(
                     }
                 }
                 if (subscribed == 0) {
-                    Log.w(config.tag, "no notify-capable characteristics in matched service — protocol mismatch")
+                    Log.w(config.tag, "no notify-capable characteristics matched — protocol mismatch")
                 }
             }
 
@@ -374,6 +425,14 @@ open class BitmaskGattPttReader(
                 Log.i(config.tag, "notify ${ch.uuid}: ${bytes.toHexString()}")
                 if (bytes.isEmpty()) return
                 val mask = bytes[0].toInt() and 0xFF
+                val pulseButtons = config.decodePulse(mask)
+                if (pulseButtons.isNotEmpty()) {
+                    for (btn in pulseButtons) {
+                        dispatchEvent(btn, true)
+                        dispatchEvent(btn, false)
+                    }
+                    return
+                }
                 val nowHeld = config.decodeMask(mask)
                 val prev = lastHeld
                 val edges = diffEdges(prev, nowHeld) ?: return

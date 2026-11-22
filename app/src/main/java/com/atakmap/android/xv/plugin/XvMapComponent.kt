@@ -1537,6 +1537,12 @@ class XvMapComponent : AbstractMapComponent() {
         // Auto-connect to default Mumble server/channel
         autoConnectMumble()
 
+        // Migrate any Inrico BT02 that an earlier build (or the generic
+        // scan-add path) parked in the External Button slot over to the
+        // primary speaker-mic slot, where PTT AND emergency both route.
+        // Runs before the auto-connects so autoConnectAina picks it up as
+        // primary and autoConnectExternalButton no-ops on it.
+        migrateBt02FromExternalButtonSlotIfNeeded()
         // Auto-connect to a bonded AINA speakermic if one is present.
         // V1/V2 generation is auto-detected by BluetoothDevice.getType()
         // inside connectAinaInternal. Without this, on a fresh ATAK launch
@@ -4479,6 +4485,20 @@ class XvMapComponent : AbstractMapComponent() {
             // wasn't even available."
             val candidates = listBondedAinaDevices()
             val savedMac = settings.persistedAinaMac()
+            // Inrico BT02 primary: BLE-only, never bonded, so it won't be
+            // in `candidates`. Restore it over BLE (respecting the
+            // auto-connect opt-out) before the bonded-device logic below,
+            // which would otherwise fall through to auto-pick and never
+            // reconnect the operator's speaker-mic.
+            if (savedMac != null && isKnownBt02Mac(savedMac)) {
+                if (settings.persistedAutoConnectBtEnabled()) {
+                    Log.i(TAG, "autoConnectAina: saved primary is a BT02 speaker-mic — restoring over BLE")
+                    connectSavedAinaPrimary(ctx, savedMac)
+                } else {
+                    Log.i(TAG, "autoConnectAina: saved BT02 primary but auto-connect disabled — skipping")
+                }
+                return@postDelayed
+            }
             if (savedMac != null && com.atakmap.android.xv.aina.OsBondedBleHidDetector.isOsBondedBleHid(savedMac)) {
                 Log.w(
                     TAG,
@@ -4577,11 +4597,75 @@ class XvMapComponent : AbstractMapComponent() {
     }
 
     @SuppressWarnings("MissingPermission")
+    // True when [mac] is a known BLE PTT device whose advertised name
+    // identifies it as an Inrico BT02 speaker-mic. BT02s connect BLE-only
+    // with no bond, so the several primary-slot paths that otherwise
+    // resolve a device out of [BluetoothAdapter.bondedDevices] have to
+    // special-case them (resolve by MAC via getRemoteDevice, kind "bt02").
+    private fun isKnownBt02Mac(mac: String?): Boolean {
+        if (mac == null) return false
+        val entry =
+            settings.knownBlePttDevices().firstOrNull { (m, _) -> m.equals(mac, ignoreCase = true) }
+                ?: return false
+        return com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(entry.second)
+    }
+
+    // One-time (idempotent) cleanup: purge any legacy Inrico BT02 entries
+    // that an earlier build stored in the BLE-button store or External
+    // Button slot. The BT02 is now handled like an AINA speaker-mic via
+    // its Classic Bluetooth pairing (with automatic companion BLE button
+    // discovery), so stale BLE-button entries would otherwise race for the
+    // GATT link or show up as an External Button.
+    private fun migrateBt02FromExternalButtonSlotIfNeeded() {
+        val bt02BleMacs =
+            settings.knownBlePttDevices().mapNotNull { (mac, name) ->
+                if (com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(name)) mac else null
+            }
+        val extMac = settings.persistedExternalButtonMac()
+        if (extMac != null && bt02BleMacs.any { it.equals(extMac, ignoreCase = true) }) {
+            Log.i(
+                TAG,
+                "migrateBt02: clearing legacy BT02 ${com.atakmap.android.xv.aina.redactMac(extMac)} " +
+                    "from External Button slot",
+            )
+            settings.persistExternalButtonMac(null)
+            settings.persistExternalButtonKind(null)
+        }
+        val primary = settings.persistedAinaMac()
+        if (primary != null && bt02BleMacs.any { it.equals(primary, ignoreCase = true) }) {
+            Log.i(
+                TAG,
+                "migrateBt02: clearing legacy unbonded BT02 BLE MAC " +
+                    "${com.atakmap.android.xv.aina.redactMac(primary)} from primary slot so " +
+                    "Classic-paired BT02 auto-connects cleanly",
+            )
+            settings.persistAinaMac(null)
+        }
+        for (mac in bt02BleMacs) {
+            Log.i(TAG, "migrateBt02: removing legacy BT02 ${com.atakmap.android.xv.aina.redactMac(mac)} from knownBlePttDevices")
+            settings.removeKnownBlePttDevice(mac)
+        }
+    }
+
     private fun connectSavedAinaPrimary(
         ctx: Context,
         savedMac: String,
     ) {
         val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
+        // Inrico BT02: BLE-only speaker-mic that never bonds, so the
+        // bonded-device lookup below can't find it. Restore it directly
+        // over BLE with the "bt02" reader kind, which routes PTT AND
+        // emergency through the primary handler.
+        if (isKnownBt02Mac(savedMac)) {
+            Log.i(
+                TAG,
+                "connectSavedAinaPrimary: saved primary ${com.atakmap.android.xv.aina.redactMac(savedMac)} " +
+                    "is a BT02 — restoring over BLE",
+            )
+            lastAinaMac = savedMac
+            connectAinaInternal(ctx, savedMac, null, "bt02")
+            return
+        }
         val bonded =
             try {
                 adapter.bondedDevices ?: emptySet()
@@ -4789,6 +4873,11 @@ class XvMapComponent : AbstractMapComponent() {
         val knownBlePtt =
             settings.knownBlePttDevices().mapNotNull { (mac, name) ->
                 if (bondedMacs.contains(mac.uppercase())) return@mapNotNull null
+                // An Inrico BT02 is a speaker-mic, not a button — it lives
+                // in the primary slot (availableAinaDevices), so exclude it
+                // here to keep the two picker lists disjoint and prevent it
+                // being bound to both slots at once.
+                if (com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(name)) return@mapNotNull null
                 com.atakmap.android.xv.aina.AinaDeviceInfo(
                     mac = mac,
                     name = name ?: mac,
@@ -5230,6 +5319,14 @@ class XvMapComponent : AbstractMapComponent() {
         }
         lastAinaMac = mac
         val kind = resolveConnectKind(mac)
+        if (kind == "bt02" && isKnownBt02Mac(settings.persistedExternalButtonMac())) {
+            Log.i(TAG, "setSelectedAinaInternal: clearing BT02 from External Button slot to avoid GATT race")
+            settings.persistExternalButtonMac(null)
+            settings.persistExternalButtonKind(null)
+            voiceClient?.ifBound { it.disconnectExternalButton() }
+            lastExternalButtonMac = null
+            lastExternalButtonConnected = false
+        }
         Log.i(TAG, "setSelectedAinaInternal: connecting $mac as kind=$kind")
         connectAinaInternal(ctx, mac, null, kind)
     }
@@ -5400,14 +5497,28 @@ class XvMapComponent : AbstractMapComponent() {
     // connect time instead of reading `persistedExternalButtonKind()`
     // directly.
     private fun resolveConnectKind(mac: String): String {
-        val isInKnownBlePtt =
-            settings.knownBlePttDevices().any { (m, _) -> m.equals(mac, ignoreCase = true) }
+        val knownEntry =
+            settings.knownBlePttDevices().firstOrNull { (m, _) -> m.equals(mac, ignoreCase = true) }
+        val isInKnownBlePtt = knownEntry != null
+        // Route a known BLE PTT device by its advertised name: an Inrico
+        // BT02 (local name "B02PTT-…") needs Bt02BleReader; everything
+        // else in the known set is an HM-10 / Pryme-family puck.
+        val knownBlePttKind =
+            if (knownEntry != null &&
+                com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(knownEntry.second)
+            ) {
+                "bt02"
+            } else {
+                "ble-hid"
+            }
         val classifierResult: String? =
             try {
                 val adapter = BluetoothAdapter.getDefaultAdapter()
                 val device = adapter?.getRemoteDevice(mac)
                 if (device == null) {
                     null
+                } else if (com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(device.name)) {
+                    "bt02"
                 } else {
                     when (com.atakmap.android.xv.aina.AinaDeviceClassifier.classifyButtonProtocol(device)) {
                         com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.SPP -> "v1"
@@ -5425,6 +5536,7 @@ class XvMapComponent : AbstractMapComponent() {
             isInKnownBlePtt = isInKnownBlePtt,
             classifierResult = classifierResult,
             persistedHint = persistedHint,
+            knownBlePttKind = knownBlePttKind,
         )
     }
 
@@ -6066,56 +6178,61 @@ class XvMapComponent : AbstractMapComponent() {
                 Log.i(TAG, "per-MAC override for $redactedMac: protocol='$overrideKind'")
                 overrideKind
             } else if (kind == "auto") {
-                val classified = com.atakmap.android.xv.aina.AinaDeviceClassifier.classifyButtonProtocol(device)
-                // V2 SDP-cache gap: APTT device classified as SPP → kick
-                // off a live probe; on BLE persist the override and
-                // re-enter connectAinaInternal so the V2 reader binds.
-                if (classified == com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.SPP &&
-                    com.atakmap.android.xv.aina.AinaDeviceClassifier.isAinaByName(device)
-                ) {
-                    ainaProbeFor(context).probe(device) { resolved ->
-                        if (resolved == com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE) {
-                            settings.persistAinaProtocolOverride(device.address, "v2")
-                            val rd = com.atakmap.android.xv.aina.AinaProtocolProbe.redactMac(device.address)
-                            Log.i(TAG, "XvAinaProbe: override persisted mac=$rd protocol=BLE")
-                            connectAinaInternal(context, device.address, name, "auto")
+                if (com.atakmap.android.xv.aina.Bt02BleReader.isBt02Name(device.name)) {
+                    Log.i(TAG, "auto-detect: BT02 name '${device.name}' → bt02")
+                    "bt02"
+                } else {
+                    val classified = com.atakmap.android.xv.aina.AinaDeviceClassifier.classifyButtonProtocol(device)
+                    // V2 SDP-cache gap: APTT device classified as SPP → kick
+                    // off a live probe; on BLE persist the override and
+                    // re-enter connectAinaInternal so the V2 reader binds.
+                    if (classified == com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.SPP &&
+                        com.atakmap.android.xv.aina.AinaDeviceClassifier.isAinaByName(device)
+                    ) {
+                        ainaProbeFor(context).probe(device) { resolved ->
+                            if (resolved == com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE) {
+                                settings.persistAinaProtocolOverride(device.address, "v2")
+                                val rd = com.atakmap.android.xv.aina.AinaProtocolProbe.redactMac(device.address)
+                                Log.i(TAG, "XvAinaProbe: override persisted mac=$rd protocol=BLE")
+                                connectAinaInternal(context, device.address, name, "auto")
+                            }
                         }
                     }
-                }
-                when (classified) {
-                    com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.SPP -> {
-                        Log.i(TAG, "auto-detect: SPP UUID present → V1 (SPP)")
-                        "v1"
-                    }
-                    com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE -> {
-                        Log.i(TAG, "auto-detect: AINA BLE UUID present → V2 (BLE)")
-                        "v2"
-                    }
-                    com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE_HID -> {
-                        Log.i(TAG, "auto-detect: BLE HID-over-GATT (Pryme/generic) → ble-hid")
-                        "ble-hid"
-                    }
-                    else -> {
-                        // No usable UUID — fall back to transport
-                        // type. CLASSIC → SPP guess; LE/DUAL → BLE
-                        // guess. Either may be wrong on devices with
-                        // poor SDP cache; the operator can override
-                        // by re-pairing or selecting a different
-                        // device in Settings.
-                        when (device.type) {
-                            BluetoothDevice.DEVICE_TYPE_CLASSIC -> {
-                                Log.i(TAG, "auto-detect: no UUIDs, device.type=CLASSIC → V1 (SPP)")
-                                "v1"
-                            }
-                            BluetoothDevice.DEVICE_TYPE_LE,
-                            BluetoothDevice.DEVICE_TYPE_DUAL,
-                            -> {
-                                Log.i(TAG, "auto-detect: no UUIDs, device.type=${device.type} → V2 (BLE)")
-                                "v2"
-                            }
-                            else -> {
-                                Log.w(TAG, "auto-detect: unknown device.type=${device.type} — defaulting to V1")
-                                "v1"
+                    when (classified) {
+                        com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.SPP -> {
+                            Log.i(TAG, "auto-detect: SPP UUID present → V1 (SPP)")
+                            "v1"
+                        }
+                        com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE -> {
+                            Log.i(TAG, "auto-detect: AINA BLE UUID present → V2 (BLE)")
+                            "v2"
+                        }
+                        com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE_HID -> {
+                            Log.i(TAG, "auto-detect: BLE HID-over-GATT (Pryme/generic) → ble-hid")
+                            "ble-hid"
+                        }
+                        else -> {
+                            // No usable UUID — fall back to transport
+                            // type. CLASSIC → SPP guess; LE/DUAL → BLE
+                            // guess. Either may be wrong on devices with
+                            // poor SDP cache; the operator can override
+                            // by re-pairing or selecting a different
+                            // device in Settings.
+                            when (device.type) {
+                                BluetoothDevice.DEVICE_TYPE_CLASSIC -> {
+                                    Log.i(TAG, "auto-detect: no UUIDs, device.type=CLASSIC → V1 (SPP)")
+                                    "v1"
+                                }
+                                BluetoothDevice.DEVICE_TYPE_LE,
+                                BluetoothDevice.DEVICE_TYPE_DUAL,
+                                -> {
+                                    Log.i(TAG, "auto-detect: no UUIDs, device.type=${device.type} → V2 (BLE)")
+                                    "v2"
+                                }
+                                else -> {
+                                    Log.w(TAG, "auto-detect: unknown device.type=${device.type} — defaulting to V1")
+                                    "v1"
+                                }
                             }
                         }
                     }

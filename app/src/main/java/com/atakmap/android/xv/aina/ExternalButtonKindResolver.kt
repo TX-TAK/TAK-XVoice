@@ -12,7 +12,10 @@ package com.atakmap.android.xv.aina
  * 1. **Known-BLE-PTT membership.** If the MAC appears in
  *    [XvSettings.knownBlePttDevices] (the set of pucks the operator
  *    scanned in via "Scan for BLE PTT device"), the reader kind is
- *    always `"ble-hid"`. This wins over any Bluetooth classification
+ *    the caller-supplied `knownBlePttKind` — `"ble-hid"` for an
+ *    HM-10 / Pryme-family puck (the default), or `"bt02"` when the
+ *    device's advertised name marks it as an Inrico BT02. This wins
+ *    over any Bluetooth classification
  *    result because HM-10 / PTT-Z-family pucks don't expose their
  *    vendor UUID over BR/EDR SDP, so the classifier can misclassify
  *    them (or return "auto" for unbonded devices) even when the
@@ -82,13 +85,19 @@ object ExternalButtonKindResolver {
      *   null / blank if none. Used only as a last-resort fallback so
      *   we don't collapse to `"auto"` (which means "no reader") on a
      *   device the classifier can no longer see.
+     * @param knownBlePttKind The reader kind to return when
+     *   [isInKnownBlePtt] is true. Defaults to `"ble-hid"` (HM-10 /
+     *   Pryme-family puck). The live wrapper passes `"bt02"` instead
+     *   when the known device's advertised name identifies an Inrico
+     *   BT02, so the two BLE PTT families route to their own readers.
      */
     fun resolve(
         isInKnownBlePtt: Boolean,
         classifierResult: String?,
         persistedHint: String?,
+        knownBlePttKind: String = "ble-hid",
     ): String {
-        if (isInKnownBlePtt) return "ble-hid"
+        if (isInKnownBlePtt) return knownBlePttKind
         val classifier = classifierResult?.trim()?.takeIf { it.isNotBlank() }
         // "auto" from the classifier is a punt — treat it like a
         // classifier miss so the persisted hint gets a chance to
