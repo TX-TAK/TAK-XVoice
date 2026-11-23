@@ -1,0 +1,4 @@
+# Python dependencies for building the MkDocs documentation site.
+# Used by .github/workflows/docs.yml (build + gh-pages deploy) and for
+# local builds: `pip install -r docs/requirements.txt && mkdocs serve`.
+mkdocs-material>=9.5,<10
