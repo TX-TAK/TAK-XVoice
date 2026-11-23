@@ -6,7 +6,7 @@ chassis — which physical keys map to what, the OS settings an operator
 has to touch, and the foreground vs. background behavior.
 
 For the curated-hardware policy (what "supported" means and why a device
-is or isn't listed), see the top-level [README](../../README.md).
+is or isn't listed), see [Hardware Philosophy](../index.md#hardware-philosophy).
 
 ## On-device hardware keys
 
