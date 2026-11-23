@@ -127,6 +127,19 @@ regexTarget = "line"
 regexes = [
     '''(?i)\btx-tak\.github\.io\b''',
 ]
+# TAK-XVoice's own public brand domain. Texas-TAK is the project's public
+# brand (see CLAUDE.md "The project's own brand is not sensitive"), and
+# texas-tak.com is its published support / contact domain (e.g.
+# support@texas-tak.com in the privacy policy) -- a public brand constant,
+# not an operator deployment. Without this, the hostname rule matches the
+# "tak.com" span inside "texas-tak.com". Scoped to the full brand domain
+# via regexTarget = "line" so it cannot silence an arbitrary "*.com".
+[[rules.allowlists]]
+description = "Project's own public brand domain (Texas-TAK)"
+regexTarget = "line"
+regexes = [
+    '''(?i)\btexas-tak\.com\b''',
+]
 
 # GPS coordinate literal — a lat/lon keyword next to a decimal with at
 # least three fractional digits. The keyword anchor keeps this from

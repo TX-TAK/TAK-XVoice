@@ -57,6 +57,76 @@ Devices that fail to meet that bar are retired with a public rationale.
 
 ## Legal & Project Links
 
-- [Privacy Policy](privacy.html)
+- [Privacy Policy](#privacy-policy) (also below) / [standalone page](privacy.html)
 - [Terms of Service](terms.html)
 - [GitHub Repository & Issue Tracker](https://github.com/TX-TAK/TAK-XVoice)
+
+<!--
+  INTERIM: the full privacy policy is inlined on the home page below so the
+  site-root URL (https://tx-tak.github.io/TAK-XVoice/) resolves directly to a
+  privacy policy. This keeps the Google Play "privacy policy" link valid while
+  that link still points at the site root. Once the app is published and the
+  Play listing is repointed at /privacy.html, remove this inlined section and
+  leave only the link above. Tracked in the GitHub issue referenced in PR #136.
+-->
+
+## Privacy Policy
+
+TAK-XVoice ("XV", "the plugin") is an open-source voice plugin for the Android
+Team Awareness Kit (ATAK), distributed under the Apache License 2.0. This policy
+explains what the plugin does and does not do with your data. A standalone copy
+lives at [privacy.html](privacy.html).
+
+Last updated: 13 November 2026
+
+### The short version
+
+XV does not collect, store, or transmit personal information to its developers. It has no analytics, no advertising, and no crash-reporting services. To carry your voice, XV connects to the voice server you configure and sends that server -- and the other people on your channel -- your live voice audio and the identity you connect under (your ATAK callsign plus a device-derived identifier). Nothing is ever sent to the plugin's developers.
+
+### What the plugin accesses, and why
+
+- Microphone / audio. When you press to talk (or a call is active), XV captures audio and transmits it in real time to the voice server you have configured in ATAK. This audio is not recorded to storage by the plugin and is not sent to the plugin's developers.
+
+- Bluetooth. Used only to connect to and read button presses from the Bluetooth push-to-talk hardware you pair. No Bluetooth data leaves your device.
+
+- Phone / call state. Used only to detect whether a cellular call is in progress (so push-to-talk behaves correctly) and to register XV's voice session with Android's self-managed calling framework, which lets the plugin manage its own audio routing while you transmit. The plugin does not read your phone number, call log, or contacts, and does not place telephone calls.
+
+- Network state. Read only to react to Wi-Fi / cellular / offline transitions. The plugin does not change your network settings.
+
+- Notifications, full-screen intent, wake lock, battery-optimization exemption. Used to show call and status notifications and to keep a voice session alive while the screen is off. No data is collected.
+
+### Location
+
+XV does not request or use location. Bluetooth scanning is declared with the "never for location" flag.
+
+### Data sharing
+
+The plugin shares no data with its developers. It has no developer-side servers and receives nothing from you.
+
+To use XV you connect to a voice (Mumble/TAK) server that you configure, operated by you or your organization. So that server and the other participants on your channel can carry your voice and show who is speaking, XV sends them:
+
+- your voice audio, in real time -- never recorded or stored by XV;
+
+- your connection identity -- your ATAK callsign combined with a device-derived identifier (a one-way hash of your device's ATAK ID, which gives you two voice "slots" and lets other XV users match your voice to your map presence). If you turn on the optional legacy-compatibility mode, your raw ATAK device ID is also sent for the same mapping.
+
+This information goes only to the server you configure and the peers on it -- never to the plugin's developers. How that server and those peers handle it is governed by their own policies; a server operator or another participant could record what they receive, which is outside XV's control.
+
+### Data retention and deletion
+
+The plugin stores only your local settings (such as device pairings and preferences) on your own device. Uninstalling the plugin removes them. There is no developer-side account or storage, so there is nothing for the developers to retain or delete.
+
+### Security
+
+Voice traffic to a Mumble server is encrypted in transit with TLS. The optional mesh-voice feature additionally encrypts each audio frame with authenticated encryption (ChaCha20-Poly1305).
+
+### Children
+
+XV is a tool for adult communications volunteers and is not directed at children.
+
+### Changes
+
+This policy may be updated as the plugin evolves. Material changes will be reflected here with a new "last updated" date.
+
+### Contact
+
+Questions about this policy: support@texas-tak.com. Source and issue tracker: [github.com/TX-TAK/TAK-XVoice](https://github.com/TX-TAK/TAK-XVoice).
