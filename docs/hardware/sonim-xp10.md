@@ -54,4 +54,4 @@ trusted as a test target and could not be recommended to operators.
 ## Related
 
 - [Hardware setup guides](README.md)
-- Curated-hardware policy — see the top-level [README](../../README.md)
+- Curated-hardware policy — see [Hardware Philosophy](../index.md#hardware-philosophy)

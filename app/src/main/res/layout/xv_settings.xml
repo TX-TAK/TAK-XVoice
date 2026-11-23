@@ -733,6 +733,41 @@
                     android:layout_marginTop="4dp"
                     android:visibility="gone"/>
 
+                <!-- ============================================================ -->
+                <!-- Help & Documentation                                        -->
+                <!-- Opens the public MkDocs/GitHub Pages site (xv_help_url) in  -->
+                <!-- the device browser via ACTION_VIEW. Wired in                -->
+                <!-- XvDropDownReceiver.wireSettings so operators have an        -->
+                <!-- in-app path to quick-start, hardware, server setup, and     -->
+                <!-- the privacy policy. -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="HELP"
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="11sp"
+                    android:letterSpacing="0.15"
+                    android:layout_marginTop="24dp"/>
+
+                <Button
+                    android:id="@+id/xv_btn_help_docs"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:minHeight="44dp"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/xv_help_label"
+                    android:textColor="@color/xv_text"
+                    android:textAllCaps="false"
+                    android:background="@drawable/xv_button_bg"/>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/xv_help_caption"
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="11sp"
+                    android:layout_marginTop="4dp"/>
+
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="40dp"/>

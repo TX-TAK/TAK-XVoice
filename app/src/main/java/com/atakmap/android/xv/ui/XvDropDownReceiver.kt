@@ -1832,6 +1832,29 @@ class XvDropDownReceiver(
 
         v.findViewById<Button>(R.id.xv_btn_mumble_connect).setOnClickListener { controller.connectMumble() }
         v.findViewById<Button>(R.id.xv_btn_mumble_disconnect).setOnClickListener { controller.disconnectMumble() }
+
+        // Help & Documentation — opens the public MkDocs/GitHub Pages site
+        // in the device browser. The URL lives in a single string resource
+        // (R.string.xv_help_url) so it stays in sync with the Google Play
+        // listing's privacy/support URLs, which are hosted under the same
+        // site. Launches with NEW_TASK since the browser lands outside XV's
+        // task; falls back to a toast if no browser can resolve ACTION_VIEW.
+        v.findViewById<Button>(R.id.xv_btn_help_docs).setOnClickListener {
+            val url = pluginContext.getString(R.string.xv_help_url)
+            try {
+                val view =
+                    Intent(Intent.ACTION_VIEW, android.net.Uri.parse(url)).apply {
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                pluginContext.startActivity(view)
+            } catch (_: Throwable) {
+                android.widget.Toast.makeText(
+                    mapView.context,
+                    "No browser available to open $url",
+                    android.widget.Toast.LENGTH_LONG,
+                ).show()
+            }
+        }
     }
 
     private fun renderTakServerLabel(label: TextView) {
