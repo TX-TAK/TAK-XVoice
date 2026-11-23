@@ -1,149 +1,1246 @@
+
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Privacy Policy — TAK-XVoice</title>
-<meta name="description" content="Privacy policy for the TAK-XVoice (XV) ATAK voice plugin.">
-<style>
-  :root {
-    color-scheme: light dark;
-    --bg: #ffffff;
-    --fg: #1a1a1a;
-    --muted: #5a5a5a;
-    --rule: #e4e4e7;
-    --link: #1d4ed8;
-    --accent: #0f766e;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --bg: #0f1115;
-      --fg: #e7e7ea;
-      --muted: #a1a1aa;
-      --rule: #2a2d34;
-      --link: #7aa2ff;
-      --accent: #5eead4;
-    }
-  }
-  * { box-sizing: border-box; }
-  html { -webkit-text-size-adjust: 100%; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--fg);
-    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  }
-  main {
-    max-width: 44rem;
-    margin: 0 auto;
-    padding: 3rem 16px 5rem;
-  }
-  h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 .25rem; }
-  h2 { font-size: 1.2rem; margin: 2.25rem 0 .5rem; color: var(--accent); }
-  p, li { margin: .5rem 0; }
-  ul { padding-left: 1.25rem; }
-  a { color: var(--link); }
-  .updated { color: var(--muted); font-size: .9rem; margin: 0 0 1.5rem; }
-  .lede { font-size: 1.05rem; }
-  hr { border: 0; border-top: 1px solid var(--rule); margin: 2rem 0; }
-  footer { color: var(--muted); font-size: .85rem; margin-top: 3rem; }
-  code { background: color-mix(in srgb, var(--fg) 8%, transparent); padding: .1em .35em; border-radius: 4px; font-size: .9em; }
-</style>
-</head>
-<body>
-<main>
-  <h1>Privacy Policy — TAK-XVoice</h1>
-  <p class="updated">Last updated: 13 November 2026</p>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ATAK voice plugin focused on operational Bluetooth audio routing, predictable auto-reconnect, curated external PTT hardware, and Mumble + multicast voice.">
+      
+      
+      
+        <link rel="canonical" href="https://tx-tak.github.io/TAK-XVoice/">
+      
+      
+      
+        <link rel="next" href="quick-start/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="brand/ic_play_512.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>TAK-XVoice</title>
+      
+    
+    
+      <link rel="stylesheet" href="assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
 
-  <p class="lede">TAK-XVoice (&ldquo;XV&rdquo;, &ldquo;the plugin&rdquo;) is an open-source
-  voice plugin for the Android Team Awareness Kit (ATAK), distributed under the
-  Apache License 2.0. This policy explains what the plugin does and does not do
-  with your data.</p>
 
-  <h2>The short version</h2>
-  <p>XV does not collect, store, or transmit personal information to its
-  developers. It has no analytics, no advertising, and no crash-reporting
-  services. To carry your voice, XV connects to the voice server
-  <strong>you</strong> configure and sends that server &mdash; and the other
-  people on your channel &mdash; your live voice audio and the identity you
-  connect under (your ATAK callsign plus a device-derived identifier). Nothing
-  is ever sent to the plugin&rsquo;s developers.</p>
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
 
-  <h2>What the plugin accesses, and why</h2>
-  <ul>
-    <li><strong>Microphone / audio.</strong> When you press to talk (or a call is
-    active), XV captures audio and transmits it in real time to the voice server
-    you have configured in ATAK. This audio is not recorded to storage by the
-    plugin and is not sent to the plugin&rsquo;s developers.</li>
-    <li><strong>Bluetooth.</strong> Used only to connect to and read button presses
-    from the Bluetooth push-to-talk hardware you pair. No Bluetooth data leaves
-    your device.</li>
-    <li><strong>Phone / call state.</strong> Used only to detect whether a cellular
-    call is in progress (so push-to-talk behaves correctly) and to register
-    XV&rsquo;s voice session with Android&rsquo;s self-managed calling framework,
-    which lets the plugin manage its own audio routing while you transmit. The
-    plugin does not read your phone number, call log, or contacts, and does not
-    place telephone calls.</li>
-    <li><strong>Network state.</strong> Read only to react to Wi-Fi / cellular /
-    offline transitions. The plugin does not change your network settings.</li>
-    <li><strong>Notifications, full-screen intent, wake lock, battery-optimization
-    exemption.</strong> Used to show call and status notifications and to keep a
-    voice session alive while the screen is off. No data is collected.</li>
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#tak-xvoice" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="." title="TAK-XVoice" class="md-header__button md-logo" aria-label="TAK-XVoice" data-md-component="logo">
+      
+  <img src="brand/ic_play_512.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TAK-XVoice
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Home
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TX-TAK/TAK-XVoice" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TX-TAK/TAK-XVoice
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="user-setup/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  User Setup
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="server-setup/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Server & Channels
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="hardware/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Supported Hardware
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="dependencies/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Dependencies
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="design-decisions/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="." title="TAK-XVoice" class="md-nav__button md-logo" aria-label="TAK-XVoice" data-md-component="logo">
+      
+  <img src="brand/ic_play_512.png" alt="logo">
+
+    </a>
+    TAK-XVoice
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TX-TAK/TAK-XVoice" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TX-TAK/TAK-XVoice
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="." class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-makes-tak-xvoice-different" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Makes TAK-XVoice Different
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hardware-philosophy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hardware Philosophy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legal-project-links" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legal &amp; Project Links
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="user-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="server-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Server & Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="hardware/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Hardware
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Supported Hardware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="hardware/samsung-active-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Samsung Active Key
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="hardware/pryme-bt-ptt-z/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pryme BT-PTT-Z
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="hardware/inrico-bt02/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inrico BT02 (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="hardware/sonim-xp10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sonim XP10 (Retired)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="design-decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="verify-channel-share/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel Share Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://tx-tak.github.io/TAK-XVoice/privacy.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://tx-tak.github.io/TAK-XVoice/terms.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Terms of Service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
   </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
 
-  <h2>Location</h2>
-  <p>XV does <strong>not</strong> request or use location. Bluetooth scanning is
-  declared with the &ldquo;never for location&rdquo; flag.</p>
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-to-start" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where to Start
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-makes-tak-xvoice-different" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Makes TAK-XVoice Different
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hardware-philosophy" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hardware Philosophy
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#legal-project-links" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Legal &amp; Project Links
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
 
-  <h2>Data sharing</h2>
-  <p>The plugin shares <strong>no data with its developers.</strong> It has no
-  developer-side servers and receives nothing from you.</p>
-  <p>To use XV you connect to a voice (Mumble/TAK) server that <strong>you</strong>
-  configure, operated by you or your organization. So that server and the other
-  participants on your channel can carry your voice and show who is speaking, XV
-  sends them:</p>
-  <ul>
-    <li>your <strong>voice audio</strong>, in real time &mdash; never recorded or
-    stored by XV;</li>
-    <li>your <strong>connection identity</strong> &mdash; your ATAK callsign
-    combined with a device-derived identifier (a one-way hash of your device&rsquo;s
-    ATAK ID, which gives you two voice &ldquo;slots&rdquo; and lets other XV users
-    match your voice to your map presence). If you turn on the optional
-    legacy-compatibility mode, your raw ATAK device ID is also sent for the same
-    mapping.</li>
-  </ul>
-  <p>This information goes <strong>only</strong> to the server you configure and
-  the peers on it &mdash; never to the plugin&rsquo;s developers. How that server
-  and those peers handle it is governed by their own policies; a server operator
-  or another participant could record what they receive, which is outside
-  XV&rsquo;s control.</p>
 
-  <h2>Data retention and deletion</h2>
-  <p>The plugin stores only your local settings (such as device pairings and
-  preferences) on your own device. Uninstalling the plugin removes them. There is
-  no developer-side account or storage, so there is nothing for the developers to
-  retain or delete.</p>
+  
+    <a href="https://github.com/TX-TAK/TAK-XVoice/edit/main/docs/index.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
 
-  <h2>Security</h2>
-  <p>Voice traffic to a Mumble server is encrypted in transit with TLS. The
-  optional mesh-voice feature additionally encrypts each audio frame with
-  authenticated encryption (ChaCha20-Poly1305).</p>
 
-  <h2>Children</h2>
-  <p>XV is a tool for adult communications volunteers and is not directed at
-  children.</p>
+<h1 id="tak-xvoice">TAK-XVoice<a class="headerlink" href="#tak-xvoice" title="Permanent link">&para;</a></h1>
+<p><strong>TAK-XVoice (XV)</strong> is an ATAK voice plugin focused on operational use cases
+that existing options don't cover well: clean Bluetooth audio routing,
+predictable auto-reconnect, curated external PTT hardware, and a unified
+Mumble + multicast voice experience.</p>
+<div class="admonition warning">
+<p class="admonition-title">Status &amp; Intended Use</p>
+<p><strong>TAK-XVoice is provided for non-mission-critical use only.</strong> It is
+distributed under the Apache License 2.0 with <strong>no warranty of any kind</strong>.
+Do not rely on this plugin as the sole means of communication for any
+life-safety, public-safety, military, or other mission-critical
+application. Operators assume all risk associated with its use.</p>
+</div>
+<h2 id="where-to-start">Where to Start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong><a href="quick-start/">Quick Start</a></strong> — Install the plugin, connect to your
+  TAK/Mumble server, and make your first PTT transmission.</li>
+<li><strong><a href="user-setup/">User Setup</a></strong> — Configure Bluetooth audio routing,
+  auto-start missions, talk-permit tones, emergency buttons, and channel
+  sharing.</li>
+<li><strong><a href="server-setup/">Server &amp; Channels</a></strong> — Mumble host/port requirements
+  (same hostname as your TAK server on standard port <code>64738</code>), TLS cert
+  authentication, and channel synchronization with TAK Server groups.</li>
+<li><strong><a href="hardware/">Supported Hardware</a></strong> — Curated Bluetooth
+  speaker-mics, BLE PTT pucks, and ruggedized handset keys.</li>
+<li><strong><a href="dependencies/">Dependencies</a></strong> — ATAK versions, Android permissions,
+  server prerequisites, and source build setup.</li>
+</ul>
+<h2 id="what-makes-tak-xvoice-different">What Makes TAK-XVoice Different<a class="headerlink" href="#what-makes-tak-xvoice-different" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Phone stays a phone:</strong> Your Bluetooth speaker-mic is treated as
+  XV-exclusive comms gear. HFP/SCO only engages while the mic is actually open
+  (PTT-down or hot-mic), so music, navigation prompts, and ATAK alerts keep
+  flowing on their normal audio paths.</li>
+<li><strong>Predictable auto-reconnect:</strong> Remembers your last-used mission and
+  auto-reconnects on plugin start, with an optional configurable startup
+  mission for fleet-managed deployments.</li>
+<li><strong>Curated PTT hardware:</strong> Per-MAC button registration with vetted defaults
+  for supported Bluetooth speaker-mics (AINA APTT V2/V1, Pryme BT-PTT-Z,
+  experimental Inrico BT02) and ruggedized handset keys (Samsung Active Key),
+  plus an optional Accessibility Service for background/screen-off PTT.</li>
+<li><strong>LMR-familiar UX:</strong> Configurable Talk Permit Tones (ASTRO 25, Nextel, DMR,
+  MOTOTRBO, or None), LMR-style emergency button wired into ATAK's Alert Tool,
+  and direct calling.</li>
+<li><strong>Mumble + multicast under one UX:</strong> Mumble authenticates with your device's
+  ATAK enrollment certificate; optional alpha mesh-voice failover provides
+  deterministic multicast voice (<code>xv-mcast-v1</code>) when the server is unreachable.</li>
+</ul>
+<h2 id="hardware-philosophy">Hardware Philosophy<a class="headerlink" href="#hardware-philosophy" title="Permanent link">&para;</a></h2>
+<p>The goal is <strong>not</strong> to claim support for every Bluetooth PTT device on the
+market. Each device listed under <a href="hardware/">Supported Hardware</a> is
+deliberately curated — sourced, integrated, and validated against real event
+traffic — so operators can trust that what's listed actually works under load.
+Devices that fail to meet that bar are retired with a public rationale.</p>
+<h2 id="legal-project-links">Legal &amp; Project Links<a class="headerlink" href="#legal-project-links" title="Permanent link">&para;</a></h2>
+<ul>
+<li><a href="privacy.html">Privacy Policy</a></li>
+<li><a href="terms.html">Terms of Service</a></li>
+<li><a href="https://github.com/TX-TAK/TAK-XVoice">GitHub Repository &amp; Issue Tracker</a></li>
+</ul>
 
-  <h2>Changes</h2>
-  <p>This policy may be updated as the plugin evolves. Material changes will be
-  reflected here with a new &ldquo;last updated&rdquo; date.</p>
 
-  <h2>Contact</h2>
-  <p>Questions about this policy: <a href="mailto:support@texas-tak.com">support@texas-tak.com</a><br>
-  Source and issue tracker: <a href="https://github.com/TX-TAK/TAK-XVoice">github.com/TX-TAK/TAK-XVoice</a></p>
 
-  <hr>
-  <footer>TAK-XVoice is provided for non-mission-critical use only, with no warranty
-  of any kind. Apache-2.0 licensed.</footer>
-</main>
-</body>
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+        
+          
+          <a href="quick-start/" class="md-footer__link md-footer__link--next" aria-label="Next: Quick Start">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Quick Start
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": ".", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
 </html>

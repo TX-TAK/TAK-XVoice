@@ -1,0 +1,1346 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ATAK voice plugin focused on operational Bluetooth audio routing, predictable auto-reconnect, curated external PTT hardware, and Mumble + multicast voice.">
+      
+      
+      
+        <link rel="canonical" href="https://tx-tak.github.io/TAK-XVoice/design-decisions/">
+      
+      
+        <link rel="prev" href="../dependencies/">
+      
+      
+        <link rel="next" href="../verify-channel-share/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../brand/ic_play_512.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>Design Decisions - TAK-XVoice</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#design-decisions-enforced-on-this-branch" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TAK-XVoice" class="md-header__button md-logo" aria-label="TAK-XVoice" data-md-component="logo">
+      
+  <img src="../brand/ic_play_512.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TAK-XVoice
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Design Decisions
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TX-TAK/TAK-XVoice" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TX-TAK/TAK-XVoice
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../user-setup/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  User Setup
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../server-setup/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Server & Channels
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../hardware/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Supported Hardware
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../dependencies/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Dependencies
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="./" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TAK-XVoice" class="md-nav__button md-logo" aria-label="TAK-XVoice" data-md-component="logo">
+      
+  <img src="../brand/ic_play_512.png" alt="logo">
+
+    </a>
+    TAK-XVoice
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TX-TAK/TAK-XVoice" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TX-TAK/TAK-XVoice
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../server-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Server & Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../hardware/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Hardware
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Supported Hardware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/samsung-active-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Samsung Active Key
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/pryme-bt-ptt-z/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pryme BT-PTT-Z
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/inrico-bt02/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inrico BT02 (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/sonim-xp10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sonim XP10 (Retired)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Decisions
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-recipient-scoping-rides-on-ataks-contact-model-not-a-plugin-group" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Recipient scoping rides on ATAK's contact model, not a plugin group
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-targeted-shares-fail-closed-never-fall-back-to-broadcast" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Targeted shares fail closed — never fall back to broadcast
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-we-do-not-share-server-connection-info-with-third-parties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. We do not share server connection info with third parties
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-multicast-group-is-deterministically-derived-not-exchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Multicast group is deterministically derived, not exchanged
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-mesh-legs-and-mesh-source-presence-survive-a-mumble-server-drop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Mesh legs and MESH-source presence survive a Mumble server drop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-phone-stays-a-phone-no-held-audio-resources-between-transmissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Phone stays a phone — no held audio resources between transmissions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify-channel-share/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel Share Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://tx-tak.github.io/TAK-XVoice/privacy.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://tx-tak.github.io/TAK-XVoice/terms.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Terms of Service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-recipient-scoping-rides-on-ataks-contact-model-not-a-plugin-group" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. Recipient scoping rides on ATAK's contact model, not a plugin group
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-targeted-shares-fail-closed-never-fall-back-to-broadcast" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Targeted shares fail closed — never fall back to broadcast
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-we-do-not-share-server-connection-info-with-third-parties" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. We do not share server connection info with third parties
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-multicast-group-is-deterministically-derived-not-exchanged" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Multicast group is deterministically derived, not exchanged
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-mesh-legs-and-mesh-source-presence-survive-a-mumble-server-drop" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Mesh legs and MESH-source presence survive a Mumble server drop
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-phone-stays-a-phone-no-held-audio-resources-between-transmissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Phone stays a phone — no held audio resources between transmissions
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TX-TAK/TAK-XVoice/edit/main/docs/design-decisions.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="design-decisions-enforced-on-this-branch">Design decisions (enforced on this branch)<a class="headerlink" href="#design-decisions-enforced-on-this-branch" title="Permanent link">&para;</a></h1>
+<p>Durable record of the load-bearing decisions behind channel sharing,
+multicast failover, and the audio plant, so future contributors don't
+re-litigate them. Each states the decision and the <em>why</em>, and cites the
+file that enforces it. If you think one of these is wrong, raise it with
+the operator before changing the behavior — several were paid for in
+field repros.</p>
+<h2 id="1-recipient-scoping-rides-on-ataks-contact-model-not-a-plugin-group">1. Recipient scoping rides on ATAK's contact model, not a plugin group<a class="headerlink" href="#1-recipient-scoping-rides-on-ataks-contact-model-not-a-plugin-group" title="Permanent link">&para;</a></h2>
+<p>Channel share uses ATAK's native sharing model — <strong>individual /
+group / everyone</strong> — and delegates recipient scoping entirely to
+ATAK's own contact model. XV does <strong>not</strong> implement a plugin-side group
+to bound the blast radius.</p>
+<p><em>Why:</em> the TAK server's group membership is not reliably visible to a
+plugin locally, so any plugin-side "share only to my group" would be
+guessing at membership the plugin can't authoritatively see. Bounding
+the audience is the server's / ATAK's job; reimplementing it in the
+plugin is the wrong layer and would fork from what the operator sees in
+the ATAK contact list.</p>
+<p><em>Enforced in:</em> <code>provisioning/XvChannelShare.kt</code> (<code>send()</code> — empty
+targets → <code>dispatchToBroadcast</code>; specific targets → <code>dispatchToContacts</code>
+resolved through <code>Contacts.fromUIDs</code>).</p>
+<h2 id="2-targeted-shares-fail-closed-never-fall-back-to-broadcast">2. Targeted shares fail closed — never fall back to broadcast<a class="headerlink" href="#2-targeted-shares-fail-closed-never-fall-back-to-broadcast" title="Permanent link">&para;</a></h2>
+<p>A directed share to specific recipients that cannot be resolved to live
+contacts returns <code>false</code> and sends <strong>nothing</strong>. It never degrades to a
+server broadcast.</p>
+<p><em>Why:</em> privacy. The wire <code>targets</code> attribute only filters who <em>acts</em> on
+a share, not who <em>receives</em> it. A targeted share that fell back to
+broadcast would disclose the channel name(s), the sharer's identity, and
+the server host to the entire server audience — the opposite of what the
+operator asked for. Failing closed and steering to the offline / QR path
+is the safe default.</p>
+<p><em>Enforced in:</em> <code>provisioning/XvChannelShare.kt</code> (<code>send()</code>, the
+<code>contacts.isNullOrEmpty()</code> guard) and <code>ui/XvDropDownReceiver.kt</code>
+(<code>promptPickTeammatesThenShare</code> → "Couldn't share over the network —
+use offline QR").</p>
+<h2 id="3-we-do-not-share-server-connection-info-with-third-parties">3. We do not share server connection info with third parties<a class="headerlink" href="#3-we-do-not-share-server-connection-info-with-third-parties" title="Permanent link">&para;</a></h2>
+<p>A share — whether the CoT nudge or the offline comms plan — carries the
+<strong>channel configuration</strong> (and, offline, an optional pre-shared key) so
+a recipient can bring up multicast voice. It never carries the means to
+connect to and authenticate against the TAK / Mumble server (certs,
+credentials, a connection profile).</p>
+<p><em>Why:</em> a local-network third party may legitimately need to join the
+voice mesh, and the channel config plus key is exactly enough for that.
+It is not entitled to your server. The multicast config is
+self-sufficient for LAN voice — the receiver derives the endpoint (or
+uses a pinned group/port) without ever touching the server — so there is
+no reason to hand over server access to make voice work.</p>
+<p><em>Enforced in:</em> <code>provisioning/CommsPlan.kt</code> (the plan schema carries
+<code>channels</code> + optional <code>psk</code> + a derivation <code>serverIdentity</code> hint, and
+<strong>no</strong> server credentials) and <code>plugin/XvMapComponent.kt</code>
+(<code>buildChannelPlanCarrierInternal</code>).</p>
+<h2 id="4-multicast-group-is-deterministically-derived-not-exchanged">4. Multicast group is deterministically derived, not exchanged<a class="headerlink" href="#4-multicast-group-is-deterministically-derived-not-exchanged" title="Permanent link">&para;</a></h2>
+<p>The failover multicast endpoint is a pure local hash:
+<code>H = SHA-256("xv-mcast-v1|" + serverIdentity + "|" + canon(channelName))</code>,
+mapped to <code>group = 239.224.0.0/12</code> and <code>port = 16800–16899</code>.</p>
+<p><em>Why:</em> two peers on the same server and channel independently compute
+the byte-identical group + port with no broker and no coordination, so
+failover works the instant the Mumble server disappears — and the share
+signal only needs to carry the channel <em>name</em>, never the address or a
+key. Inputs are chosen for stability: the <strong>channel name</strong> (not the
+server-assigned numeric id, which changes when an admin rebuilds the
+tree) and the <strong>server hostname</strong> (not the cert fingerprint, which a
+renewal would silently fork mid-deployment). SHA-256 (not
+<code>String.hashCode</code>) keeps same-deployment collisions past observability.</p>
+<p><em>Enforced in:</em> <code>transport/multicast/MulticastGroupDerivation.kt</code> and
+<code>transport/multicast/ServerIdentity.kt</code>.</p>
+<h2 id="5-mesh-legs-and-mesh-source-presence-survive-a-mumble-server-drop">5. Mesh legs and MESH-source presence survive a Mumble server drop<a class="headerlink" href="#5-mesh-legs-and-mesh-source-presence-survive-a-mumble-server-drop" title="Permanent link">&para;</a></h2>
+<p>Multicast failover legs and presence learned over the mesh are tracked
+independently of the TAK-server CoT path, and deliberately persist when
+the Mumble server drops.</p>
+<p><em>Why:</em> surviving a server outage is the entire point of the mesh. A
+channel's default multicast posture is <code>FAILOVER</code> — the RX leg is
+joined whenever the network is multicast-capable, which is how
+Mumble-down is survivable at all. MESH-source presence is kept in its
+own map so it does not vanish with the server-bound CoT roster; a peer
+heard only over multicast still shows as callable. Tearing either down
+on a server disconnect would blind the operator at exactly the moment
+failover is supposed to carry them.</p>
+<p><em>Enforced in:</em> <code>transport/multicast/ChannelMulticastConfig.kt</code>
+(<code>MulticastMode.FAILOVER</code>), <code>presence/XvPresenceRegistry.kt</code> (separate
+<code>meshByUid</code> map), and <code>transport/multicast/MeshVoiceManager.kt</code>
+(<code>FailoverPolicy</code>).</p>
+<h2 id="6-phone-stays-a-phone-no-held-audio-resources-between-transmissions">6. Phone stays a phone — no held audio resources between transmissions<a class="headerlink" href="#6-phone-stays-a-phone-no-held-audio-resources-between-transmissions" title="Permanent link">&para;</a></h2>
+<p>XV holds no audio resources (no pre-armed mic session, no retained
+capture path) between PTT bursts. Readiness is established by
+probe/verify at TX time, not by keeping the plant warm.</p>
+<p><em>Why:</em> the device is still the operator's phone. Holding the mic or an
+audio route between transmissions starves other apps, drains battery,
+and fights the OS audio focus model. Probe-verified readiness is
+sanctioned; a persistently pre-armed session is not. HAL warmth is a
+property of <em>recent activity</em>, not of a per-record held resource.</p>
+<p><em>Enforced in:</em> <code>service/VoicePlant.kt</code>, <code>audio/AudioCapture.kt</code>, and
+<code>audio/ScoLink.kt</code>.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../dependencies/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Dependencies">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Dependencies
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../verify-channel-share/" class="md-footer__link md-footer__link--next" aria-label="Next: Channel Share Verification">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Channel Share Verification
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>
