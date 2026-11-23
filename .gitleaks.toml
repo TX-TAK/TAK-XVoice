@@ -114,6 +114,19 @@ regexTarget = "line"
 regexes = [
     '''(?i)gov\.tak\.''',
 ]
+# TAK-XVoice's own public GitHub Pages documentation site. Texas-TAK is
+# the project's public brand (see CLAUDE.md "The project's own brand is
+# not sensitive"), and tx-tak.github.io is its published docs / privacy
+# / terms host — a public constant, not an operator deployment. Without
+# this, the hostname rule matches the "tak.github.io" span inside
+# "tx-tak.github.io". Scoped to the full brand host via regexTarget =
+# "line" so it cannot silence an arbitrary "*.github.io".
+[[rules.allowlists]]
+description = "Project's own public GitHub Pages site (Texas-TAK brand)"
+regexTarget = "line"
+regexes = [
+    '''(?i)\btx-tak\.github\.io\b''',
+]
 
 # GPS coordinate literal — a lat/lon keyword next to a decimal with at
 # least three fractional digits. The keyword anchor keeps this from

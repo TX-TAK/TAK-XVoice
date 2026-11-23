@@ -1,0 +1,73 @@
+site_name: TAK-XVoice
+site_url: https://tx-tak.github.io/TAK-XVoice/
+site_description: >-
+  ATAK voice plugin focused on operational Bluetooth audio routing, predictable
+  auto-reconnect, curated external PTT hardware, and Mumble + multicast voice.
+repo_url: https://github.com/TX-TAK/TAK-XVoice
+repo_name: TX-TAK/TAK-XVoice
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  logo: brand/ic_play_512.png
+  favicon: brand/ic_play_512.png
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.indexes
+    - navigation.top
+    - navigation.footer
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+    - content.action.edit
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+
+exclude_docs: |
+  mesh-voice-backlog.md
+  multi-server-keying-migration.md
+  reviews/
+
+nav:
+  - Home: index.md
+  - Quick Start: quick-start.md
+  - User Setup: user-setup.md
+  - Server & Channels: server-setup.md
+  - Supported Hardware:
+      - hardware/README.md
+      - Samsung Active Key: hardware/samsung-active-key.md
+      - Pryme BT-PTT-Z: hardware/pryme-bt-ptt-z.md
+      - Inrico BT02 (Experimental): hardware/inrico-bt02.md
+      - Sonim XP10 (Retired): hardware/sonim-xp10.md
+  - Dependencies: dependencies.md
+  - Reference:
+      - Design Decisions: design-decisions.md
+      - Channel Share Verification: verify-channel-share.md
+      - Privacy Policy: https://tx-tak.github.io/TAK-XVoice/privacy.html
+      - Terms of Service: https://tx-tak.github.io/TAK-XVoice/terms.html
