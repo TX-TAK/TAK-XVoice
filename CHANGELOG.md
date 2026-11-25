@@ -2,9 +2,9 @@
 
 All notable user-visible and operationally significant changes to TAK-XVoice are documented in this file.
 
-## [1.1.2]
+## [1.1.3]
 
-`versionCode` 32.
+`versionCode` 33. Supersedes 1.1.2 (versionCode 32 was not releasable).
 
 ### Changed
 - **Samsung Active Key background and locked-screen PTT now uses Samsung's native key mapping instead of an accessibility service.** XV declares the `HARD_KEY_PRESS` manifest metadata and an exported `HARD_KEY_REPORT` receiver, so it appears under Samsung Settings → Active button → "Use Active button with app"; once assigned, press and release reach XV in the foreground, with ATAK backgrounded, and with the screen off and locked. Validated on a Galaxy Tab Active5 (SM-X308U). No Knox SDK or license is involved.
