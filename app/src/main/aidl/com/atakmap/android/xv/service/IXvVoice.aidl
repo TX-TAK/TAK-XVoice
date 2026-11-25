@@ -116,9 +116,9 @@ interface IXvVoice {
     void setSamsungActiveKeyEnabled(boolean enabled);
     boolean isSamsungActiveKeyRunning();
 
-    // Foreground-KeyEvent fallback for the Samsung Active Key. Some
-    // firmware (verified on Tab Active5 / SM-X308U 2026-07-10) does
-    // NOT emit `HARD_KEY_REPORT` and only routes the key as a
+    // Foreground-KeyEvent fallback for the Samsung Active Key. Until
+    // the operator assigns the key to XV in Samsung Settings, no
+    // `HARD_KEY_REPORT` reaches XV and the key is only routed as a
     // `KeyEvent` to the foreground activity. XvMapComponent hooks the
     // MapView's OnKeyListener, filters `KEYCODE == 1015`, and forwards
     // the down/up edge across this AIDL so the service's PttDispatcher

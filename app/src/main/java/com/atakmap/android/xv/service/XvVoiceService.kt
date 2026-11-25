@@ -58,11 +58,11 @@ class XvVoiceService : Service() {
 
     /**
      * Route a background Samsung Active Key PTT edge from the in-process
-     * [com.atakmap.android.xv.ptt.SamsungActiveKeyAccessibilityService]
+     * [com.atakmap.android.xv.ptt.SamsungHardKeyReceiver]
      * straight into the [PttDispatcher] via the plant.
      *
      * This deliberately skips the AIDL authorized-caller gate: the
-     * accessibility service is declared with no `android:process`
+     * receiver is declared with no `android:process`
      * attribute, so it runs in THIS service's UID/process — this is an
      * in-process method call, not a cross-UID binder call, so there is
      * no untrusted caller to authenticate. It reuses the already-
@@ -70,13 +70,13 @@ class XvVoiceService : Service() {
      * event with no live session should not spin up voice
      * infrastructure. Same source tag [PttSource.SAMSUNG_ACTIVE_KEY] as
      * the foreground KeyEvent path, so the dispatcher OR-gate collapses
-     * duplicate edges when both paths fire (a11y enabled + ATAK
+     * duplicate edges when both paths fire (key assigned to XV + ATAK
      * foreground).
      */
     private fun dispatchSamsungActiveKeyEdgeInProcess(isDown: Boolean) {
         val p = plant
         if (p == null) {
-            Log.d(TAG, "Samsung Active Key edge (a11y, isDown=$isDown) dropped — plant not constructed")
+            Log.d(TAG, "Samsung Active Key edge (hard-key report, isDown=$isDown) dropped — plant not constructed")
             return
         }
         try {
@@ -255,7 +255,7 @@ class XvVoiceService : Service() {
             Log.w(TAG, "registerReceiver(btAdapterStateReceiver) threw", t)
         }
         // Publish this running instance for the in-process
-        // SamsungActiveKeyAccessibilityService seam (see
+        // SamsungHardKeyReceiver seam (see
         // deliverSamsungActiveKeyEdge in the companion object). Set last
         // in onCreate so a background Active Key edge only ever reaches a
         // fully-initialised service; edges that arrive before this drop
@@ -602,7 +602,7 @@ class XvVoiceService : Service() {
             .activeConnection()
             ?.teardownLocal()
         releaseVoiceFocus()
-        // Stop the in-process Samsung Active Key a11y seam from routing
+        // Stop the in-process Samsung Active Key receiver seam from routing
         // into a torn-down plant. Guard on identity so a fast
         // stop/start that already published a newer instance isn't
         // clobbered by the older instance's teardown.
@@ -2233,7 +2233,7 @@ class XvVoiceService : Service() {
 
         // The currently-running service instance, published at the end
         // of onCreate and cleared in onDestroy. Exists solely so the
-        // in-process SamsungActiveKeyAccessibilityService (same UID/
+        // in-process SamsungHardKeyReceiver (same UID/
         // process — no android:process attribute in the manifest) can
         // hand background Active Key edges to the live PttDispatcher
         // without an IPC hop. Null whenever the voice service isn't
@@ -2244,23 +2244,19 @@ class XvVoiceService : Service() {
         /**
          * In-process delivery seam for the Samsung Active Key background
          * PTT path. Called by
-         * [com.atakmap.android.xv.ptt.SamsungActiveKeyAccessibilityService.onKeyEvent]
-         * for keyCode 1015 while ATAK is backgrounded.
+         * [com.atakmap.android.xv.ptt.SamsungHardKeyReceiver.onReceive]
+         * for each `HARD_KEY_REPORT` of keyCode 1015, whatever is in the
+         * foreground and whether or not the screen is locked.
          *
-         * Replaces the earlier design where the accessibility service
-         * re-broadcast `HARD_KEY_REPORT` for [SamsungActiveKeyReader] to
-         * receive: that reader is only registered while the *foreground*
-         * Active Key toggle is on, so an operator who enabled only the
-         * accessibility service got no PTT (edges broadcast into the
-         * void). Delivering straight to the plant removes that hidden
-         * coupling — background PTT now works whenever the voice service
-         * is live, independent of the foreground toggle.
+         * Delivers straight to the plant rather than through
+         * [SamsungActiveKeyReader], which is only registered while the
+         * *foreground* Active Key toggle is on — so background PTT works
+         * whenever the voice service is live and the operator has
+         * assigned the key to XV, independent of that toggle.
          *
          * No-op when no service is running (background PTT is only
          * meaningful during a live session). Thread-safe: the plant's
-         * dispatcher is documented callable from any thread, and the
-         * accessibility framework delivers onKeyEvent off the main
-         * thread.
+         * dispatcher is documented callable from any thread.
          */
         fun deliverSamsungActiveKeyEdge(isDown: Boolean) {
             val svc = activeInstance

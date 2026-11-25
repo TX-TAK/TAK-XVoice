@@ -40,19 +40,20 @@ For device-specific pairing and button notes, see
 ## Background & Screen-Off Hardware PTT
 
 On-device hardware PTT keys (such as the **Samsung Active Key**) work in the
-foreground out of the box. To keep hardware PTT keys working while ATAK is
-backgrounded or the phone screen is locked:
+foreground out of the box. To keep the Samsung Active Key working while ATAK
+is backgrounded or the screen is locked, assign it to XV in Samsung's own
+settings:
 
 1. Open **XV Settings** and enable the hardware key toggle (visible only on
    devices with supported physical keys).
-2. Tap the **Accessibility Service** prompt — XV deep-links directly to the
-   relevant Android system settings screen.
-3. Enable the tightly-scoped **TAK-XVoice PTT** accessibility service.
+2. Tap **Use Active Key in the background and when locked** — XV opens
+   Samsung's Active button settings screen.
+3. Turn on **Use Active button with app** and pick **Texas TAK-XVoice**.
 
-!!! info "Privacy of the Accessibility Service"
-    The optional accessibility service reads **no screen content** and inspects
-    no UI elements — it listens exclusively for the configured hardware PTT
-    keycode so you can key up with the screen off.
+!!! info "No special permissions"
+    This uses Samsung's built-in key mapping. XV needs no accessibility
+    service, Knox license or extra permission for it. Turn the Samsung setting
+    off to give the key back to Samsung.
 
 ## Auto-Start & Startup Mission
 

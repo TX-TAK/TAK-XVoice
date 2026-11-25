@@ -2,6 +2,17 @@
 
 All notable user-visible and operationally significant changes to TAK-XVoice are documented in this file.
 
+## [1.1.2]
+
+`versionCode` 32.
+
+### Changed
+- **Samsung Active Key background and locked-screen PTT now uses Samsung's native key mapping instead of an accessibility service.** XV declares the `HARD_KEY_PRESS` manifest metadata and an exported `HARD_KEY_REPORT` receiver, so it appears under Samsung Settings → Active button → "Use Active button with app"; once assigned, press and release reach XV in the foreground, with ATAK backgrounded, and with the screen off and locked. Validated on a Galaxy Tab Active5 (SM-X308U). No Knox SDK or license is involved.
+- The XV settings row for background Active Key PTT now opens Samsung's Active button screen and shows whether the key is assigned to XV.
+
+### Removed
+- `SamsungActiveKeyAccessibilityService`, its descriptor and the `BIND_ACCESSIBILITY_SERVICE` declaration. XV no longer requests any accessibility permission. Operators who enabled the old service should assign the key to XV in Samsung Settings instead.
+
 ## [1.1.1]
 
 `versionCode` 31. Supersedes 1.1.0 as the shipping build of the Inrico BT02 (B02) speaker-mic feature. No functional change: an internal, behavior-preserving refactor of the BT02 BLE paths (`Bt02BleReader`, `BlePttScanner`, `BitmaskGattPttReader`, `XvMapComponent`) to satisfy the detekt `ReturnCount` and loop-jump rules. The unit suite is unchanged. See [1.1.0] below for the feature itself.

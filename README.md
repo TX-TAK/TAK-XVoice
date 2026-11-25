@@ -118,13 +118,11 @@ and feature polish.
      Active4 Pro, Tab Active3) — the side Active Key becomes a PTT
      source. See [docs/hardware/samsung-active-key.md](docs/hardware/samsung-active-key.md).
 
-   These toggles appear only on hardware that actually has the keys. An
-   optional, tightly-scoped accessibility service — enabled once by the
-   operator in system settings, reading no screen content and acting only
-   on the PTT keycode — extends these hardware buttons to keep working
-   while ATAK is backgrounded or the screen is off. XV deep-links
-   straight to the relevant system settings page to reduce setup
-   friction.
+   These toggles appear only on hardware that actually has the keys. On
+   the Samsung Active Key, assigning the key to XV in Samsung's own
+   settings (XV deep-links to that screen) keeps it working while ATAK is
+   backgrounded or the screen is locked — no accessibility service or
+   special permission involved.
 
 4. **Reachability-aware BT device picker.** On plugin load, XV restores
    the last-connected speakermic when it's actually reachable and
@@ -278,8 +276,8 @@ Curated / supported speakermics and external PTT hardware:
 
 Curated / validated ruggedized handsets (on-device hardware keys):
 
-- Samsung Galaxy Tab Active5 (SM-X308U) — Active Key PTT, foreground and
-  background (accessibility). See
+- Samsung Galaxy Tab Active5 (SM-X308U) — Active Key PTT, foreground,
+  background and locked screen (via Samsung's native key mapping). See
   [docs/hardware/samsung-active-key.md](docs/hardware/samsung-active-key.md).
 
 This list only includes devices that have been integrated end-to-end

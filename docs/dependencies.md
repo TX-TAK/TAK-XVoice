@@ -32,7 +32,6 @@ routing, VoIP call management, and background reliability:
 | `FOREGROUND_SERVICE` (`MICROPHONE`, `CONNECTED_DEVICE`, `PHONE_CALL`) | Keeping voice sessions and private calls alive when ATAK is backgrounded or the screen is off. |
 | `POST_NOTIFICATIONS`, `USE_FULL_SCREEN_INTENT` | Foreground voice notification and full-screen incoming direct-call ring UI. |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `WAKE_LOCK` | Preventing Android Doze from killing active voice sockets and handling earpiece proximity screen-off. |
-| **Accessibility Service** *(Optional)* | Opt-in only for background / screen-off hardware PTT keys on ruggedized handsets; reads no screen content. |
 
 ---
 

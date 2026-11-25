@@ -725,12 +725,13 @@ class XvMapComponent : AbstractMapComponent() {
     // to the MapView's OnKeyListener only on Samsung ruggedized
     // hardware AND when the operator has enabled the feature. On any
     // non-Samsung device this stays null and the OnKeyListener is
-    // never added. Required for Tab Active5 / SM-X308U-class firmware
-    // where the HARD_KEY_REPORT broadcast is not emitted — the plain
-    // KeyEvent is the only signal. Foreground-only by construction
-    // (InputDispatcher routes non-broadcast keys to the top activity);
-    // the broadcast path in the service handles background PTT on
-    // firmware that emits it.
+    // never added. Needed while the operator has not assigned the key
+    // to XV in Samsung Settings — no HARD_KEY_REPORT reaches XV then
+    // and the plain KeyEvent is the only signal. Foreground-only by
+    // construction (InputDispatcher routes non-broadcast keys to the
+    // top activity); the manifest receiver in the service process
+    // handles background and locked-screen PTT once the key is
+    // assigned.
     @Volatile
     private var samsungActiveKeyFg: com.atakmap.android.xv.ptt.SamsungActiveKeyForegroundReader? = null
 
@@ -2861,20 +2862,35 @@ class XvMapComponent : AbstractMapComponent() {
                 if (enabled) startSamsungActiveKeyForeground() else stopSamsungActiveKeyForeground()
             }
 
-            override fun samsungActiveKeyBgServiceEnabled(): Boolean {
+            override fun samsungActiveKeyAssignedToXv(): Boolean {
                 val ctx = heldMapView?.context ?: heldPluginContext ?: return false
-                return isSamsungActiveKeyAccessibilityServiceEnabled(ctx)
+                return com.atakmap.android.xv.util.SamsungActiveKey.isAssignedTo(
+                    ctx,
+                    com.atakmap.android.xv.BuildConfig.APPLICATION_ID,
+                )
             }
 
-            override fun openAccessibilitySettings() {
+            override fun openSamsungActiveKeySettings() {
                 val ctx = heldMapView?.context ?: heldPluginContext ?: return
-                try {
-                    val intent = android.content.Intent(
-                        android.provider.Settings.ACTION_ACCESSIBILITY_SETTINGS,
-                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-                    ctx.startActivity(intent)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "openAccessibilitySettings: startActivity threw", t)
+                // Samsung's own Active button screen first; if this
+                // firmware doesn't expose that action, fall back to the
+                // top-level Settings app so the tap still lands somewhere
+                // the operator can navigate from.
+                val actions =
+                    listOf(
+                        com.atakmap.android.xv.util.SamsungActiveKey.ACTION_ACTIVE_KEY_SETTINGS,
+                        android.provider.Settings.ACTION_SETTINGS,
+                    )
+                for (action in actions) {
+                    try {
+                        ctx.startActivity(
+                            android.content.Intent(action)
+                                .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                        )
+                        return
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "openSamsungActiveKeySettings: startActivity($action) threw", t)
+                    }
                 }
             }
 
@@ -4347,10 +4363,11 @@ class XvMapComponent : AbstractMapComponent() {
         }
         Log.i(TAG, "autoStartSamsungActiveKey: enabling Samsung Active Key PTT")
         voiceClient?.setPersistent("samsungActiveKey") { it.setSamsungActiveKeyEnabled(true) }
-        // Also start the foreground-KeyEvent fallback. Required on
-        // Tab Active5-class firmware that doesn't emit HARD_KEY_REPORT;
-        // harmless additive path on firmware that does (dispatcher's
-        // OR-gate collapses duplicate edges by source).
+        // Also start the foreground-KeyEvent fallback. Required while
+        // the key is not assigned to XV in Samsung Settings (no
+        // HARD_KEY_REPORT reaches us then); harmless additive path once
+        // it is (dispatcher's OR-gate collapses duplicate edges by
+        // source).
         startSamsungActiveKeyForeground()
     }
 
@@ -4366,11 +4383,11 @@ class XvMapComponent : AbstractMapComponent() {
      * Foreground-only by design: `InputDispatcher` routes non-broadcast
      * keys to the top activity, so this reader only sees events while
      * ATAK is what the operator is looking at. The broadcast path
-     * ([com.atakmap.android.xv.ptt.SamsungActiveKeyReader], in the
-     * service) is still the ideal for backgrounded PTT, but on
-     * firmware that doesn't emit `HARD_KEY_REPORT` (verified on
-     * Tab Active5 / SM-X308U 2026-07-10), this KeyEvent path is the
-     * ONLY signal the Active Key produces.
+     * ([com.atakmap.android.xv.ptt.SamsungHardKeyReceiver], in the
+     * service process) covers backgrounded and locked-screen PTT once
+     * the operator assigns the key to XV in Samsung Settings; until
+     * then this KeyEvent path is the ONLY signal XV gets from the
+     * Active Key.
      */
     private fun startSamsungActiveKeyForeground() {
         val mapView = heldMapView ?: return
@@ -4427,36 +4444,6 @@ class XvMapComponent : AbstractMapComponent() {
             voiceClient?.ifBound { it.notifySamsungActiveKeyEdge(false) }
         } catch (t: Throwable) {
             Log.w(TAG, "defensive notifySamsungActiveKeyEdge(false) threw", t)
-        }
-    }
-
-    /**
-     * Returns true when the [SamsungActiveKeyAccessibilityService] is
-     * currently listed in the system's enabled-accessibility-services
-     * set. Uses [android.view.accessibility.AccessibilityManager] so
-     * the check reflects the actual OS-level state rather than any
-     * XV-side persisted flag.
-     *
-     * Safe to call on any thread; [AccessibilityManager] is thread-safe.
-     */
-    private fun isSamsungActiveKeyAccessibilityServiceEnabled(context: android.content.Context): Boolean {
-        return try {
-            val am = context.getSystemService(android.content.Context.ACCESSIBILITY_SERVICE)
-                as? android.view.accessibility.AccessibilityManager
-                ?: return false
-            val enabled = am.getEnabledAccessibilityServiceList(
-                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK,
-            )
-            val targetComponent =
-                com.atakmap.android.xv.ptt.SamsungActiveKeyAccessibilityService.COMPONENT_NAME
-            enabled.any { info ->
-                info.resolveInfo?.serviceInfo?.let { si ->
-                    android.content.ComponentName(si.packageName, si.name).flattenToString() == targetComponent
-                } ?: false
-            }
-        } catch (t: Throwable) {
-            Log.w(TAG, "isSamsungActiveKeyAccessibilityServiceEnabled: query threw", t)
-            false
         }
     }
 

@@ -19,8 +19,9 @@ import com.atakmap.android.xv.util.SamsungActiveKey
  * press and release of the side Active Key. The broadcast carries
  * `KEY_CODE` (int; 1015 for the side PTT key) and `KEY_REPORT_TYPE`
  * (1 = press, 2 = release). No Knox SDK, license, or enterprise
- * entitlement is required to RECEIVE the broadcast — any registered
- * receiver in the system gets the event.
+ * entitlement is required to RECEIVE the broadcast, but it is sent
+ * only to the package the operator assigned the key to in Samsung
+ * Settings — see [com.atakmap.android.xv.util.SamsungActiveKey].
  *
  * We register the receiver with `RECEIVER_NOT_EXPORTED` (Android 13+
  * flag) because the intent comes from the Samsung framework itself,
@@ -29,13 +30,12 @@ import com.atakmap.android.xv.util.SamsungActiveKey
  *
  * ---
  *
- * Foreground behaviour: the receiver is registered on `start()` and
- * unregistered on `stop()`. On Samsung ruggedized firmware the
- * `HARD_KEY_REPORT` broadcast is delivered to every registered
- * receiver regardless of app foreground state, so PTT via the Active
- * Key works while XV is in the background (which is the entire point
- * of the split-process service model this reader lives inside — see
- * [com.atakmap.android.xv.service.XvVoiceService]).
+ * Relationship to [SamsungHardKeyReceiver]: that manifest-declared
+ * receiver is what makes XV assignable at all and delivers reports
+ * whether or not this reader is running. This runtime reader is the
+ * toggle-gated twin — registered on `start()`, unregistered on
+ * `stop()` — and sees the same reports while it is registered; the
+ * dispatcher's source-keyed OR-gate collapses the duplicate edges.
  *
  * Duplicate registrations are guarded internally: repeated `start()`
  * calls are no-ops if we're already listening, and `stop()` is safe to

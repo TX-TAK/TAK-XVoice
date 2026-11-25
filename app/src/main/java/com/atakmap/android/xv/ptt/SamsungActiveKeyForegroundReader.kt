@@ -22,14 +22,12 @@ import com.atakmap.android.xv.util.SamsungActiveKey
  *
  * Why the fallback exists:
  *
- * On-device validation 2026-07-10 against a Samsung Galaxy Tab
- * Active5 (SM-X308U) confirmed that shipping firmware does NOT emit
- * the `com.samsung.android.knox.intent.action.HARD_KEY_REPORT`
- * broadcast for `KEY_CODE == 1015`, despite what the Samsung Knox
- * documentation implies. The operator's Settings → Advanced features
- * → Active Key surface exposes only "launch app" mappings, which fire
- * one intent on press and produce no release signal — unusable as a
- * PTT source.
+ * The `HARD_KEY_REPORT` broadcast only reaches XV once the operator
+ * has assigned the Active button to XV in Samsung Settings (see
+ * [com.atakmap.android.xv.util.SamsungActiveKey]). Until they do —
+ * or if they never do — Samsung's Settings surface offers only
+ * "launch app" mappings, which fire one intent on press and produce
+ * no release signal, unusable as a PTT source.
  *
  * The plain [KeyEvent] path, in contrast, produces both `ACTION_DOWN`
  * (with `repeatCount == 0`) and `ACTION_UP` for `KEYCODE == 1015` and
@@ -44,17 +42,15 @@ import com.atakmap.android.xv.util.SamsungActiveKey
  * Because `InputDispatcher` routes non-broadcast keys to the top
  * activity, this reader only sees events while ATAK is in the
  * foreground. That's the same constraint any hardware-button PTT app
- * has when it is neither a system app nor an IME nor an accessibility
- * service — no way around it without one of those privileges. Backing
- * the reader with an accessibility service is a non-starter for a
- * plugin (privacy prompt cost).
+ * has when it is neither a system app nor an IME — XV deliberately
+ * ships no accessibility service to get around it.
  *
- * The broadcast reader ([SamsungActiveKeyReader]) IS backgrounded-safe
- * and is still the ideal — on hardware that does emit the broadcast,
- * both paths fire and PttDispatcher's dedupe collapses the duplicate
- * down / up cleanly. On Tab Active5-class firmware where only the
- * KeyEvent fires, this path is the sole PTT source for the Active
- * Key, and it works whenever XV is what the operator is looking at.
+ * The broadcast path ([SamsungHardKeyReceiver]) IS background- and
+ * lock-screen-safe once the key is assigned to XV; when both paths
+ * fire, PttDispatcher's dedupe collapses the duplicate down / up
+ * cleanly. With the key unassigned, this path is the sole PTT source
+ * for the Active Key, and it works whenever XV is what the operator
+ * is looking at.
  *
  * ---
  *
