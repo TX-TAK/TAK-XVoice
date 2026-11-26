@@ -12,6 +12,10 @@ import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.verify
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -229,6 +233,104 @@ class AinaBleReaderRetryCountTest {
         idle()
         assertTrue(h.gatts.size >= 2)
         h.reader.disconnect()
+    }
+
+    @Test
+    fun `connect on a disposed reader opens nothing`() {
+        var n = 0
+        val reader =
+            AinaBleReader(
+                context = context,
+                onEvent = { _, _ -> },
+                gattConnector =
+                AinaBleReader.GattConnector { _, _, _, _ ->
+                    n++
+                    mockGatt()
+                },
+                adapterEnabled = { true },
+            )
+        reader.dispose()
+        reader.connect(mockDevice())
+        idle()
+        assertEquals(0, n)
+    }
+
+    @Test
+    fun `missing BLUETOOTH_CONNECT is reported once and retries stop`() {
+        var n = 0
+        val problems = mutableListOf<String>()
+        val reader =
+            AinaBleReader(
+                context = context,
+                onEvent = { _, _ -> },
+                gattConnector =
+                AinaBleReader.GattConnector { _, _, _, _ ->
+                    n++
+                    throw SecurityException("BLUETOOTH_CONNECT")
+                },
+                onProblem = { problems += it },
+                adapterEnabled = { true },
+            )
+        reader.connect(mockDevice())
+        idle(seconds = 600)
+        assertEquals(1, n)
+        assertEquals(1, problems.size)
+        reader.disconnect()
+    }
+
+    @Test
+    fun `isConnected follows the confirmed subscription`() {
+        val h = harness()
+        subscribe(h)
+        assertFalse(h.reader.isConnected())
+        h.cb.onDescriptorWrite(h.current, cccdOf(h.current), BluetoothGatt.GATT_SUCCESS)
+        assertTrue(h.reader.isConnected())
+        h.cb.onConnectionStateChange(h.current, 8, BluetoothProfile.STATE_DISCONNECTED)
+        assertFalse(h.reader.isConnected())
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `a press racing a link drop is released after it, never left held`() {
+        val g = mockGatt()
+        val inDispatch = CountDownLatch(1)
+        val proceed = CountDownLatch(1)
+        val events = Collections.synchronizedList(mutableListOf<Pair<AinaButton, Boolean>>())
+        var cb: BluetoothGattCallback? = null
+        val reader =
+            AinaBleReader(
+                context = context,
+                onEvent = { b, d ->
+                    events += b to d
+                    if (d) {
+                        inDispatch.countDown()
+                        proceed.await(5, TimeUnit.SECONDS)
+                    }
+                },
+                gattConnector =
+                AinaBleReader.GattConnector { _, _, _, c ->
+                    cb = c
+                    g
+                },
+                adapterEnabled = { true },
+            )
+        reader.connect(mockDevice())
+        idle()
+        val c = checkNotNull(cb)
+        c.onConnectionStateChange(g, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        c.onServicesDiscovered(g, BluetoothGatt.GATT_SUCCESS)
+        c.onDescriptorWrite(g, cccdOf(g), BluetoothGatt.GATT_SUCCESS)
+        val ch = g.getService(AinaBleReader.SERVICE_UUID)!!.getCharacteristic(AinaBleReader.BUTTON_CHAR_UUID)!!
+        val press = thread { c.onCharacteristicChanged(g, ch, byteArrayOf(AinaButton.PTT.bitMask.toByte())) }
+        assertTrue(inDispatch.await(5, TimeUnit.SECONDS))
+        val drop = thread { c.onConnectionStateChange(g, 8, BluetoothProfile.STATE_DISCONNECTED) }
+        drop.join(300)
+        assertTrue("teardown must wait for the in-flight press", drop.isAlive)
+        proceed.countDown()
+        press.join(5_000)
+        drop.join(5_000)
+        assertEquals(listOf(AinaButton.PTT to true, AinaButton.PTT to false), events.toList())
+        reader.disconnect()
     }
 
     private fun mockDevice(): BluetoothDevice {

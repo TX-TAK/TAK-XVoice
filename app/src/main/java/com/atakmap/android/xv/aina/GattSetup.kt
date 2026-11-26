@@ -87,7 +87,11 @@ object GattSetup {
     /**
      * Delay before the next connect attempt. [directRetryCount] is the
      * number of failed attempts so far; [autoConnectArmed] means the
-     * direct-retry budget is spent.
+     * direct-retry budget is spent. [failedFast] means the attempt
+     * failed without waiting on the radio: connectGatt gave no handle,
+     * or the link came up and setup failed (device in range). An
+     * autoConnect re-arm returns at once in those cases, so the short
+     * autoConnect cadence would spin; use the slow one instead.
      */
     fun retryDelayMs(
         directRetryCount: Int,
@@ -95,11 +99,12 @@ object GattSetup {
         authFailure: Boolean,
         unrecognisedCount: Int,
         autoConnectAllowed: Boolean = true,
+        failedFast: Boolean = false,
     ): Long =
         when {
             unrecognisedCount >= UNRECOGNISED_LIMIT -> UNRECOGNISED_RETRY_DELAY_MS
             authFailure -> AUTH_RETRY_DELAY_MS
-            autoConnectArmed && !autoConnectAllowed -> SLOW_DIRECT_RETRY_DELAY_MS
+            autoConnectArmed && (!autoConnectAllowed || failedFast) -> SLOW_DIRECT_RETRY_DELAY_MS
             autoConnectArmed -> AUTO_CONNECT_DELAY_MS
             else -> (INITIAL_RETRY_DELAY_MS shl directRetryCount.coerceIn(0, 4)).coerceAtMost(MAX_DIRECT_RETRY_DELAY_MS)
         }

@@ -1857,12 +1857,16 @@ class VoicePlant(
         externalButtonBt02 = null
     }
 
+    // Live link, not "a reader exists": readers stay allocated through
+    // reconnect backoffs, bond-failure waits and BT02 scans.
     fun isExternalButtonConnected(): Boolean =
         synchronized(externalSlotLock) {
-            externalButtonBle != null ||
-                externalButtonSpp != null ||
-                externalButtonPrymeBle != null ||
-                externalButtonBt02 != null
+            listOf(
+                externalButtonBle?.isConnected(),
+                externalButtonSpp?.isConnected(),
+                externalButtonPrymeBle?.isConnected(),
+                externalButtonBt02?.isConnected(),
+            ).any { it == true }
         }
 
     fun disconnectAina() =
@@ -2054,9 +2058,15 @@ class VoicePlant(
         }
     }
 
+    // Live button link (subscribed / socket open), not "a reader exists".
     fun isAinaConnected(): Boolean =
         synchronized(primarySlotLock) {
-            ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
+            listOf(
+                ainaBle?.isConnected(),
+                ainaSpp?.isConnected(),
+                prymeBle?.isConnected(),
+                bt02Ble?.isConnected(),
+            ).any { it == true }
         }
 
     // Per-source button-handler factory for the primary input. Captures
