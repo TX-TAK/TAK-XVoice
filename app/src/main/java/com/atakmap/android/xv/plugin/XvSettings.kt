@@ -63,6 +63,20 @@ class XvSettings(
         }
     }
 
+    // The operator turned the Bluetooth button slot OFF (picked "Off").
+    // Distinct from "never set up": while set, nothing auto-assigns a
+    // button to the slot (launch auto-connect, the Settings picker, a
+    // newly paired puck). Cleared only when the operator picks or adds a
+    // button again.
+    fun externalButtonOff(): Boolean = prefs()?.getBoolean(PREF_EXTERNAL_BUTTON_OFF, false) ?: false
+
+    fun persistExternalButtonOff(off: Boolean) {
+        prefs()?.edit()?.apply {
+            if (off) putBoolean(PREF_EXTERNAL_BUTTON_OFF, true) else remove(PREF_EXTERNAL_BUTTON_OFF)
+            apply()
+        }
+    }
+
     fun persistedExternalButtonKind(): String? =
         prefs()?.getString(PREF_EXTERNAL_BUTTON_KIND, null)?.takeIf { it.isNotBlank() }
 
@@ -518,6 +532,9 @@ class XvSettings(
         // Do NOT change the string values.
         private const val PREF_EXTERNAL_BUTTON_MAC = "aina_mac_secondary"
         private const val PREF_EXTERNAL_BUTTON_KIND = "aina_kind_secondary"
+
+        // Operator turned the button slot off — see externalButtonOff.
+        private const val PREF_EXTERNAL_BUTTON_OFF = "external_button_off"
 
         // Manually-added BLE PTT devices — see knownBlePttDevices.
         // Set<String> with "MAC|Name" entries.

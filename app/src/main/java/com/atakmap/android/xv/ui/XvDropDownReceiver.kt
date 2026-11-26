@@ -243,6 +243,13 @@ class XvDropDownReceiver(
 
         fun setSelectedExternalButton(mac: String?) {}
 
+        // The operator turned the Bluetooth button slot off ("Off").
+        fun externalButtonOff(): Boolean = false
+
+        // May the Settings picker assign a button to the empty slot by
+        // itself? False while the slot is off or auto-connect is off.
+        fun externalButtonAutoAssignAllowed(): Boolean = false
+
         // Assign a scan-discovered BLE PTT button to the primary or
         // external-button PTT slot. Both persist the MAC + kind="ble-hid"
         // and hand off to the existing service-side connect path
@@ -3161,7 +3168,10 @@ class XvDropDownReceiver(
     // a connect to a device that we already know is unreachable).
     // The custom adapter is ~20 lines of code but gives us both the
     // color + tap-guard properties the leading call-picker UIs use.
-    private fun buildAinaPickerAdapter(devices: List<AinaDeviceInfo>): ArrayAdapter<CharSequence> {
+    private fun buildAinaPickerAdapter(
+        devices: List<AinaDeviceInfo>,
+        noneLabel: String = AINA_NONE_LABEL,
+    ): ArrayAdapter<CharSequence> {
         // Resolve the BT adapter once and hand it to each row's OS-bonded
         // check instead of letting the detector re-fetch it and re-scan
         // bondedDevices per row.
@@ -3174,7 +3184,7 @@ class XvDropDownReceiver(
         // Row 0 sentinel is always tappable/enabled.
         val entries =
             mutableListOf<PickerRow>().apply {
-                add(PickerRow(label = AINA_NONE_LABEL, available = true))
+                add(PickerRow(label = noneLabel, available = true))
                 for (d in devices) {
                     add(pickerRowFor(d, btAdapter))
                 }
@@ -3350,7 +3360,7 @@ class XvDropDownReceiver(
         val spinner = v.findViewById<Spinner>(R.id.xv_spinner_aina_secondary) ?: return
         val statusLabel = v.findViewById<TextView>(R.id.xv_label_aina_secondary_status)
         val devices = controller.availableExternalButtonDevices()
-        spinner.adapter = buildAinaPickerAdapter(devices)
+        spinner.adapter = buildAinaPickerAdapter(devices, noneLabel = SECONDARY_NONE_LABEL)
 
         var selectedMac = controller.selectedExternalButtonMac()
 
@@ -3358,8 +3368,9 @@ class XvDropDownReceiver(
         // Settings while ATAK was running, autoConnectExternalButton (which only
         // runs on plugin load) won't catch it. If the slot is empty and there's
         // exactly one BLE_HID puck available, auto-assign it now so they don't
-        // have to manually pick it from the dropdown.
-        if (selectedMac == null) {
+        // have to manually pick it from the dropdown. Never when the
+        // operator turned the slot Off or auto-connect is off.
+        if (selectedMac == null && controller.externalButtonAutoAssignAllowed()) {
             val bleHidDevices = devices.filter { it.buttonProtocol == com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol.BLE_HID }
             if (bleHidDevices.size == 1) {
                 val autoPicked = bleHidDevices.first()
@@ -3400,7 +3411,7 @@ class XvDropDownReceiver(
             }
         spinner.setSelection(selectedIdx)
         statusLabel?.text =
-            formatAinaStatus(devices, selectedMac, controller.externalButtonConnectionUp())
+            formatAinaStatus(devices, selectedMac, controller.externalButtonConnectionUp(), BUTTON_OFF_STATUS)
         // See wireAinaPicker for the same first-fire suppression rationale.
         // A spurious pos=0 fire from setAdapter/setSelection would write
         // null back to persisted-external-button and disconnect the reader.
@@ -3433,7 +3444,12 @@ class XvDropDownReceiver(
                             onAllowed = {
                                 controller.setSelectedExternalButton(pickedMac)
                                 statusLabel?.text =
-                                    formatAinaStatus(devices, pickedMac, controller.externalButtonConnectionUp())
+                                    formatAinaStatus(
+                                        devices,
+                                        pickedMac,
+                                        controller.externalButtonConnectionUp(),
+                                        BUTTON_OFF_STATUS,
+                                    )
                             },
                             onCancel = {
                                 suppressFirstFire = true
@@ -3770,13 +3786,16 @@ class XvDropDownReceiver(
         val row = v.findViewById<View>(R.id.xv_row_samsung_active_key) ?: return
         val help = v.findViewById<View>(R.id.xv_label_samsung_active_key_help)
         val status = v.findViewById<TextView>(R.id.xv_label_samsung_active_key_status)
+        val header = v.findViewById<View>(R.id.xv_header_samsung_active_key)
         if (!controller.samsungActiveKeySupported()) {
             row.visibility = View.GONE
             help?.visibility = View.GONE
+            header?.visibility = View.GONE
             return
         }
         row.visibility = View.VISIBLE
         help?.visibility = View.VISIBLE
+        header?.visibility = View.VISIBLE
         status?.text = if (controller.samsungActiveKeyAssignedToXv()) "Assigned ›" else "Set up ›"
         row.setOnClickListener { controller.openSamsungActiveKeySettings() }
     }
@@ -3785,8 +3804,9 @@ class XvDropDownReceiver(
         devices: List<AinaDeviceInfo>,
         mac: String?,
         connected: Boolean,
+        noneText: String = "no speakermic selected",
     ): String {
-        if (mac == null) return "no speakermic selected"
+        if (mac == null) return noneText
         val dev = devices.firstOrNull { it.mac.equals(mac, ignoreCase = true) }
         val name = dev?.name ?: mac
         val proto = dev?.buttonProtocol?.display
@@ -3854,7 +3874,10 @@ class XvDropDownReceiver(
         // cycle reconnect (~0.8s observed) so the picker rebuilds once,
         // on the settled state, not per-transition.
         private const val CONNECTIVITY_REFRESH_DEBOUNCE_MS = 900L
-        private const val SECONDARY_NONE_LABEL = "(none)"
+
+        // Row 0 of the Bluetooth button picker: turns the slot off.
+        private const val SECONDARY_NONE_LABEL = "Off — no Bluetooth button"
+        private const val BUTTON_OFF_STATUS = "off"
         private const val AINA_NONE_LABEL = "Screen-only PTT (no external button)"
 
         // Filled green dot — visually pops against the dim background to

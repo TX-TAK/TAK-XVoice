@@ -10,6 +10,7 @@ import android.media.AudioManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.atakmap.android.xv.aina.redactMac
 
 // Picks an output AudioDeviceInfo for AudioPlayback's AudioTrack. Default
 // priority (when route preference is AUTO):
@@ -428,10 +429,10 @@ class AudioRouter(
         if (overrideMac != null) {
             val pinned = outputs.firstOrNull { it.isBluetooth() && it.address == overrideMac }
             if (pinned != null) {
-                Log.i(TAG, "preferred: ${describe(pinned)} (BT override $overrideMac)")
+                Log.i(TAG, "preferred: ${describe(pinned)} (BT override ${redactMac(overrideMac)})")
                 return pinned
             }
-            Log.i(TAG, "BT override $overrideMac not currently connected — falling back to priority chain")
+            Log.i(TAG, "BT override ${redactMac(overrideMac)} not currently connected — falling back to priority chain")
         }
 
         // 1) Bluetooth — the user's intent when they pair a speakermic.

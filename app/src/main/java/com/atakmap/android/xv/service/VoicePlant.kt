@@ -10,6 +10,7 @@ import com.atakmap.android.xv.aina.AinaButton
 import com.atakmap.android.xv.aina.AinaSppReader
 import com.atakmap.android.xv.aina.Bt02BleReader
 import com.atakmap.android.xv.aina.PrymeBleReader
+import com.atakmap.android.xv.aina.redactMac
 import com.atakmap.android.xv.audio.AinaA2dpController
 import com.atakmap.android.xv.audio.AinaA2dpWiring
 import com.atakmap.android.xv.audio.AudioCapture
@@ -1205,12 +1206,12 @@ class VoicePlant(
         val device =
             audioManager.availableCommunicationDevices.firstOrNull { it.address == mac }
         if (device == null) {
-            Log.i(TAG, "applyOutputBtOverride: $mac not currently a communication device")
+            Log.i(TAG, "applyOutputBtOverride: ${redactMac(mac)} not currently a communication device")
             return
         }
         try {
             val ok = audioManager.setCommunicationDevice(device)
-            Log.i(TAG, "applyOutputBtOverride: setCommunicationDevice(${device.productName}, $mac) → ok=$ok")
+            Log.i(TAG, "applyOutputBtOverride: setCommunicationDevice(${device.productName}, ${redactMac(mac)}) → ok=$ok")
         } catch (t: Throwable) {
             Log.w(TAG, "setCommunicationDevice for override threw", t)
         }
@@ -1263,14 +1264,14 @@ class VoicePlant(
                         Log.i(
                             TAG,
                             "applyNoScoCommDevice: setCommunicationDevice(${pinned.productName}, " +
-                                "override $overrideMac) → ok=$ok",
+                                "override ${redactMac(overrideMac)}) → ok=$ok",
                         )
                         return
                     } catch (t: Throwable) {
                         Log.w(TAG, "setCommunicationDevice for BT override threw", t)
                     }
                 } else {
-                    Log.i(TAG, "applyNoScoCommDevice: BT override $overrideMac not available, falling back to built-in route")
+                    Log.i(TAG, "applyNoScoCommDevice: BT override ${redactMac(overrideMac)} not available, falling back to built-in route")
                 }
             }
         }
