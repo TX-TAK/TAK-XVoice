@@ -710,6 +710,29 @@ class XvDropDownReceiver(
     // mapping as the panel and the speaker-mic.
     private var mapHud: XvMapHud? = null
 
+    // Which XV pane ATAK is showing. The map PTT buttons give way only to
+    // the main panel (it has its own PTT); Settings, the channel list and
+    // the members view keep them so the operator can still key up while
+    // tweaking. A pane that is hidden (swiped away) but not closed is not
+    // on screen: it must not hide the buttons, and must not be resized
+    // (a resize makes ATAK show it again — pressing a map PTT refreshed
+    // the main panel, re-fitted it, and popped it back up over the map,
+    // which then hid the button being held).
+    private var paneVisible = false
+    private var mainPaneShowing = false
+
+    private fun syncMapHud() {
+        mapHud?.setPanelOpen(paneVisible && mainPaneShowing)
+    }
+
+    // Settings / channel list / members: keep the map PTT buttons.
+    private fun showSecondaryDropDown(v: View) {
+        mainPaneShowing = false
+        paneVisible = true
+        syncMapHud()
+        showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+    }
+
     /** ATAK paused / stopped: release any held map PTT. */
     fun onHostPaused() {
         mapHud?.releaseForLifecycle("host paused")
@@ -867,7 +890,9 @@ class XvDropDownReceiver(
     }
 
     fun show() {
-        mapHud?.setPanelOpen(true)
+        mainPaneShowing = true
+        paneVisible = true
+        syncMapHud()
         mainHandler.post {
             val v = inflateMain()
             showMainDropDown(v)
@@ -921,7 +946,9 @@ class XvDropDownReceiver(
         // the transition settles: only a real close clears.
         mainHandler.post {
             if (isClosed()) {
-                mapHud?.setPanelOpen(false)
+                paneVisible = false
+                mainPaneShowing = false
+                syncMapHud()
                 stopRefreshLoop()
                 // Don't keep (or later repaint) a detached channel list,
                 // and don't carry an old search into the next visit.
@@ -929,7 +956,8 @@ class XvDropDownReceiver(
                 channelListRoot = null
                 channelListQuery = ""
             } else {
-                mapHud?.setPanelOpen(true)
+                // Moved to another XV pane; its show already set the flags.
+                syncMapHud()
                 startRefreshLoop()
             }
         }
@@ -941,8 +969,10 @@ class XvDropDownReceiver(
     ) = Unit
 
     override fun onDropDownVisible(visible: Boolean) {
-        // Panel open hides the map PTT buttons (and releases a held one).
-        mapHud?.setPanelOpen(visible)
+        // The main panel on screen hides the map PTT buttons (and releases
+        // a held one); other XV panes keep them.
+        paneVisible = visible
+        syncMapHud()
         if (!visible) releaseAnyOnScreenPtt("panel hidden")
         if (visible) startRefreshLoop() else stopRefreshLoop()
     }
@@ -1237,7 +1267,7 @@ class XvDropDownReceiver(
     // and rows come and go (call bar, channel 2, the mesh line). Only
     // while the main panel is the pane on screen.
     private fun fitMainToContent(v: View) {
-        if (!isPortrait() || isClosed() || mainView !== v || !v.isAttachedToWindow) {
+        if (!isPortrait() || isClosed() || !paneVisible || !mainPaneShowing || mainView !== v || !v.isAttachedToWindow) {
             return
         }
         val fraction = mainPanelPortraitHeight(v)
@@ -1560,7 +1590,7 @@ class XvDropDownReceiver(
         val inflater = LayoutInflater.from(pluginContext)
         val v = inflater.inflate(R.layout.xv_settings, null)
         wireSettings(v)
-        showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+        showSecondaryDropDown(v)
     }
 
     // Unified channel list (replaces the two per-slot pickers). One
@@ -1619,7 +1649,7 @@ class XvDropDownReceiver(
             // with no way to dismiss it. Decide after the close has
             // settled, and only resize while this list is still showing.
             mainHandler.post {
-                if (isPortrait() && !isClosed() && channelListRoot === v && v.isAttachedToWindow) {
+                if (isPortrait() && !isClosed() && paneVisible && channelListRoot === v && v.isAttachedToWindow) {
                     callResize(FULL_WIDTH, if (focused) FULL_HEIGHT else HALF_HEIGHT)
                 }
             }
@@ -1635,7 +1665,7 @@ class XvDropDownReceiver(
         channelListRoot = v
         openPickerSlot = CHANNEL_LIST_OPEN
         populateChannelList(v)
-        showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+        showSecondaryDropDown(v)
     }
 
     // ---- Undo for Swap (one tap acts, 5 s to take it back) ----
@@ -2261,7 +2291,7 @@ class XvDropDownReceiver(
             data = vs2,
             slotLabel = "Channel 2",
         )
-        showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+        showSecondaryDropDown(v)
     }
 
     private fun populateMembersColumn(
@@ -4818,6 +4848,9 @@ class XvDropDownReceiver(
     // (re-fitted as rows come and go) instead of half the screen. The
     // channel list and Settings keep the larger panes.
     private fun showMainDropDown(v: View) {
+        mainPaneShowing = true
+        paneVisible = true
+        syncMapHud()
         showDropDown(v, mainPanelLandscapeWidth(), FULL_HEIGHT, FULL_WIDTH, mainPanelPortraitHeight(v), this)
         // Coming back from Settings / the channel list ATAK keeps that
         // pane's (larger) size: re-fit once the panel is showing.

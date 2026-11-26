@@ -57,6 +57,17 @@ class ExternalCallDetectorTest {
     }
 
     @Test
+    fun `IN_COMMUNICATION is never a call on a device without telephony`() {
+        val tablet = ExternalCallDetector(telephonyAvailable = false)
+        tablet.sample(AudioManager.MODE_NORMAL, xvOwnAudio = false)
+        assertFalse(tablet.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = false))
+        assertFalse(tablet.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = false))
+        // Real call modes still count even on a tablet.
+        assertTrue(tablet.sample(AudioManager.MODE_RINGTONE, xvOwnAudio = false))
+        assertTrue(tablet.sample(AudioManager.MODE_IN_CALL, xvOwnAudio = false))
+    }
+
+    @Test
     fun `mode constants match AudioManager`() {
         assertEquals(AudioManager.MODE_RINGTONE, ExternalCallDetector.MODE_RINGTONE)
         assertEquals(AudioManager.MODE_IN_CALL, ExternalCallDetector.MODE_IN_CALL)

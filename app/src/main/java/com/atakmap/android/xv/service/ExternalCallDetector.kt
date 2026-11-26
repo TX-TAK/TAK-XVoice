@@ -26,7 +26,17 @@ package com.atakmap.android.xv.service
  * The caller must not count audio it dropped because of this signal as
  * "XV's own audio" — otherwise a call would un-latch itself.
  */
-class ExternalCallDetector {
+class ExternalCallDetector(
+    /**
+     * False on devices with no telephony stack (Wi-Fi-only tablets). They
+     * cannot place or receive a cellular call, so IN_COMMUNICATION there is
+     * never a VoLTE call; latching it as one only produced false
+     * "phone call" states (tablet field report, 2026-11-26). Ringing and
+     * legacy in-call modes still count as calls on any device.
+     */
+    @Volatile
+    var telephonyAvailable: Boolean = true,
+) {
     private var lastMode: Int? = null
 
     @Volatile
@@ -45,7 +55,9 @@ class ExternalCallDetector {
         active =
             when (audioMode) {
                 MODE_RINGTONE, MODE_IN_CALL, MODE_CALL_SCREENING, MODE_CALL_REDIRECT, MODE_COMMUNICATION_REDIRECT -> true
-                MODE_IN_COMMUNICATION -> active || (lastMode != MODE_IN_COMMUNICATION && !xvOwnAudio)
+                MODE_IN_COMMUNICATION ->
+                    telephonyAvailable &&
+                        (active || (lastMode != MODE_IN_COMMUNICATION && !xvOwnAudio))
                 else -> false
             }
         lastMode = audioMode
