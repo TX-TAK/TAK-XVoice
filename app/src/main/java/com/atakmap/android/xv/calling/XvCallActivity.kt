@@ -17,8 +17,10 @@ import com.atakmap.android.xv.R
 import com.atakmap.android.xv.telecom.ActiveCallRegistry
 
 /**
- * Full-screen call surface used as the `setFullScreenIntent` target for
- * [CallStyleNotifier]'s incoming + active notifications.
+ * In-call surface launched directly by
+ * [CallStyleNotifier.launchActiveCallActivity] once a direct call is
+ * ACTIVE. It is not a full-screen-intent target: XV does not declare
+ * `USE_FULL_SCREEN_INTENT` until direct calling ships.
  *
  * Two modes:
  *  - [MODE_INCOMING]: status + callsign + Answer / Decline. Tapping
@@ -33,13 +35,6 @@ import com.atakmap.android.xv.telecom.ActiveCallRegistry
  *    UI reflects the system-arbitrated route in real time (relevant for
  *    BT connect/disconnect mid-call, mute state changes from CallStyle's
  *    own surface, etc).
- *
- * Notification.CallStyle on phone won't render its ring or in-call
- * surface unless either the posting context is a phoneCall-typed
- * foreground service OR the notification carries a fullScreenIntent.
- * XV's service is microphone|connectedDevice typed, so FSI pointing at
- * this activity is the path that works on both incoming and active
- * notifications.
  */
 class XvCallActivity : Activity() {
     private var mode: String = MODE_INCOMING

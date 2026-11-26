@@ -92,8 +92,7 @@ into ATAK's **Alert Tool**:
 You can place private, 1-to-1 calls to peers on your server or mesh presence
 roster:
 
-- Uses Android's `Notification.CallStyle` ring and a full-screen incoming-call
-  surface.
+- Uses a heads-up incoming-call notification with Answer / Decline actions.
 - Holds a proximity wake-lock when using the earpiece route so the screen turns
   off when held to your ear.
 

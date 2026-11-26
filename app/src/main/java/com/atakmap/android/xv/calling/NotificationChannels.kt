@@ -20,12 +20,10 @@ import android.os.Build
  *
  *   - [INCOMING] (`xv_call_incoming`): HIGH importance, CATEGORY_CALL,
  *     system ringtone, bypasses DND, lock-screen visible. Used by the
- *     incoming Notification.CallStyle notification. The OS pops a
- *     full-screen ring + heads-up automatically for HIGH-importance
- *     CallStyle notifications, replacing our prior custom
- *     XvIncomingCallActivity full-screen activity.
+ *     incoming direct-call heads-up notification (no full-screen
+ *     intent; see CallStyleNotifier).
  *   - [ACTIVE] (`xv_call_active`): LOW importance, CATEGORY_CALL, no
- *     sound. Used by the ongoing-call CallStyle notification so the
+ *     sound. Used by the ongoing-call notification so the
  *     operator has Hang Up available from the shade for the full call
  *     duration without ringing every refresh.
  *   - [SERVICE] (`xv_service`): LOW importance, CATEGORY_SERVICE.
@@ -61,10 +59,7 @@ object NotificationChannels {
         // System ringtone with USAGE_NOTIFICATION_RINGTONE attribute so
         // the OS plays it through the ringer stream (not media), respects
         // the user's silent / vibrate-only preference, and ducks media
-        // automatically. CallStyle.forIncomingCall on HIGH-importance
-        // channels also triggers the system full-screen ring surface,
-        // which is the whole point of this migration (replaces our
-        // custom XvIncomingCallActivity).
+        // automatically. HIGH importance gives the heads-up ring.
         val ringtone = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE)
         val audioAttrs =
             AudioAttributes
@@ -77,7 +72,7 @@ object NotificationChannels {
             "XV incoming calls",
             NotificationManager.IMPORTANCE_HIGH,
         ).apply {
-            description = "Ring + full-screen surface for XV direct calls."
+            description = "Ring for XV direct calls."
             enableVibration(true)
             setBypassDnd(true)
             lockscreenVisibility = Notification.VISIBILITY_PUBLIC
