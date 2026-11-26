@@ -2467,7 +2467,13 @@ class XvDropDownReceiver(
         // Provisioning path 2: one-tap create. XV picks name + group +
         // key; the operator configures nothing. Flips the mesh toggle on
         // (the Controller does the same server-side), so reflect it here.
-        v.findViewById<Button>(R.id.xv_btn_mesh_provision).setOnClickListener {
+        // "+ Add channel" reveals the presets (Private / Join a plan /
+        // Custom); the patch and security sections expand in place.
+        wireCollapsible(v, R.id.xv_btn_mesh_add, R.id.xv_mesh_add_presets, null)
+        wireCollapsible(v, R.id.xv_mesh_patch_toggle, R.id.xv_mesh_patch, "Interop patch (this device)")
+        wireCollapsible(v, R.id.xv_mesh_security_toggle, R.id.xv_mesh_security, "Keys, forget, wipe")
+
+        v.findViewById<View>(R.id.xv_btn_mesh_provision).setOnClickListener {
             val name = controller.provisionMeshChannel()
             if (name != null) {
                 meshToast("Created channel “$name” — encrypted, ready. Tap Share to send it to your team.")
@@ -2479,7 +2485,7 @@ class XvDropDownReceiver(
         }
 
         // Path 3: name it yourself and (optionally) pin for interop.
-        v.findViewById<Button>(R.id.xv_btn_mesh_configure).setOnClickListener {
+        v.findViewById<View>(R.id.xv_btn_mesh_configure).setOnClickListener {
             showChannelConfigDialog(v)
         }
 
@@ -2491,7 +2497,7 @@ class XvDropDownReceiver(
             }
         }
 
-        v.findViewById<Button>(R.id.xv_btn_mesh_import).setOnClickListener {
+        v.findViewById<View>(R.id.xv_btn_mesh_import).setOnClickListener {
             promptImportChannelPlan(v)
         }
 
@@ -2520,6 +2526,23 @@ class XvDropDownReceiver(
         }
 
         refreshMeshSection(v)
+    }
+
+    // Toggle [bodyId] from [toggleId]. With [label], the toggle's text
+    // gets a ▸ / ▾ affordance; without, it's a plain show/hide button.
+    private fun wireCollapsible(
+        v: View,
+        toggleId: Int,
+        bodyId: Int,
+        label: String?,
+    ) {
+        val body = v.findViewById<View>(bodyId)
+        val toggle = v.findViewById<TextView>(toggleId)
+        toggle.setOnClickListener {
+            val open = body.visibility != View.VISIBLE
+            body.visibility = if (open) View.VISIBLE else View.GONE
+            if (label != null) toggle.text = if (open) "$label  ▾" else "$label  ▸"
+        }
     }
 
     // Operator "rotate key now" (#92 / #95). Single confirm — it is
@@ -3133,133 +3156,97 @@ class XvDropDownReceiver(
                 TextView(pluginContext).apply {
                     text =
                         if (controller.meshVoiceEnabled()) {
-                            "No channels yet - provision one below, or wait for a peer to advertise theirs."
+                            "No channels yet — add one below, or wait for a teammate's channel to show up."
                         } else {
                             "Turn on mesh voice to use channels without a server."
                         }
-                    setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
-                    textSize = 12f
-                    setPadding(4, 8, 4, 8)
+                    setTextAppearance(R.style.XV_Text_Caption)
+                    val pad = (8 * pluginContext.resources.displayMetrics.density).toInt()
+                    setPadding(0, pad, 0, pad)
                 },
             )
-        } else {
-            val active = controller.meshActiveChannelCanonical()
-            val dp = pluginContext.resources.displayMetrics.density
+            return
+        }
+        val serverCanon =
+            controller.availableChannels().map { MulticastGroupDerivation.canonicalChannelName(it.name) }.toSet()
+        val active = controller.meshActiveChannelCanonical()
+        val rows =
+            MeshChannelRows.build(
+                candidates = candidates,
+                serverCanonical = serverCanon,
+                activeCanonical = active,
+                configFor = { controller.meshChannelConfig(it) },
+            )
+        for (row in rows) container.addView(buildMeshChannelCard(v, container, row))
+    }
 
-            // Group by host server based on currently known MumbleSession channels
-            val allChannels = controller.availableChannels().map { it.name }.toMutableSet()
-            val serverGroups = controller.availableChannels().groupBy { controller.connectedTakHost() ?: "Offline / ad-hoc" }.toMutableMap()
-            val serverCanon = allChannels.map { MulticastGroupDerivation.canonicalChannelName(it) }.toSet()
-
-            val offlineOnly = candidates.filter { MulticastGroupDerivation.canonicalChannelName(it) !in serverCanon }
-            if (offlineOnly.isNotEmpty()) {
-                val existingOffline = serverGroups["Offline / ad-hoc"]?.map { it.name } ?: emptyList()
-                val newOffline = offlineOnly.filter { it !in existingOffline }
-                val offlineList = (serverGroups["Offline / ad-hoc"] ?: emptyList()).toMutableList()
-                newOffline.forEach {
-                    offlineList.add(
-                        com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo(
-                            -1,
-                            it,
-                            com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.PARTICIPATE
-                        )
-                    )
-                }
-                serverGroups["Offline / ad-hoc"] = offlineList
-            }
-
-            val sortedGroups = serverGroups.entries.sortedWith(compareBy({ it.key == "Offline / ad-hoc" }, { it.key }))
-            val groupList = sortedGroups.map { it.key }
-            // Lobby pinned to the top of every group, then alphabetical.
-            val childMap =
-                sortedGroups.associate { grp ->
-                    grp.key to
-                        grp.value.map { ch -> ch.name }.sortedWith(
-                            compareByDescending<String> {
-                                MulticastGroupDerivation.canonicalChannelName(it) == MulticastGroupDerivation.LOBBY_CANONICAL
-                            }.thenBy(String.CASE_INSENSITIVE_ORDER) { it },
-                        )
-                }
-
-            groupList.forEach { groupName ->
-                val channels = childMap[groupName] ?: emptyList()
-                if (channels.isNotEmpty()) {
-                    // Create group header
-                    val headerView = android.view.LayoutInflater.from(pluginContext).inflate(
-                        R.layout.xv_share_picker_group,
-                        container,
-                        false,
-                    ) as android.widget.LinearLayout
-                    val headerText = headerView.findViewById<TextView>(R.id.xv_group_name)
-                    val headerIndicator = headerView.findViewById<TextView>(R.id.xv_group_indicator)
-                    headerText.text = "$groupName (${channels.size})"
-                    headerIndicator.text = "▼"
-                    container.addView(headerView)
-
-                    val gridLayout = android.widget.GridLayout(pluginContext).apply {
-                        columnCount = 3
-                        layoutParams = android.widget.LinearLayout.LayoutParams(
-                            android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
-                            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                        ).apply {
-                            setMargins(0, 0, 0, (8 * dp).toInt())
-                        }
-                    }
-
-                    headerView.setOnClickListener {
-                        if (gridLayout.visibility == View.VISIBLE) {
-                            gridLayout.visibility = View.GONE
-                            headerIndicator.text = "▶"
-                        } else {
-                            gridLayout.visibility = View.VISIBLE
-                            headerIndicator.text = "▼"
-                        }
-                    }
-
-                    channels.forEach { name ->
-                        val canonical = MulticastGroupDerivation.canonicalChannelName(name)
-                        val chip = Button(pluginContext).apply {
-                            text = MumbleTransport.lobbyLabel(name)
-                            isAllCaps = false
-                            textSize = 12f
-                            maxLines = 2
-                            ellipsize = android.text.TextUtils.TruncateAt.END
-                            setPadding((12 * dp).toInt(), (8 * dp).toInt(), (12 * dp).toInt(), (8 * dp).toInt())
-                            background = pluginContext.resources.getDrawable(R.drawable.xv_button_bg, null)
-                            setTextColor(
-                                pluginContext.resources.getColor(
-                                    if (canonical == active) R.color.xv_accent else R.color.xv_text,
-                                    null,
-                                ),
-                            )
-
-                            val lp = android.widget.GridLayout.LayoutParams()
-                            lp.width = 0
-                            lp.height = android.widget.GridLayout.LayoutParams.WRAP_CONTENT
-                            lp.columnSpec = android.widget.GridLayout.spec(android.widget.GridLayout.UNDEFINED, 1f)
-                            lp.setMargins((4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt(), (4 * dp).toInt())
-                            layoutParams = lp
-
-                            setOnClickListener {
-                                if (groupName ==
-                                    "Offline / ad-hoc"
-                                ) {
-                                    showChannelConfigDialog(v, name)
-                                } else {
-                                    promptConfigureChannel(v, name) { refreshMeshSection(v) }
-                                }
-                            }
-                            setOnLongClickListener {
-                                confirmForgetMeshChannel(v, name)
-                                true
-                            }
-                        }
-                        gridLayout.addView(chip)
-                    }
-                    container.addView(gridLayout)
-                }
+    // One mesh channel card: name + badges, a line of context, and the
+    // Off / Backup / Both segments. Tap → details; long-press an offline
+    // channel → forget.
+    private fun buildMeshChannelCard(
+        section: View,
+        parent: android.view.ViewGroup,
+        row: MeshChannelRows.Row,
+    ): View {
+        val res = pluginContext.resources
+        val card = LayoutInflater.from(pluginContext).inflate(R.layout.xv_mesh_channel_card, parent, false)
+        card.findViewById<TextView>(R.id.xv_mesh_card_name).apply {
+            text = MumbleTransport.lobbyLabel(row.name)
+            setTextColor(res.getColor(if (row.active) R.color.xv_voice else R.color.xv_text, null))
+        }
+        card.findViewById<View>(R.id.xv_mesh_card_badge_interop).apply {
+            visibility = if (row.interopLabel != null) View.VISIBLE else View.GONE
+            (this as TextView).text = row.interopLabel
+        }
+        card.findViewById<View>(R.id.xv_mesh_card_badge_clear).visibility = if (row.hasClearLeg) View.VISIBLE else View.GONE
+        card.findViewById<TextView>(R.id.xv_mesh_card_detail).text = row.detail
+        val segments =
+            mapOf(
+                com.atakmap.android.xv.transport.multicast.MulticastMode.OFF to R.id.xv_mesh_card_off,
+                com.atakmap.android.xv.transport.multicast.MulticastMode.FAILOVER to R.id.xv_mesh_card_backup,
+                com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS to R.id.xv_mesh_card_both,
+            )
+        for ((mode, id) in segments) {
+            val seg = card.findViewById<TextView>(id)
+            val on = mode == row.mode
+            seg.setBackgroundResource(if (on) R.drawable.xv_segment_on else R.drawable.xv_pill_off)
+            seg.setTextColor(res.getColor(if (on) R.color.xv_bg else R.color.xv_text, null))
+            seg.isSelected = on
+            seg.contentDescription = "${MumbleTransport.lobbyLabel(row.name)} mesh: ${seg.text}${if (on) ", selected" else ""}"
+            seg.setOnClickListener {
+                if (!on) setMeshChannelMode(section, row.name, mode)
             }
         }
+        card.setOnClickListener {
+            if (row.serverChannel) {
+                promptConfigureChannel(section, row.name) { refreshMeshSection(section) }
+            } else {
+                showChannelConfigDialog(section, row.name)
+            }
+        }
+        if (!row.serverChannel) {
+            card.setOnLongClickListener {
+                confirmForgetMeshChannel(section, row.name)
+                true
+            }
+        }
+        card.contentDescription = "${MumbleTransport.lobbyLabel(row.name)}: ${row.detail}. Opens channel details."
+        return card
+    }
+
+    // Save a per-channel Off / Backup / Both choice (stored override of
+    // the channel's config; the always-encrypted policy is untouched).
+    private fun setMeshChannelMode(
+        section: View,
+        name: String,
+        mode: com.atakmap.android.xv.transport.multicast.MulticastMode,
+    ) {
+        val existing =
+            controller.meshChannelConfig(name)
+                ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig.defaultFor(name)
+        val err = controller.saveChannelConfig(existing.copy(mode = mode))
+        if (err != null) meshToast(err)
+        refreshMeshSection(section)
     }
 
     private fun confirmForgetMeshChannel(

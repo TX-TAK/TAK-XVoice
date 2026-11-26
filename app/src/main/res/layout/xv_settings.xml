@@ -605,309 +605,268 @@
                     android:layout_height="40dp" />
             </LinearLayout>
 
-            <!-- ============================================================ -->
-            <!-- Section 4: Mesh & Offline. Everything server-less lives      -->
-            <!-- here so the other tabs stay about hardware + the live        -->
-            <!-- server. Channels are provisioned by NAME (the multicast      -->
-            <!-- group/port derive deterministically — no manual IP/port      -->
-            <!-- pinning), then shared as a comms plan (QR / NFC / data       -->
-            <!-- package) or prepped ahead of time.                           -->
-            <!-- ============================================================ -->
+            <!-- ============================================================
+                 Mesh (approved mockup xv_mock_mesh_settings / _add):
+                   1. One master switch + live status.
+                   2. Channels as a single-column list (cards built in
+                      refreshMeshSection): name, badges, and Off / Backup /
+                      Both per channel. Tap for details, long-press to
+                      forget an offline channel. "+ Add channel" opens the
+                      presets; sharing sits with the list.
+                   3. Interop patch (device-local) and Security & recovery
+                      collapsed out of the everyday path.
+                 The mesh leg is always encrypted: no policy choice here.
+                 ============================================================ -->
             <LinearLayout
                 android:id="@+id/xv_section_mesh"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
+                style="@style/XV.Page"
                 android:visibility="gone">
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Global Default"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-                    
+                <!-- 1. Master switch + status -->
                 <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="4dp">
+                    style="@style/XV.Card"
+                    android:layout_marginTop="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="48dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/xv_label_mesh_voice"
+                            style="@style/XV.Row.Label"
+                            android:labelFor="@+id/xv_switch_mesh_voice"
+                            android:text="Mesh voice"
+                            android:textStyle="bold" />
+
+                        <Switch
+                            android:id="@+id/xv_switch_mesh_voice"
+                            style="@style/XV.Switch" />
+                    </LinearLayout>
 
                     <TextView
-                        android:layout_width="0dp"
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Mesh voice (multicast failover)"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
-
-                    <Switch
-                        android:id="@+id/xv_switch_mesh_voice"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                        android:text="Keeps voice working when the server is down. Wi-Fi and mesh networks only, never cellular. Always encrypted." />
                 </LinearLayout>
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="When the voice server is unreachable but devices still share a Wi-Fi or mesh network, voice fails over to encrypted IP multicast automatically — same PTT, no reconfiguration. Legs only run on Wi-Fi/Ethernet, never cellular."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-
-                <!-- Live mesh state (mirrors the main-panel status line). -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Status"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <TextView
                     android:id="@+id/xv_settings_mesh_status"
+                    style="@style/XV.Text.Status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Mesh voice is off"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="14sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
+                    android:layout_marginTop="8dp"
+                    android:drawablePadding="6dp"
+                    android:gravity="center_vertical"
+                    android:minHeight="32dp"
+                    android:text="Mesh voice is off" />
 
-                <!-- Channels known offline (last-joined + peer-advertised).
-                     Tapping one binds the mesh leg to it. Populated in
-                     wireMeshSection. These same channels also appear in the
-                     main channel selector now — this list is the offline
-                     management view (long-press or "Forget all" to prune). -->
+                <!-- 2. Channels -->
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Offline channels"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
+                    style="@style/XV.SectionHeader"
+                    android:layout_marginTop="16dp"
+                    android:text="Channels" />
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Also shown in the main channel selector. Long-press a channel to forget it."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
+                    style="@style/XV.CaptionBlock"
+                    android:text="Off = no mesh leg. Backup = mesh carries the channel only when the server is down. Both = transmit on server and mesh every time (no gap, more radio traffic)." />
 
                 <LinearLayout
                     android:id="@+id/xv_mesh_channel_container"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Fast mass-clear. Long-press a single row to forget one;
-                     this clears the whole list at once. Shown only when
-                     there's something to clear (toggled in code). -->
-                <Button
-                    android:id="@+id/xv_btn_mesh_forget_all"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="end"
-                    android:layout_marginTop="4dp"
-                    android:text="Forget all"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="12sp"
-                    android:textAllCaps="false"
-                    android:background="@android:color/transparent"/>
-
-                <!-- Provision + share. A channel is provisioned by NAME
-                     (the multicast group/port derive automatically — no
-                     IP or port to enter); sharing hands the whole channel
-                     set + keys to peers as a passphrase-locked plan so a
-                     fully offline team converges with no manual pinning. -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Provision &amp; share"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Create a channel and XV picks everything — name, multicast group, and encryption key — so there's nothing to configure. Share the plan and everyone's device joins the same channels offline; import one you were sent."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    android:orientation="vertical" />
 
                 <Button
-                    android:id="@+id/xv_btn_mesh_provision"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Create a channel"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    android:id="@+id/xv_btn_mesh_add"
+                    style="@style/XV.Button.Pill"
+                    android:layout_marginTop="10dp"
+                    android:text="+  Add channel" />
 
-                <Button
-                    android:id="@+id/xv_btn_mesh_configure"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Configure manually / interop…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <Button
-                    android:id="@+id/xv_btn_mesh_share"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Share channel plan…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <Button
-                    android:id="@+id/xv_btn_mesh_import"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Import channel plan…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="External Patch (OpenManet)"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Bridge the current channel to a secondary cleartext group (e.g. 224.0.0.1:5007)."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
+                <!-- Add-channel presets (toggled by xv_btn_mesh_add). -->
                 <LinearLayout
+                    android:id="@+id/xv_mesh_add_presets"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp">
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                    <EditText
-                        android:id="@+id/xv_edit_patch_group"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:hint="Group IP"
-                        android:textSize="14sp"
+                    <LinearLayout
+                        android:id="@+id/xv_btn_mesh_provision"
+                        style="@style/XV.Card"
                         android:background="@drawable/xv_card_bg"
-                        android:paddingHorizontal="12dp"
-                        android:layout_marginEnd="4dp"
-                        android:singleLine="true"/>
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
 
-                    <EditText
-                        android:id="@+id/xv_edit_patch_port"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:hint="Port"
-                        android:inputType="number"
-                        android:textSize="14sp"
-                        android:background="@drawable/xv_card_bg"
-                        android:paddingHorizontal="12dp"
-                        android:layout_marginStart="4dp"
-                        android:singleLine="true"/>
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Private channel" />
+
+                        <TextView
+                            style="@style/XV.Text.Caption"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Encrypted. XV picks the name, group and key — nothing to type." />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/xv_btn_mesh_import"
+                        style="@style/XV.Card"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
+
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Join a channel plan" />
+
+                        <TextView
+                            style="@style/XV.Text.Caption"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Import a plan a teammate shared with you." />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/xv_btn_mesh_configure"
+                        style="@style/XV.Card"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
+
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Custom address / interop" />
+
+                        <TextView
+                            style="@style/XV.Text.Caption"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="For other systems: enter the group address and port yourself." />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <Button
-                    android:id="@+id/xv_btn_patch_save"
+                    android:id="@+id/xv_btn_mesh_share"
+                    style="@style/XV.Button"
+                    android:text="Share channel plan…" />
+
+                <!-- 3a. Interop patch: device-local OpenMANET / VX bridge for
+                     the current channel. Collapsed by default. -->
+                <TextView
+                    android:id="@+id/xv_mesh_patch_toggle"
+                    style="@style/XV.Text.Body"
                     android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Apply Patch to Current Channel"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="16dp"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:text="Interop patch (this device)  ▸"
+                    android:textColor="@color/xv_text_dim" />
+
+                <LinearLayout
+                    android:id="@+id/xv_mesh_patch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Bridge the current channel to an OpenMANET or VX group. This setting stays on this device and is never shared. Interop traffic is unencrypted." />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/xv_edit_patch_group"
+                            style="@style/XV.Field"
+                            android:layout_width="0dp"
+                            android:layout_weight="2"
+                            android:hint="Group IP"
+                            android:inputType="text" />
+
+                        <EditText
+                            android:id="@+id/xv_edit_patch_port"
+                            style="@style/XV.Field"
+                            android:layout_width="0dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:hint="Port"
+                            android:inputType="number" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/xv_btn_patch_save"
+                        style="@style/XV.Button"
+                        android:text="Apply patch to current channel" />
+                </LinearLayout>
+
+                <!-- 3b. Security & recovery: keys, forget, wipe. Collapsed. -->
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Security &amp; recovery" />
+
+                <TextView
+                    android:id="@+id/xv_mesh_security_toggle"
+                    style="@style/XV.Row"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:text="Keys, forget, wipe  ▸"
                     android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    android:textSize="14sp" />
 
-                <!-- Rotate key. Regenerates the active channel's key and
-                     re-keys every still-trusted (cert-holding) peer
-                     automatically; guests holding only the old key fall
-                     off at the next epoch (#92 / #95). Non-destructive to
-                     the honest team, so it is not styled as an error. -->
-                <TextView
+                <LinearLayout
+                    android:id="@+id/xv_mesh_security"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Rotate the active channel's key now. Everyone still trusted is re-keyed automatically; guests you shared the old key with are cut off. Use after sharing a key in the field, or if a device or passphrase may be exposed."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="12dp"/>
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                <Button
-                    android:id="@+id/xv_btn_mesh_rotate_key"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Rotate key now…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    <Button
+                        android:id="@+id/xv_btn_mesh_rotate_key"
+                        style="@style/XV.Button"
+                        android:text="Rotate the active channel's key…" />
 
-                <!-- Panic wipe. Destructive + local-only: shreds every
-                     stored channel key + config and the Keystore key that
-                     seals them, without a full ATAK data clear. Gated in
-                     code behind a double slide-to-confirm. -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Danger zone"
-                    android:textColor="@color/xv_err"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="24dp"/>
+                    <TextView
+                        style="@style/XV.CaptionBlock"
+                        android:text="Everyone still trusted is re-keyed automatically; guests you shared the old key with are cut off. Use after sharing a key in the field, or if a device or passphrase may be exposed." />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Immediately erase every mesh channel key and setting from this device. Use if the device may be lost or compromised. This can't be undone."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    <Button
+                        android:id="@+id/xv_btn_mesh_forget_all"
+                        style="@style/XV.Button"
+                        android:text="Forget all offline channels…" />
 
-                <Button
-                    android:id="@+id/xv_btn_mesh_wipe"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Wipe mesh keys…"
-                    android:textColor="@color/xv_err"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    <Button
+                        android:id="@+id/xv_btn_mesh_wipe"
+                        style="@style/XV.Button.Danger"
+                        android:layout_marginTop="16dp"
+                        android:text="Wipe mesh keys…" />
+
+                    <TextView
+                        style="@style/XV.CaptionBlock"
+                        android:text="Erases every mesh channel key and setting from this device. Use if the device may be lost or compromised. Can't be undone." />
+                </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"/>
+                    android:layout_height="40dp" />
             </LinearLayout>
         </FrameLayout>
     </ScrollView>
