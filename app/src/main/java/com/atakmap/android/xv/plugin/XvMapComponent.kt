@@ -2696,6 +2696,8 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun secondaryOnMesh(): Boolean = meshCarriesSlot1()
 
+            override fun meshEndpointForSlot(slot: Int): String? = meshEndpointForSlotInternal(slot)
+
             override fun secondaryRegistered(): Boolean {
                 val t = mumbleTransport() ?: return false
                 // VS2 PTT lights up only when the secondary session has
@@ -3247,13 +3249,9 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun meshStatus(): XvDropDownReceiver.MeshStatus? {
                 val snap = meshVoiceManager?.statusSnapshot() ?: return null
-                // The live leg's actual group:port — this is the address
-                // voice is flowing over right now, so it's authoritative
-                // for interop (vs. re-deriving, which depends on the
-                // current server identity). legs excludes the rendezvous
-                // discovery leg, so the first value is the primary channel.
-                val primaryEndpoint = meshVoiceManager?.activeLegs()?.values?.firstOrNull()
-                val endpointStr = primaryEndpoint?.let { "${it.groupAddress}:${it.port}" }
+                // The state only: each channel's address shows on its own
+                // row while that channel is on the mesh (meshEndpointForSlot).
+                val endpointStr = meshEndpointForSlotInternal(0)
                 val label =
                     buildString {
                         append(if (snap.active) "MESH ACTIVE" else "MESH READY")
@@ -3264,9 +3262,6 @@ class XvMapComponent : AbstractMapComponent() {
                         // says "we send unencrypted", this says "we
                         // can't hear them".
                         if (snap.keyNeeded) append(" · KEY NEEDED")
-                        // Operator-visible group so failover voice isn't a
-                        // black box and the address can be shared for interop.
-                        if (endpointStr != null) append(" · $endpointStr")
                     }
                 return XvDropDownReceiver.MeshStatus(
                     label = label,
@@ -6961,6 +6956,15 @@ class XvMapComponent : AbstractMapComponent() {
 
     // Mesh leg currently carrying voice (server down, failover active).
     private fun meshCarrying(): Boolean = meshVoiceManager?.statusSnapshot()?.active == true
+
+    // The live leg group:port of [slot]'s channel, or null: the address
+    // voice is flowing over right now, so authoritative for interop (vs.
+    // re-deriving, which depends on the current server identity).
+    private fun meshEndpointForSlotInternal(slot: Int): String? {
+        val mgr = meshVoiceManager ?: return null
+        val ep = mgr.channelForSlot(slot)?.let { mgr.activeLegs()[it] } ?: return null
+        return "${ep.groupAddress}:${ep.port}"
+    }
 
     // Channel 2's mesh leg carrying voice (server down, failover active).
     private fun meshCarriesSlot1(): Boolean = meshVoiceManager?.carriesSlot(1) == true

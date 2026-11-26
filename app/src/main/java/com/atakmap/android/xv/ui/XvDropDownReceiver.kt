@@ -104,6 +104,9 @@ class XvDropDownReceiver(
         // Channel 2 is carried by its mesh leg (server down, failover on).
         fun secondaryOnMesh(): Boolean = false
 
+        // Live mesh group:port of [slot]'s channel, or null (no leg).
+        fun meshEndpointForSlot(slot: Int): String? = null
+
         // True if the operator can transmit on the slot's currently-
         // joined channel. Driven by the suppress flag on our own
         // Mumble UserState (set by OTS direction enforcement when our
@@ -1188,19 +1191,7 @@ class XvDropDownReceiver(
                 pluginContext.resources.getColor(meshColor, null),
             )
             meshStatusView.setTypeface(null, if (mesh.cleartext) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
-            // Long-press the failover status to copy the live group:port —
-            // the quick path to hand an OpenManet / legacy-VX peer the
-            // address while a mission is running.
-            val ep = mesh.groupEndpoint
-            meshStatusView.setOnLongClickListener {
-                if (ep != null) {
-                    copyToClipboard("XV mesh group", ep)
-                    meshToast("Copied $ep")
-                    true
-                } else {
-                    false
-                }
-            }
+            meshStatusView.setOnLongClickListener(null)
         }
 
         // Channel rows. One row per slot: hex badge · name + who's
@@ -1235,6 +1226,22 @@ class XvDropDownReceiver(
                 connected = connected,
             )
         }
+        fitMainToContent(v)
+    }
+
+    // Portrait main pane height last asked of ATAK (fraction of the screen).
+    private var mainPaneFraction = 0.0
+
+    // Keep the portrait main pane fitted to its content: ATAK keeps the
+    // previous pane's size when Settings or the channel list return here,
+    // and rows come and go (call bar, channel 2, the mesh line). Only
+    // while the main panel is the pane on screen.
+    private fun fitMainToContent(v: View) {
+        if (!isPortrait() || isClosed() || mainView !== v || !v.isAttachedToWindow) return
+        val fraction = mainPanelPortraitHeight(v)
+        if (kotlin.math.abs(fraction - mainPaneFraction) < MAIN_PANEL_RESIZE_STEP) return
+        mainPaneFraction = fraction
+        callResize(FULL_WIDTH, fraction)
     }
 
     // Map HUD notice with nobody talking: the server's refusal (shared by
@@ -1382,10 +1389,22 @@ class XvDropDownReceiver(
         v.findViewById<View>(if (slot == 0) R.id.xv_ptt_header_1 else R.id.xv_ptt_header_2).contentDescription =
             "Channel ${slot + 1}: ${channel?.let { MumbleTransport.lobbyLabel(it) } ?: "none"}. Opens the channel list."
         val idle = slotIdle(slot, live, connected, listenOnly)
+        // On the mesh the row names its own leg's address ("mesh · group:port");
+        // long-press copies it for an interop peer.
+        val meshEp = if (idle.first == SlotRowPolicy.Idle.MESH.text) controller.meshEndpointForSlot(slot) else null
+        v.findViewById<TextView>(ids.activity).setOnLongClickListener(
+            meshEp?.let { ep ->
+                View.OnLongClickListener {
+                    copyToClipboard("XV mesh group", ep)
+                    meshToast("Copied $ep")
+                    true
+                }
+            },
+        )
         renderSlotActivity(
             v.findViewById(ids.activity),
             speakers = if (live) controller.activeSpeakers(slot) else emptyList(),
-            idleText = ptt1Hint(slot) ?: idle.first,
+            idleText = ptt1Hint(slot) ?: meshEp?.let { "${idle.first} · $it" } ?: idle.first,
             idleColor = if (ptt1Hint(slot) != null) R.color.xv_voice else idle.second,
         )
         renderSlotPtt(
@@ -4791,10 +4810,14 @@ class XvDropDownReceiver(
 
     // The compact main panel opens only as big as it needs: a third of
     // the width in landscape, and in portrait its measured content height
-    // (plus slack for the in-call bar) instead of half the screen. The
+    // (re-fitted as rows come and go) instead of half the screen. The
     // channel list and Settings keep the larger panes.
     private fun showMainDropDown(v: View) {
         showDropDown(v, mainPanelLandscapeWidth(), FULL_HEIGHT, FULL_WIDTH, mainPanelPortraitHeight(v), this)
+        // Coming back from Settings / the channel list ATAK keeps that
+        // pane's (larger) size: re-fit once the panel is showing.
+        mainPaneFraction = 0.0
+        mainHandler.post { fitMainToContent(v) }
     }
 
     // The map view's long / short sides in px: the space ATAK actually
@@ -4839,7 +4862,8 @@ class XvDropDownReceiver(
 
         // Extra portrait height for the main panel beyond its measured
         // content: room for the in-call bar without clipping a row.
-        private const val MAIN_PANEL_HEIGHT_SLACK = 0.06
+        private const val MAIN_PANEL_HEIGHT_SLACK = 0.02
+        private const val MAIN_PANEL_RESIZE_STEP = 0.01
 
         // Settings tab indexes (Devices | TX/RX | Server | Mesh).
         private const val SETTINGS_TAB_SERVER = 2

@@ -78,7 +78,7 @@ Other parts of the panel:
   - **no TAK server · tap to set up**. Tap to open Settings › Server.
 - **Mesh line**: shown only while a mesh leg exists (hidden when mesh is off or no channel has a leg).
   - Bluebonnet normally; Honey for `· KEY NEEDED`; red, bold, only for `· CLEAR` (an unencrypted leg).
-  - **Long-press** it to copy the live mesh group address (`group:port`) for an interop peer.
+  - It shows the mesh state only. While a channel is on the mesh, its own row reads **mesh · `group:port`** (that channel's live mesh address); **long-press** the row's mesh text to copy it for an interop peer.
 - **Channel 2 off**: its row becomes **+ Add channel 2 · (both PTT buttons key 1)**.
 - **Left-handed** (Settings › TX/RX) puts the PTT button at the left of each row.
 
