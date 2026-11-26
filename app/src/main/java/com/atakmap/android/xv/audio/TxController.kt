@@ -268,7 +268,15 @@ class TxController(
                         // on the next unrelated CONNECTED.
                         pendingDenyTone = false
                         synchronized(this@TxController) {
-                            if (state != State.IDLE && holdsSco) {
+                            val held = holdsSco
+                            // Our hold is on a link that no longer exists.
+                            // Drop it now: keeping holdsSco=true until the
+                            // cool-down made the next press skip acquire()
+                            // and, after the warm-up timeout, transmit on
+                            // the phone mic while the UI showed the
+                            // speaker-mic.
+                            releaseScoRef("SCO $s")
+                            if (state != State.IDLE && held) {
                                 Log.w(TAG, "SCO $s during TX — abandoning")
                                 stopInternal()
                             }
@@ -516,12 +524,8 @@ class TxController(
             // if it isn't already up so the retry on the correct
             // channel doesn't pay the 1-2s SCO setup latency.
             val isHfp = btPolicy.classify() == BtAudioMode.HFP_ONLY
-            if (isHfp && !holdsSco) {
-                scoLink.addStateListener(scoListener)
-                scoLink.acquire(this)
-                holdsSco = true
-            }
-            if (isHfp && scoLink.state != ScoLink.State.CONNECTED) {
+            if (isHfp) acquireScoRef()
+            if (isHfp && holdsSco && scoLink.state != ScoLink.State.CONNECTED) {
                 // Cold SCO — defer the deny tone until the link is
                 // actually up so it reaches the AINA speaker rather
                 // than the phone speaker.
@@ -584,12 +588,7 @@ class TxController(
             // a state change that had already happened. Result:
             // 3 s TPT latency on every PTT-after-RX even though SCO
             // was perfectly warm.
-            if (scoLink.state == ScoLink.State.CONNECTED) {
-                if (!holdsSco) {
-                    scoLink.addStateListener(scoListener)
-                    scoLink.acquire(this)
-                    holdsSco = true
-                }
+            if (scoLink.state == ScoLink.State.CONNECTED && acquireScoRef()) {
                 // Warm-SCO: modem is already stable, no AOC underrun
                 // window to work around. Clear the cold flag so the
                 // TPT hold and drop-first-N mitigations stay dormant.
@@ -600,10 +599,16 @@ class TxController(
             }
             // Cold path — link genuinely down. Acquire and wait for
             // the state transition to drive PRIMING via scoListener.
-            if (!holdsSco) {
-                scoLink.addStateListener(scoListener)
-                scoLink.acquire(this)
-                holdsSco = true
+            if (!acquireScoRef()) {
+                // The link failed (or was refused) inside acquire() —
+                // no device, or a cellular call owns the audio path.
+                // Waiting out SCO_WARMUP_MS would only delay the same
+                // outcome: go now, on whatever input is up. The plant
+                // flags a TX that isn't on the selected speaker-mic.
+                Log.w(TAG, "SCO unavailable at press — transmitting without it")
+                currentBurstColdSco = false
+                maybeStartPriming()
+                return
             }
             // Cold-SCO burst: latch the flag NOW while we still know
             // the pre-acquire state. By the time scoListener drives
@@ -1670,9 +1675,10 @@ class TxController(
             return
         }
         Log.i(TAG, "armHotMic: pre-acquiring SCO so first PTT is instant")
-        scoLink.addStateListener(scoListener)
-        scoLink.acquire(this)
-        holdsSco = true
+        if (!acquireScoRef()) {
+            Log.i(TAG, "armHotMic: SCO unavailable right now — not holding")
+            return
+        }
         // Seed the idle clock and start the cool-down poll so an
         // armed-but-never-pressed Hot Mic still respects the
         // HOT_MIC_IDLE_RELEASE_MS ceiling. Without this, the cool-down
@@ -1706,6 +1712,38 @@ class TxController(
         scoLink.release(this)
         scoLink.removeStateListener(scoListener)
         holdsSco = false
+    }
+
+    /**
+     * Take our SCO hold if we don't have one, and report whether the
+     * link is usable. [holdsSco] is set BEFORE acquire() so a link that
+     * fails synchronously inside acquire() reaches [scoListener] as a
+     * failure of OUR hold rather than being ignored. A hold left on a
+     * dead link is dropped and retaken. Caller holds this monitor.
+     */
+    private fun acquireScoRef(): Boolean {
+        if (holdsSco && scoLink.state == ScoLink.State.DISCONNECTED) {
+            releaseScoRef("stale hold on a disconnected link")
+        }
+        if (!holdsSco) {
+            holdsSco = true
+            scoLink.addStateListener(scoListener)
+            scoLink.acquire(this)
+        }
+        if (holdsSco && scoLink.state == ScoLink.State.DISCONNECTED) {
+            releaseScoRef("link failed during acquire")
+        }
+        return holdsSco
+    }
+
+    /** Drop our SCO hold (idempotent). Caller holds this monitor. */
+    private fun releaseScoRef(reason: String) {
+        if (!holdsSco) return
+        Log.i(TAG, "releasing SCO hold ($reason)")
+        cooldownHandler.removeCallbacks(coolDownReleaseRunnable)
+        holdsSco = false
+        scoLink.removeStateListener(scoListener)
+        scoLink.release(this)
     }
 
     fun shutdown() {

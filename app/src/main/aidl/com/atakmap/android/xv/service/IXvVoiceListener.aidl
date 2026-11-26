@@ -89,4 +89,9 @@ interface IXvVoiceListener {
     // transmitted. The service side already throttles repeated fires
     // during rapid button mashing.
     void onPttBlockedByCellularCall(String reason);
+
+    // A transmission started on a different input than the selected
+    // speaker-mic — the phone's own mic (SCO down) or another Bluetooth
+    // device. [reason] is operator-facing text; the service throttles it.
+    oneway void onTxRouteWarning(String reason);
 }

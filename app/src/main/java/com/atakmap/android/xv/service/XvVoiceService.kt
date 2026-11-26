@@ -1093,6 +1093,15 @@ class XvVoiceService : Service() {
                 fanOut { it.onPttBlockedByCellularCall(reason) }
             }
 
+            override fun onTxRouteWarning(reason: String) {
+                com.atakmap.android.xv.util.DiagnosticLogger.event(
+                    tag = "XvVoiceSvc",
+                    severity = 'W',
+                    message = "TX route warning: $reason",
+                )
+                fanOut { it.onTxRouteWarning(reason) }
+            }
+
             override fun onPlaceTelecomCall(tag: String) {
                 placeTelecomCallInternal(tag)
             }

@@ -194,6 +194,10 @@ class AudioPlayback(
     @Volatile
     private var lastChannelMoveMs: Long = 0L
 
+    // Until when cold RX skips trying SCO after an immediate refusal.
+    @Volatile
+    private var scoRefusedUntilMs: Long = 0L
+
     fun playPcm(samples: ShortArray) {
         if (samples.isEmpty()) return
         // L4: drop frames that arrive within CHANNEL_MOVE_DEBOUNCE_MS
@@ -430,6 +434,13 @@ class AudioPlayback(
         val btMode = btPolicy?.classify() ?: BtAudioMode.NONE
         val link = scoLink
         if (btMode == BtAudioMode.HFP_ONLY && link != null) {
+            val nowMs = android.os.SystemClock.elapsedRealtime()
+            if (nowMs < scoRefusedUntilMs) {
+                // SCO was refused moments ago (cellular call owns the
+                // audio path, or no BT comm device): drop this frame
+                // rather than retry the link on every 20 ms frame.
+                return
+            }
             // Need SCO before audio can flow to the BT speakermic. Buffer
             // PCM until SCO state CONNECTED, then drain.
             //
@@ -453,6 +464,15 @@ class AudioPlayback(
             Log.i(TAG, "HFP-only BT route — engaging SCO before playback (cold burst, frame 1 buffered)")
             link.acquire(this)
             link.addStateListener(scoListener)
+            if (link.state == ScoLink.State.DISCONNECTED) {
+                // Failed or refused inside acquire(): the listener was
+                // added afterwards and will never hear it, which used to
+                // leave RX parked in PENDING_SCO buffering forever. Tear
+                // down now and hold off before the next attempt.
+                Log.w(TAG, "SCO unavailable at RX start — dropping burst, retry in ${SCO_REFUSED_BACKOFF_MS}ms")
+                scoRefusedUntilMs = nowMs + SCO_REFUSED_BACKOFF_MS
+                onScoDisconnected()
+            }
         } else {
             // No SCO needed — STREAM_MUSIC routes via the system to A2DP /
             // speaker / wired / earpiece per AudioRouter preferred device.
@@ -806,6 +826,9 @@ class AudioPlayback(
     }
 
     companion object {
+        // Back-off after SCO is refused at RX start (see playPcm).
+        private const val SCO_REFUSED_BACKOFF_MS: Long = 2_000L
+
         private const val TAG = "XvAudioPlayback"
 
         private val BT_OUTPUT_TYPES =
