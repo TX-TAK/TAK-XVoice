@@ -5,8 +5,10 @@ import androidx.test.core.app.ApplicationProvider
 import com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
 import com.atakmap.android.xv.transport.multicast.CryptoPolicy
 import com.atakmap.android.xv.transport.multicast.MulticastMode
+import com.atakmap.android.xv.transport.multicast.WireFormat
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -112,24 +114,28 @@ class XvSettingsMultiServerCollisionTest {
     }
 
     @Test
-    fun `CURRENT (incorrect) - crypto policy for the same channel name is overwritten by the second server`() {
-        // Server 1 demands encryption for "ops"; server 2's "ops" is a
-        // cleartext interop channel of the same name.
-        // The per-channel config is the single source of crypto posture.
+    fun `CURRENT (incorrect) - cleartext patch leg for the same channel name bleeds across servers`() {
+        // Server 1's "ops" is encrypted mesh only; server 2's "ops" also
+        // patches to a cleartext OpenMANET group. (The XV-native leg is
+        // always REQUIRED, so the patch is the one crypto-relevant surface
+        // left that can differ between the two.)
+        settings.persistChannelMulticastConfig(ChannelMulticastConfig(channelName = CHANNEL))
+        assertNull(settings.effectiveChannelMulticastConfig(CHANNEL).patchGroup)
+
         settings.persistChannelMulticastConfig(
-            ChannelMulticastConfig(channelName = CHANNEL, cryptoPolicy = CryptoPolicy.REQUIRED),
+            ChannelMulticastConfig(
+                channelName = CHANNEL,
+                patchGroup = "239.1.2.3",
+                patchPort = 5007,
+                patchWireFormat = WireFormat.OPENMANET_RTP,
+                patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
+            ),
         )
+
+        // CURRENT (incorrect): server 2's cleartext patch now applies to
+        // BOTH servers' "ops", re-emitting server 1's traffic in the clear.
+        assertEquals("239.1.2.3", settings.effectiveChannelMulticastConfig(CHANNEL).patchGroup)
         assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig(CHANNEL).cryptoPolicy)
-
-        settings.persistChannelMulticastConfig(
-            ChannelMulticastConfig(channelName = CHANNEL, cryptoPolicy = CryptoPolicy.CLEARTEXT),
-        )
-
-        // CURRENT (incorrect): server 2's cleartext posture now applies to
-        // BOTH servers' "ops" — a crypto-posture bleed across deployments,
-        // the most safety-relevant facet of this collision.
-        assertEquals(CryptoPolicy.CLEARTEXT, settings.effectiveChannelMulticastConfig(CHANNEL).cryptoPolicy)
-        assertNotEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig(CHANNEL).cryptoPolicy)
     }
 
     companion object {

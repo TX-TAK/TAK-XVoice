@@ -6,8 +6,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
 import com.atakmap.android.xv.transport.multicast.CryptoPolicy
 import com.atakmap.android.xv.transport.multicast.WireFormat
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -15,9 +15,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * The retired `xv_crypto_policy_<channel>` prefs are folded into the
- * per-channel configs once and then deleted, so the config is the only
- * crypto posture left on disk.
+ * The mesh-policy invariant on real SharedPreferences: XV-native legs are
+ * always REQUIRED (on read, on write, and on disk after the once-only
+ * migration), cleartext lives only on interop legs, and the retired
+ * `xv_crypto_policy_<channel>` prefs are deleted.
  */
 @RunWith(RobolectricTestRunner::class)
 class XvSettingsCryptoPolicyMigrationTest {
@@ -32,40 +33,69 @@ class XvSettingsCryptoPolicyMigrationTest {
         settings = XvSettings { prefs }
     }
 
+    // Write a config's JSON straight to disk, bypassing persist-time
+    // normalization, to model data left by an older build.
+    private fun storeRaw(vararg cfgs: ChannelMulticastConfig) {
+        val set = prefs.getStringSet(MULTICAST_KEY, emptySet())!!.toMutableSet()
+        cfgs.forEach { set.add(it.toJson()) }
+        prefs.edit().putStringSet(MULTICAST_KEY, set).commit()
+    }
+
+    private fun rawPolicies(): Map<String, String> =
+        prefs.getStringSet(MULTICAST_KEY, emptySet())!!.associate {
+            val o = JSONObject(it)
+            o.getString("channel") to o.getString("cryptoPolicy")
+        }
+
     @Test
-    fun `downgraded channel is restored and every legacy key is removed`() {
-        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
-        settings.persistChannelMulticastConfig(
+    fun `migration rewrites every stored XV-native policy to REQUIRED and drops legacy prefs`() {
+        storeRaw(
+            ChannelMulticastConfig("chosen", cryptoPolicy = CryptoPolicy.PREFERRED),
+            ChannelMulticastConfig("clear", cryptoPolicy = CryptoPolicy.CLEARTEXT),
+        )
+        prefs.edit().putString("xv_crypto_policy_chosen", "PREFERRED").commit()
+
+        assertEquals(2, settings.migrateMeshCryptoPolicy().normalized.size)
+
+        assertEquals(mapOf("chosen" to "REQUIRED", "clear" to "REQUIRED"), rawPolicies())
+        assertTrue(prefs.all.keys.none { it.startsWith("xv_crypto_policy_") })
+    }
+
+    @Test
+    fun `migration runs once, but reads stay normalized afterwards`() {
+        storeRaw(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
+        assertEquals(1, settings.migrateMeshCryptoPolicy().normalized.size)
+
+        // An older build writes PREFERRED again after the flag is set.
+        storeRaw(ChannelMulticastConfig("late", cryptoPolicy = CryptoPolicy.PREFERRED))
+        assertTrue(settings.migrateMeshCryptoPolicy().normalized.isEmpty())
+        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("late").cryptoPolicy)
+    }
+
+    @Test
+    fun `persist normalizes an XV-native policy to REQUIRED`() {
+        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.CLEARTEXT))
+        assertEquals("REQUIRED", rawPolicies()["ops"])
+    }
+
+    @Test
+    fun `interop primary is split into encrypted primary plus cleartext patch`() {
+        storeRaw(
             ChannelMulticastConfig(
-                "interop",
+                "vx",
                 wireFormat = WireFormat.VX_COMPAT,
                 cryptoPolicy = CryptoPolicy.CLEARTEXT,
                 pinnedGroup = "239.1.1.1",
                 pinnedPort = 5007,
             ),
         )
-        prefs.edit()
-            .putString("xv_crypto_policy_ops", "REQUIRED")
-            .putString("xv_crypto_policy_interop", "CLEARTEXT")
-            .putString("xv_crypto_policy_orphan", "REQUIRED")
-            .commit()
-
-        assertEquals(1, settings.migrateLegacyCryptoPolicyPrefs())
-
-        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
-        assertEquals(CryptoPolicy.CLEARTEXT, settings.effectiveChannelMulticastConfig("interop").cryptoPolicy)
-        assertNull("orphan pref is not materialized into an override", settings.channelMulticastConfigFor("orphan"))
-        assertTrue(prefs.all.keys.none { it.startsWith("xv_crypto_policy_") })
-    }
-
-    @Test
-    fun `migration is idempotent`() {
-        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
-        prefs.edit().putString("xv_crypto_policy_ops", "REQUIRED").commit()
-
-        assertEquals(1, settings.migrateLegacyCryptoPolicyPrefs())
-        assertEquals(0, settings.migrateLegacyCryptoPolicyPrefs())
-        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
+        settings.migrateMeshCryptoPolicy()
+        val cfg = settings.effectiveChannelMulticastConfig("vx")
+        assertEquals(WireFormat.XV_NATIVE, cfg.wireFormat)
+        assertEquals(CryptoPolicy.REQUIRED, cfg.cryptoPolicy)
+        assertEquals("239.1.1.1", cfg.patchGroup)
+        assertEquals(WireFormat.VX_COMPAT, cfg.patchWireFormat)
+        assertEquals(CryptoPolicy.CLEARTEXT, cfg.patchCryptoPolicy)
     }
 
     @Test
@@ -73,30 +103,8 @@ class XvSettingsCryptoPolicyMigrationTest {
         assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("fresh").cryptoPolicy)
     }
 
-    @Test
-    fun `stored old-default PREFERRED is upgraded once, a later explicit choice sticks`() {
-        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
-
-        assertEquals(1, settings.migrateFailoverDefaultToRequired())
-        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
-
-        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
-        assertEquals(0, settings.migrateFailoverDefaultToRequired())
-        assertEquals(CryptoPolicy.PREFERRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
-    }
-
-    @Test
-    fun `a legacy PREFERRED pref proves a deliberate choice and is not upgraded`() {
-        settings.persistChannelMulticastConfig(ChannelMulticastConfig("chosen", cryptoPolicy = CryptoPolicy.PREFERRED))
-        settings.persistChannelMulticastConfig(ChannelMulticastConfig("old-default", cryptoPolicy = CryptoPolicy.PREFERRED))
-        prefs.edit().putString("xv_crypto_policy_chosen", "PREFERRED").commit()
-
-        // Production order: upgrade first (reads the legacy prefs), then fold.
-        assertEquals(1, settings.migrateFailoverDefaultToRequired())
-        settings.migrateLegacyCryptoPolicyPrefs()
-
-        assertEquals(CryptoPolicy.PREFERRED, settings.effectiveChannelMulticastConfig("chosen").cryptoPolicy)
-        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("old-default").cryptoPolicy)
-        assertTrue(prefs.all.keys.none { it.startsWith("xv_crypto_policy_") })
+    companion object {
+        // XvSettings' private PREF_CHANNEL_MULTICAST key.
+        private const val MULTICAST_KEY = "channel_multicast_configs"
     }
 }

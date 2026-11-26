@@ -380,7 +380,14 @@ class XvSettings(
     // Entries that fail to parse (e.g. written by a newer XV with an
     // enum this build doesn't know) are skipped, degrading that
     // channel to the default rather than failing channel setup.
-    fun channelMulticastConfigs(): List<ChannelMulticastConfig> {
+    //
+    // Every config read here is normalized to the mesh-policy invariant
+    // (ChannelMulticastConfig.meshPolicyNormalized), so a stale PREFERRED /
+    // CLEARTEXT XV-native entry (e.g. written by an older build after the
+    // one-time migration ran) can never reach a live leg.
+    fun channelMulticastConfigs(): List<ChannelMulticastConfig> = rawChannelMulticastConfigs().map { it.meshPolicyNormalized() }
+
+    private fun rawChannelMulticastConfigs(): List<ChannelMulticastConfig> {
         val raw = prefs()?.getStringSet(PREF_CHANNEL_MULTICAST, emptySet()) ?: emptySet()
         return raw
             .mapNotNull { ChannelMulticastConfig.fromJson(it) }
@@ -395,7 +402,10 @@ class XvSettings(
     // Upsert by canonical channel name: at most one override per
     // channel, and a re-save replaces the prior one.
     fun persistChannelMulticastConfig(cfg: ChannelMulticastConfig) {
-        val canonical = cfg.copy(channelName = MulticastGroupDerivation.canonicalChannelName(cfg.channelName))
+        val canonical =
+            cfg
+                .copy(channelName = MulticastGroupDerivation.canonicalChannelName(cfg.channelName))
+                .meshPolicyNormalized()
         val existing =
             prefs()
                 ?.getStringSet(PREF_CHANNEL_MULTICAST, emptySet())
@@ -422,59 +432,30 @@ class XvSettings(
 
     // The config a channel actually runs on: its stored override, else the
     // auto-derived default. Its cryptoPolicy is the ONLY per-channel crypto
-    // posture — UI, interop prompt and the multicast leg all read it here.
+    // posture; UI, interop prompt and the multicast leg all read it here.
     fun effectiveChannelMulticastConfig(channelName: String): ChannelMulticastConfig =
         channelMulticastConfigFor(channelName) ?: ChannelMulticastConfig.defaultFor(channelName)
 
-    // One-time fold of the retired `xv_crypto_policy_<channel>` prefs into
-    // the per-channel configs (see LegacyCryptoPolicyMigration for the
-    // rules), then delete them. Idempotent: once the keys are gone there
-    // is nothing left to fold. Returns the number of configs corrected.
-    // Legacy `xv_crypto_policy_<channel>` values, keyed by channel (prefix
-    // stripped); non-string values are skipped.
-    private fun legacyCryptoPolicyPrefs(p: SharedPreferences): Map<String, String> {
+    // Once-only (flag-guarded) storage rewrite to the mesh-policy invariant
+    // (XV-native legs always REQUIRED, cleartext only on interop legs) plus
+    // deletion of the retired `xv_crypto_policy_<channel>` prefs. Reads and
+    // writes already normalize (channelMulticastConfigs /
+    // persistChannelMulticastConfig), so this only makes disk match. The
+    // report's unconvertible list is current on every call.
+    fun migrateMeshCryptoPolicy(): LegacyCryptoPolicyMigration.Report {
+        val empty = LegacyCryptoPolicyMigration.Report(emptyList(), emptyList())
+        val p = prefs() ?: return empty
+        val report = LegacyCryptoPolicyMigration.plan(rawChannelMulticastConfigs())
+        if (p.getBoolean(PREF_MESH_POLICY_MIGRATED, false)) return report.copy(normalized = emptyList())
+        report.normalized.forEach { persistChannelMulticastConfig(it) }
         val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
-        return p.all
-            .filterKeys { it.startsWith(prefix) }
-            .mapNotNull { (k, v) -> (v as? String)?.let { k.removePrefix(prefix) to it } }
-            .toMap()
-    }
-
-    fun migrateLegacyCryptoPolicyPrefs(): Int {
-        val p = prefs()
-        val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
-        val all: Map<String, Any?> = p?.all ?: emptyMap()
-        val legacyKeys = all.keys.filter { it.startsWith(prefix) }
-        if (p == null || legacyKeys.isEmpty()) return 0
-        val legacy =
-            legacyKeys
-                .mapNotNull { k -> (all[k] as? String)?.let { k.removePrefix(prefix) to it } }
-                .toMap()
-        val fixes = LegacyCryptoPolicyMigration.plan(legacy, channelMulticastConfigs())
-        fixes.forEach { persistChannelMulticastConfig(it) }
+        val legacyKeys = p.all.keys.filter { it.startsWith(prefix) }
         p.edit().apply {
             legacyKeys.forEach { remove(it) }
+            putBoolean(PREF_MESH_POLICY_MIGRATED, true)
             apply()
         }
-        return fixes.size
-    }
-
-    // One-time upgrade of stored XV-native PREFERRED configs to REQUIRED
-    // (see LegacyCryptoPolicyMigration.upgradeOldDefault). Flag-guarded so
-    // a later explicit "Prefer encrypted" choice is never overridden.
-    // Returns the number of configs upgraded.
-    //
-    // MUST run before migrateLegacyCryptoPolicyPrefs(), which deletes the
-    // legacy prefs this reads: a legacy PREFERRED value is a deliberate
-    // operator choice and is excluded from the upgrade.
-    fun migrateFailoverDefaultToRequired(): Int {
-        val p = prefs() ?: return 0
-        if (p.getBoolean(PREF_REQUIRED_DEFAULT_MIGRATED, false)) return 0
-        val explicit = LegacyCryptoPolicyMigration.explicitlyPreferred(legacyCryptoPolicyPrefs(p))
-        val upgrades = LegacyCryptoPolicyMigration.upgradeOldDefault(channelMulticastConfigs(), explicit)
-        upgrades.forEach { persistChannelMulticastConfig(it) }
-        p.edit().putBoolean(PREF_REQUIRED_DEFAULT_MIGRATED, true).apply()
-        return upgrades.size
+        return report
     }
 
     // Sealed per-channel key vault. The bytes stored here are the output
@@ -510,7 +491,9 @@ class XvSettings(
 
         // Persistent keys.
         private const val PREF_AINA_MAC = "aina_mac"
-        private const val PREF_REQUIRED_DEFAULT_MIGRATED = "xv_mesh_required_default_migrated"
+
+        // v2 supersedes the dev-only v1 flag, which preserved explicit PREFERRED.
+        private const val PREF_MESH_POLICY_MIGRATED = "xv_mesh_policy_enforced_v2"
 
         // External-button input pair — see persistedExternalButtonMac.
         //

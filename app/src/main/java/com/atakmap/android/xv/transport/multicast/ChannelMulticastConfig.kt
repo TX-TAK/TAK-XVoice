@@ -50,7 +50,9 @@ enum class WireFormat {
  *               silent rather than cleartext on the air.
  *   PREFERRED — encrypt when a channel key is live, fall back to clear
  *               RTP when keying hasn't converged (and accept clear RX).
- *               Opt-in only; degrades to cleartext, never to silence.
+ *               Kept for wire / stored-config compatibility only: no
+ *               longer selectable, and normalized to REQUIRED on XV-native
+ *               legs ([ChannelMulticastConfig.meshPolicyNormalized]).
  *   CLEARTEXT — never encrypt. Forced for [WireFormat.VX_COMPAT]
  *               (the interop format has no crypto layer at all) and
  *               surfaced in the UI as a clear-traffic badge.
@@ -171,18 +173,53 @@ data class ChannelMulticastConfig(
     }
 
     /**
-     * This config with the primary leg's crypto policy set to [policy],
-     * keeping every other field. An encrypted policy forces
-     * [WireFormat.XV_NATIVE] (interop formats have no crypto layer, so
-     * keeping one would fail [validate]) — that is how an operator
-     * re-encrypts a channel that was set to VX/OpenMANET framing.
-     * CLEARTEXT keeps the current wire format.
+     * True for a primary leg in interop framing (VX_COMPAT / OPENMANET_RTP)
+     * that can be re-expressed as an encrypted XV-native primary plus a
+     * cleartext patch leg on the same endpoint: it is pinned (every valid
+     * interop primary is) and the patch slot is free.
      */
-    fun withPrimaryCryptoPolicy(policy: CryptoPolicy): ChannelMulticastConfig =
-        copy(
-            cryptoPolicy = policy,
-            wireFormat = if (policy == CryptoPolicy.CLEARTEXT) wireFormat else WireFormat.XV_NATIVE,
-        )
+    val interopPrimaryConvertible: Boolean
+        get() =
+            wireFormat.isInterop &&
+                pinnedGroup != null &&
+                pinnedPort != null &&
+                patchGroup == null &&
+                patchPort == null
+
+    /**
+     * The mesh-policy invariant (operator decision 2026-11-25: "the failover
+     * to mesh should always be encrypted"): an XV-native leg is always
+     * [CryptoPolicy.REQUIRED]; cleartext exists only on interop legs.
+     *
+     *  - XV-native primary: forced to REQUIRED (PREFERRED / CLEARTEXT are
+     *    no longer valid choices for it).
+     *  - Interop primary with a free patch slot ([interopPrimaryConvertible],
+     *    e.g. left behind by the VX-interop Accept prompt): becomes an
+     *    XV-native REQUIRED primary on the derived endpoint, and the old
+     *    interop endpoint + framing move to a CLEARTEXT patch leg.
+     *  - Interop primary that already has a patch: returned unchanged
+     *    (two interop endpoints don't fit one config; the migration
+     *    report lists those).
+     *
+     * Patch legs and every other field are untouched. Idempotent.
+     */
+    fun meshPolicyNormalized(): ChannelMulticastConfig =
+        when {
+            wireFormat == WireFormat.XV_NATIVE ->
+                if (cryptoPolicy == CryptoPolicy.REQUIRED) this else copy(cryptoPolicy = CryptoPolicy.REQUIRED)
+            interopPrimaryConvertible ->
+                copy(
+                    wireFormat = WireFormat.XV_NATIVE,
+                    cryptoPolicy = CryptoPolicy.REQUIRED,
+                    pinnedGroup = null,
+                    pinnedPort = null,
+                    patchGroup = pinnedGroup,
+                    patchPort = pinnedPort,
+                    patchWireFormat = wireFormat,
+                    patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
+                )
+            else -> this
+        }
 
     /**
      * Canonical JSON for persistence and for embedding in a comms-plan

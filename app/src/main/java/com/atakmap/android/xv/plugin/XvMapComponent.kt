@@ -3039,13 +3039,12 @@ class XvMapComponent : AbstractMapComponent() {
                 name: String,
                 group: String?,
                 port: String?,
-                channelCryptoPolicy: com.atakmap.android.xv.transport.multicast.CryptoPolicy,
                 editing: Boolean,
             ): String? =
                 if (editing) {
-                    editMeshChannelInternal(name, group, port, channelCryptoPolicy)
+                    editMeshChannelInternal(name, group, port)
                 } else {
-                    saveMeshChannelInternal(name, group, port, channelCryptoPolicy)
+                    saveMeshChannelInternal(name, group, port)
                 }
 
             override fun applyPatchToCurrentChannel(group: String, port: String): String? {
@@ -3980,32 +3979,13 @@ class XvMapComponent : AbstractMapComponent() {
         name: String,
         group: String?,
         port: String?,
-        channelCryptoPolicy: com.atakmap.android.xv.transport.multicast.CryptoPolicy,
     ): String? {
-        val (wireFormat, cryptoPolicy) = when (channelCryptoPolicy) {
-            com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED ->
-                Pair(
-                    com.atakmap.android.xv.transport.multicast.WireFormat.XV_NATIVE,
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-                )
-            com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED ->
-                Pair(
-                    com.atakmap.android.xv.transport.multicast.WireFormat.XV_NATIVE,
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED
-                )
-            com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT ->
-                Pair(
-                    com.atakmap.android.xv.transport.multicast.WireFormat.VX_COMPAT,
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT
-                )
-        }
+        // Always XV-native + REQUIRED (mesh-policy invariant).
         val result =
             com.atakmap.android.xv.provisioning.MeshChannelSpec.build(
                 name = name,
                 group = group,
                 port = port,
-                wireFormat = wireFormat,
-                cryptoPolicy = cryptoPolicy,
             )
         val config = result.config ?: return result.error ?: "Invalid channel configuration."
         settings.persistChannelMulticastConfig(config)
@@ -4043,14 +4023,21 @@ class XvMapComponent : AbstractMapComponent() {
     // as the transport already enforced them.
     private fun runCryptoPolicyMigrations() {
         try {
-            // Order matters: the default upgrade reads the legacy prefs
-            // (explicit PREFERRED choices) that the fold then deletes.
-            val upgraded = settings.migrateFailoverDefaultToRequired()
-            if (upgraded > 0) Log.i(TAG, "crypto-policy migration: $upgraded channel(s) moved to the REQUIRED default")
-            val fixed = settings.migrateLegacyCryptoPolicyPrefs()
-            if (fixed > 0) Log.i(TAG, "crypto-policy migration: restored REQUIRED on $fixed channel(s)")
+            val report = settings.migrateMeshCryptoPolicy()
+            if (report.normalized.isNotEmpty()) {
+                Log.i(TAG, "mesh crypto migration: ${report.normalized.size} channel(s) moved to encrypted XV-native")
+            }
+            if (report.unconvertibleInteropPrimaries.isNotEmpty()) {
+                // Patch slot already taken: can't split into encrypted
+                // primary + cleartext patch without dropping an endpoint.
+                Log.w(
+                    TAG,
+                    "mesh crypto migration: ${report.unconvertibleInteropPrimaries.size} channel(s) " +
+                        "still have a cleartext interop primary (patch slot in use)",
+                )
+            }
         } catch (t: Throwable) {
-            Log.w(TAG, "crypto-policy migration failed", t)
+            Log.w(TAG, "mesh crypto migration failed", t)
         }
     }
 
@@ -4063,15 +4050,13 @@ class XvMapComponent : AbstractMapComponent() {
     }
 
     // Edit an existing channel from the "Configure a channel" form. Keeps
-    // its key, mode, patch leg and primary-channel selection; only the
-    // fields the form shows (pin, crypto policy) change. A key is minted
-    // only when a cleartext channel becomes encrypted with none held —
-    // see MeshChannelSpec.edit. Rotation stays the explicit Rotate action.
+    // its key, mode, patch leg and primary-channel selection; only the pin
+    // changes. Never mints a key (see MeshChannelSpec.edit); rotation
+    // stays the explicit Rotate action.
     private fun editMeshChannelInternal(
         name: String,
         group: String?,
         port: String?,
-        channelCryptoPolicy: com.atakmap.android.xv.transport.multicast.CryptoPolicy,
     ): String? {
         val existing = settings.effectiveChannelMulticastConfig(name)
         val result =
@@ -4079,34 +4064,22 @@ class XvMapComponent : AbstractMapComponent() {
                 existing = existing,
                 group = group,
                 port = port,
-                cryptoPolicy = channelCryptoPolicy,
-                hasKey = hasMeshChannelKey(existing.channelName),
             )
         val config = result.config ?: return result.error ?: "Invalid channel configuration."
         settings.persistChannelMulticastConfig(config)
         val canonical = config.channelName
-        val newKey =
-            if (result.autoKey) {
-                com.atakmap.android.xv.transport.multicast.AeadCodec
-                    .generateChannelKey()
-                    .also { meshVoiceManager?.installPresharedKey(canonical, it) }
-            } else {
-                null
-            }
         // Refresh the shareable record's config, keeping whatever key it held.
         val prior = synchronized(provisionedChannels) { provisionedChannels[canonical] }
-        if (prior != null || newKey != null) {
+        if (prior != null) {
             recordShareableChannel(
                 com.atakmap.android.xv.provisioning.ShareableChannelRecord.updated(
                     prior = prior,
                     config = config,
-                    newKey = newKey,
                     liveKey = meshVoiceManager?.currentKeyFor(canonical),
                 ),
             )
         }
-        if (newKey != null) persistMeshKeysEncrypted()
-        Log.i(TAG, "edited mesh channel '$canonical' (pinned=${config.pinnedGroup != null}, newKey=${newKey != null})")
+        Log.i(TAG, "edited mesh channel '$canonical' (pinned=${config.pinnedGroup != null})")
         return null
     }
 

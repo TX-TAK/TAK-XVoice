@@ -464,11 +464,11 @@ class XvDropDownReceiver(
 
         // editing = true re-saves an existing channel: keeps its key, mode,
         // patch leg and primary selection; false provisions a new channel.
+        // Either way the channel is XV-native and always encrypted.
         fun saveMeshChannel(
             name: String,
             group: String?,
             port: String?,
-            channelCryptoPolicy: com.atakmap.android.xv.transport.multicast.CryptoPolicy,
             editing: Boolean,
         ): String? = "not supported"
 
@@ -1413,28 +1413,25 @@ class XvDropDownReceiver(
         }
         view.addView(infoText)
 
+        // No policy choice: the XV-native mesh leg is always encrypted
+        // (REQUIRED). Cleartext exists only on the interop patch leg below.
         val cryptoText = android.widget.TextView(ctx).apply {
-            text = "Encryption (Native Mesh)"
+            text =
+                if (existingConfig.wireFormat == com.atakmap.android.xv.transport.multicast.WireFormat.XV_NATIVE) {
+                    "Encryption (Native Mesh): always on"
+                } else {
+                    // Only reachable for an interop primary whose patch slot
+                    // is taken; clearing the patch below lets the save move
+                    // it back to an encrypted XV-native primary.
+                    "Primary uses cleartext interop framing. Clear the patch below and save to " +
+                        "make the primary encrypted XV mesh again."
+                }
             setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
             textSize = 12f
             val density = ctx.resources.displayMetrics.density
             setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
         }
         view.addView(cryptoText)
-
-        val cryptoSpinner = android.widget.Spinner(ctx).apply {
-            val adapter = android.widget.ArrayAdapter(
-                ctx,
-                android.R.layout.simple_spinner_item,
-                CRYPTO_POLICY_LABELS.toTypedArray()
-            )
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            this.adapter = adapter
-            // Faithful round-trip: every policy has its own row, so saving
-            // without touching the spinner never changes the posture.
-            setSelection(cryptoPolicyIndex(existingConfig.cryptoPolicy))
-        }
-        view.addView(cryptoSpinner)
 
         val patchText = android.widget.TextView(ctx).apply {
             text = "External Patch (Vx)"
@@ -1477,7 +1474,6 @@ class XvDropDownReceiver(
                     1 -> com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS
                     else -> com.atakmap.android.xv.transport.multicast.MulticastMode.OFF
                 }
-                val cryptoMode = cryptoPolicyAt(cryptoSpinner.selectedItemPosition)
                 val pg = patchGroup.text.toString().trim().ifEmpty { null }
                 val pp = patchPort.text.toString().trim().ifEmpty { null }?.toIntOrNull()
 
@@ -1486,11 +1482,11 @@ class XvDropDownReceiver(
                     return@setPositiveButton
                 }
 
-                // withPrimaryCryptoPolicy switches an interop-framed primary
-                // back to XV_NATIVE when an encrypted policy is chosen —
-                // otherwise validate() rejects the save and the channel can
-                // never be re-encrypted from here.
-                val newConfig = existingConfig.withPrimaryCryptoPolicy(cryptoMode).copy(
+                // Persisting normalizes to the mesh-policy invariant
+                // (XV-native primary always REQUIRED; an interop primary
+                // with a free patch slot becomes encrypted primary +
+                // cleartext patch), so no policy is chosen here.
+                val newConfig = existingConfig.copy(
                     mode = mode,
                     patchGroup = pg,
                     patchPort = pp,
@@ -2743,23 +2739,6 @@ class XvDropDownReceiver(
                 inputType = android.text.InputType.TYPE_CLASS_NUMBER
                 setSingleLine(true)
             }
-        val cryptoSpinner =
-            Spinner(ctx).apply {
-                adapter =
-                    ArrayAdapter(
-                        ctx,
-                        android.R.layout.simple_spinner_dropdown_item,
-                        CRYPTO_POLICY_LABELS,
-                    )
-                // The channel's config is the one source of truth; a brand
-                // new channel defaults to Encrypted only.
-                setSelection(
-                    cryptoPolicyIndex(
-                        existingConfig?.cryptoPolicy
-                            ?: com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED,
-                    ),
-                )
-            }
 
         // Read-only echo of the group:port the entered name resolves to.
         // With blank group/port the address is auto-derived and operators
@@ -2828,16 +2807,15 @@ class XvDropDownReceiver(
                 addView(nameField)
                 addView(
                     caption(
-                        "Interoperability (optional) — pin a group/port to match an external " +
-                            "system like VX. Leave blank for automatic.",
+                        "Fixed group/port (optional). Leave blank for automatic. Interop with " +
+                            "OpenMANET / VX goes on the channel's patch leg (gear button).",
                     ),
                 )
                 addView(groupField)
                 addView(portField)
-                addView(caption("Resolved group — share this for interop"))
+                addView(caption("Resolved mesh group (encrypted XV traffic)"))
                 addView(derivedRow)
-                addView(caption("Security Policy"))
-                addView(cryptoSpinner)
+                addView(caption("Encryption: always on (XV mesh)"))
             }
 
         android.app.AlertDialog
@@ -2845,13 +2823,11 @@ class XvDropDownReceiver(
             .setTitle("Configure a channel")
             .setView(android.widget.ScrollView(ctx).apply { addView(container) })
             .setPositiveButton("Save") { _, _ ->
-                val channelCryptoPolicy = cryptoPolicyAt(cryptoSpinner.selectedItemPosition)
                 val err =
                     controller.saveMeshChannel(
                         name = nameField.text?.toString().orEmpty(),
                         group = groupField.text?.toString(),
                         port = portField.text?.toString(),
-                        channelCryptoPolicy = channelCryptoPolicy,
                         editing = existingName != null,
                     )
                 if (err == null) {
