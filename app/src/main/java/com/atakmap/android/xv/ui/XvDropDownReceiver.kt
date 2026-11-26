@@ -1620,7 +1620,7 @@ class XvDropDownReceiver(
             .setTitle(MumbleTransport.lobbyLabel(ch.name))
             .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
             .setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     private fun confirmForgetOfflineChannel(name: String) {
@@ -1633,7 +1633,7 @@ class XvDropDownReceiver(
                 meshToast("Forgot “$name”.")
                 channelListRoot?.let { root -> mainHandler.post { populateChannelList(root) } }
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext, destructive = true)
     }
 
     private fun promptConfigureChannel(v: View, channel: String, onSaved: () -> Unit = { refreshMeshSection(v) }) {
@@ -1804,7 +1804,7 @@ class XvDropDownReceiver(
                 }
             }
             .setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Channel Members — everyone on a slot's channel right now (live
@@ -1842,18 +1842,18 @@ class XvDropDownReceiver(
                 else -> "Channel members"
             }
         populateMembersColumn(
-            colRoot = v.findViewById(R.id.xv_members_col_vs1),
-            headerView = v.findViewById(R.id.xv_members_header_vs1),
-            listView = v.findViewById(R.id.xv_members_list_vs1),
+            colRoot = v.findViewById(R.id.xv_members_col_ch1),
+            headerView = v.findViewById(R.id.xv_members_header_ch1),
+            listView = v.findViewById(R.id.xv_members_list_ch1),
             data = vs1,
-            slotLabel = "1",
+            slotLabel = "Channel 1",
         )
         populateMembersColumn(
-            colRoot = v.findViewById(R.id.xv_members_col_vs2),
-            headerView = v.findViewById(R.id.xv_members_header_vs2),
-            listView = v.findViewById(R.id.xv_members_list_vs2),
+            colRoot = v.findViewById(R.id.xv_members_col_ch2),
+            headerView = v.findViewById(R.id.xv_members_header_ch2),
+            listView = v.findViewById(R.id.xv_members_list_ch2),
             data = vs2,
-            slotLabel = "2",
+            slotLabel = "Channel 2",
         )
         showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
     }
@@ -1888,10 +1888,10 @@ class XvDropDownReceiver(
         if (data.members.isEmpty()) {
             val tv =
                 TextView(pluginContext).apply {
-                    text = "Empty — you're the only one here."
-                    setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
-                    textSize = 12f
-                    setPadding(8, 16, 8, 16)
+                    text = "Nobody else here yet — you're the only one on this channel."
+                    setTextAppearance(R.style.XV_Text_Caption)
+                    val pad = (12 * pluginContext.resources.displayMetrics.density).toInt()
+                    setPadding(0, pad, 0, pad)
                 }
             listView.addView(tv)
             return
@@ -1918,22 +1918,32 @@ class XvDropDownReceiver(
         btn.textSize = 14f
         btn.isAllCaps = false
         btn.gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-        btn.setPadding(12, 0, 12, 0)
+        val density = pluginContext.resources.displayMetrics.density
+        btn.setPadding((12 * density).toInt(), 0, (12 * density).toInt(), 0)
+        // Honey while talking (voice activity); dim for non-XV peers.
         val textColor =
-            if (member.isXvPeer) {
-                R.color.xv_text
-            } else {
-                R.color.xv_text_dim
+            when {
+                member.talkingNow -> R.color.xv_voice
+                member.isXvPeer -> R.color.xv_text
+                else -> R.color.xv_text_dim
             }
         btn.setTextColor(pluginContext.resources.getColor(textColor, null))
-        btn.setBackgroundResource(R.drawable.xv_button_bg)
+        btn.setBackgroundResource(R.drawable.xv_card_bg)
+        btn.contentDescription =
+            buildString {
+                append(member.callsign)
+                if (member.talkingNow) append(", talking")
+                if (!member.isXvPeer) append(", not an XV device")
+                if (member.deviceUid != null) append(". Tap to find on the map")
+                if (member.availableJumpChannels.isNotEmpty()) append(", long-press to move to their channel")
+            }
         val lp =
             android.widget.LinearLayout
                 .LayoutParams(
                     android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    (44 * pluginContext.resources.displayMetrics.density).toInt(),
+                    (48 * density).toInt(),
                 ).apply {
-                    topMargin = (4 * pluginContext.resources.displayMetrics.density).toInt()
+                    topMargin = (6 * density).toInt()
                 }
         btn.layoutParams = lp
         btn.setOnClickListener {
@@ -2027,7 +2037,7 @@ class XvDropDownReceiver(
                     mainHandler.post { inflateMainAndShow() }
                 }
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     private fun mapViewContext(): Context =
@@ -2159,7 +2169,7 @@ class XvDropDownReceiver(
                         android.widget.Toast.LENGTH_SHORT,
                     ).show()
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Three-tab settings layout (TX/RX, Channels, Preferences). Tabs are
@@ -2579,7 +2589,7 @@ class XvDropDownReceiver(
                     },
                 )
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Mass-clear confirm. One tap, one dialog — the fast way to empty a
@@ -2599,7 +2609,7 @@ class XvDropDownReceiver(
                 meshToast(if (n > 0) "Forgot all channels." else "Cleared the channel list.")
                 refreshMeshSection(section)
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Panic wipe, gated behind a *double* slide-to-confirm so it can't
@@ -2664,6 +2674,7 @@ class XvDropDownReceiver(
                 }
             },
         )
+        dialog.setOnShowListener { XvDialogStyle.apply(dialog, pluginContext, destructive = true) }
         dialog.show()
     }
 
@@ -2720,7 +2731,7 @@ class XvDropDownReceiver(
                     promptPickTeammatesThenShare(selected)
                 }
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Pick who to share with, then push a CoT nudge — no passphrase, no
@@ -2763,7 +2774,7 @@ class XvDropDownReceiver(
                 }
             }.setNeutralButton("Offline / QR") { _, _ -> promptOfflineShare(selected) }
             .setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Offline / other-platform fallback: the QR / carrier string. Only asks
@@ -2811,7 +2822,7 @@ class XvDropDownReceiver(
                     showChannelPlanShareDialog(carrier)
                 }
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Shows the plan as a QR to scan in person, with a "Share as text"
@@ -2852,7 +2863,7 @@ class XvDropDownReceiver(
         builder
             .setPositiveButton("Share as text…") { _, _ -> shareText(carrier) }
             .setNegativeButton("Close", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // BitMatrix → Bitmap. Returns null (caller falls back to text) if
@@ -2945,7 +2956,7 @@ class XvDropDownReceiver(
                     meshToast("Import failed: ${t.message}")
                 }
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     private fun meshToast(msg: String) {
@@ -3119,7 +3130,7 @@ class XvDropDownReceiver(
                     meshToast(err)
                 }
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     // Repaints the live mesh status line + the offline channel list.
@@ -3262,7 +3273,7 @@ class XvDropDownReceiver(
                 meshToast("Forgot “$name”.")
                 refreshMeshSection(section)
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext, destructive = true)
     }
 
     private fun sliderTimeoutLabel(s: Int): String = if (s == 0) "off" else "$s s"
@@ -3745,9 +3756,9 @@ class XvDropDownReceiver(
                         wireAinaPicker(rootView)
                         wireExternalButtonPicker(rootView)
                     }.setNegativeButton("Cancel", null)
-                    .show()
+                    .showXv(pluginContext, destructive = true)
             }.setNegativeButton("Cancel", null)
-            .show()
+            .showXv(pluginContext)
     }
 
     private fun showBlePttScanDialog(rootView: View) {
@@ -3783,6 +3794,7 @@ class XvDropDownReceiver(
         dialog.setOnDismissListener {
             scanner?.stop("dialog dismissed")
         }
+        dialog.setOnShowListener { XvDialogStyle.apply(dialog, pluginContext, destructive = false) }
         dialog.show()
 
         scanner =
@@ -3988,7 +4000,7 @@ class XvDropDownReceiver(
             onCancel()
         }
         builder.setOnCancelListener { onCancel() }
-        builder.show()
+        builder.showXv(pluginContext, destructive = true)
     }
 
     private fun wireAutoConnectBtSwitch(v: View) {

@@ -1,43 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Channel Members picker. Two columns side-by-side (VS1 left, VS2
-     right). When only one slot is connected the unused column is
-     hidden at runtime so the live one expands to full width. The
-     per-PTT 👥 entry point uses this same layout with the opposite
-     slot hidden. -->
+<!--
+  Channel members: who is on a slot's channel right now. Opened from the
+  small "👥 N" count on a main-panel row, so normally one column is shown
+  (the other is hidden at runtime and the live one takes the full width);
+  both columns appear when both slots are requested. Rows are built by
+  XvDropDownReceiver.populateMembersColumn: tap a member to find them on
+  the map, long-press to move a slot to their channel.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/xv_bg">
+    android:background="@color/xv_bg"
+    android:orientation="vertical">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="12dp">
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="12dp">
 
         <Button
             android:id="@+id/xv_picker_back"
-            android:layout_width="wrap_content"
-            android:layout_height="44dp"
-            android:text="◀"
-            android:contentDescription="@string/xv_cd_back"
-            android:textColor="@color/xv_text"
-            android:textSize="16sp"
-            android:background="@android:color/transparent"
-            android:minWidth="48dp"/>
+            style="@style/XV.BackButton" />
 
         <TextView
             android:id="@+id/xv_picker_title"
+            style="@style/XV.Text.Title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
             android:layout_weight="1"
-            android:text="Channel Members"
-            android:textColor="@color/xv_text"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:layout_marginStart="4dp"/>
+            android:text="Channel members" />
     </LinearLayout>
 
     <LinearLayout
@@ -47,7 +43,7 @@
         android:weightSum="2">
 
         <LinearLayout
-            android:id="@+id/xv_members_col_vs1"
+            android:id="@+id/xv_members_col_ch1"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -56,14 +52,11 @@
             android:paddingEnd="6dp">
 
             <TextView
-                android:id="@+id/xv_members_header_vs1"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="1"
-                android:textColor="@color/xv_text"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:paddingBottom="6dp"/>
+                android:id="@+id/xv_members_header_ch1"
+                style="@style/XV.SectionHeader"
+                android:layout_marginTop="8dp"
+                android:paddingBottom="6dp"
+                android:text="Channel 1" />
 
             <ScrollView
                 android:layout_width="match_parent"
@@ -71,15 +64,15 @@
                 android:fillViewport="true">
 
                 <LinearLayout
-                    android:id="@+id/xv_members_list_vs1"
+                    android:id="@+id/xv_members_list_ch1"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
+                    android:orientation="vertical" />
             </ScrollView>
         </LinearLayout>
 
         <LinearLayout
-            android:id="@+id/xv_members_col_vs2"
+            android:id="@+id/xv_members_col_ch2"
             android:layout_width="0dp"
             android:layout_height="match_parent"
             android:layout_weight="1"
@@ -88,14 +81,11 @@
             android:paddingEnd="12dp">
 
             <TextView
-                android:id="@+id/xv_members_header_vs2"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="2"
-                android:textColor="@color/xv_text"
-                android:textSize="14sp"
-                android:textStyle="bold"
-                android:paddingBottom="6dp"/>
+                android:id="@+id/xv_members_header_ch2"
+                style="@style/XV.SectionHeader"
+                android:layout_marginTop="8dp"
+                android:paddingBottom="6dp"
+                android:text="Channel 2" />
 
             <ScrollView
                 android:layout_width="match_parent"
@@ -103,10 +93,10 @@
                 android:fillViewport="true">
 
                 <LinearLayout
-                    android:id="@+id/xv_members_list_vs2"
+                    android:id="@+id/xv_members_list_ch2"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
+                    android:orientation="vertical" />
             </ScrollView>
         </LinearLayout>
     </LinearLayout>

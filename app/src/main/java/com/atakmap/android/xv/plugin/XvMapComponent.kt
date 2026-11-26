@@ -41,6 +41,7 @@ import com.atakmap.android.xv.transport.multicast.MulticastMeshLeg
 import com.atakmap.android.xv.transport.mumble.MumbleAuth
 import com.atakmap.android.xv.transport.mumble.TakServerDiscovery
 import com.atakmap.android.xv.ui.XvDropDownReceiver
+import com.atakmap.android.xv.ui.showXv
 
 class XvMapComponent : AbstractMapComponent() {
     // Voice path lives in XvVoiceService (XV's UID). The plugin only
@@ -3814,7 +3815,7 @@ class XvMapComponent : AbstractMapComponent() {
                     .setMessage(body)
                     .setPositiveButton("Join") { _, _ -> acceptSharedChannels(signal) }
                     .setNegativeButton("Dismiss", null)
-                    .show()
+                    .showXv(heldPluginContext ?: ctx)
             } catch (t: Throwable) {
                 Log.w(TAG, "channel-share prompt threw", t)
             }
