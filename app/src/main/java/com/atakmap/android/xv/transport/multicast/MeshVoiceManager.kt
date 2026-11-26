@@ -418,7 +418,10 @@ class MeshVoiceManager(
         applyMeshStopped("server access ${if (rejected) "rejected" else "restored"}")
     }
 
-    /** The operator pressed Disconnect (true) / Connect (false). */
+    /** The operator chose "All voice off". */
+    fun isOperatorVoiceOff(): Boolean = operatorVoiceOff
+
+    /** The operator chose "All voice off" (true) / started voice again (false). */
     @Synchronized
     fun setOperatorVoiceOff(off: Boolean) {
         if (off == operatorVoiceOff) return

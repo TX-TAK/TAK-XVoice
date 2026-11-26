@@ -188,6 +188,17 @@ class XvDropDownReceiver(
 
         fun disconnectMumble()
 
+        // Disconnect choices. Server only: end the server sessions; the
+        // mesh keeps carrying channel 1 as backup (like losing a gateway
+        // on a MANET radio). All voice off: server AND mesh stop until the
+        // operator connects again.
+        fun disconnectServerOnly() = disconnectMumble()
+
+        fun disconnectAllVoice() = disconnectMumble()
+
+        // The operator chose "All voice off" (mesh stopped too).
+        fun allVoiceOff(): Boolean = false
+
         fun connectAina()
 
         fun disconnectAina()
@@ -1250,7 +1261,8 @@ class XvDropDownReceiver(
                 }
                 ServerLine.REFUSED -> "refused: $refused · tap to fix"
                 ServerLine.NO_TAK_SERVER -> "no TAK server · tap to set up"
-                ServerLine.VOICE_OFF -> "Voice off — tap to connect"
+                ServerLine.VOICE_OFF ->
+                    if (controller.allVoiceOff()) "All voice off — tap to connect" else "Server off — tap to connect"
             }
         if (state == ServerLine.REFUSED) {
             label.setTextColor(pluginContext.resources.getColor(R.color.xv_err, null))
@@ -1550,7 +1562,15 @@ class XvDropDownReceiver(
         // shrinks the pane back.
         search.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
         search.setOnFocusChangeListener { _, focused ->
-            if (isPortrait()) callResize(FULL_WIDTH, if (focused) FULL_HEIGHT else HALF_HEIGHT)
+            // Focus is also lost when the pane closes (the device Back
+            // button). Resizing then made ATAK re-open an EMPTY grey pane
+            // with no way to dismiss it. Decide after the close has
+            // settled, and only resize while this list is still showing.
+            mainHandler.post {
+                if (isPortrait() && !isClosed() && channelListRoot === v && v.isAttachedToWindow) {
+                    callResize(FULL_WIDTH, if (focused) FULL_HEIGHT else HALF_HEIGHT)
+                }
+            }
         }
         search.setOnEditorActionListener { field, action, _ ->
             if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
@@ -2417,13 +2437,20 @@ class XvDropDownReceiver(
         v.findViewById<Button>(R.id.xv_btn_mumble_disconnect).setOnClickListener {
             // Disconnect silences both channels with no audible cue:
             // confirm, so a stray tap can't take the operator off the air.
+            // Two choices (MANET-radio model): dropping the server doesn't
+            // take the local mesh down unless the operator says so.
             android.app.AlertDialog
                 .Builder(mapView.context)
-                .setTitle("Disconnect voice?")
-                .setMessage("You won't hear or transmit on either channel until you reconnect.")
-                .setPositiveButton("Disconnect") { _, _ -> controller.disconnectMumble() }
+                .setTitle("Disconnect?")
+                .setMessage(
+                    "Server only — channels leave the server; with Mesh voice on, channel 1 keeps working " +
+                        "over the mesh as backup.\n\n" +
+                        "All voice off — server and mesh both stop. You won't hear or transmit on either " +
+                        "channel until you connect again.",
+                ).setPositiveButton("Server only") { _, _ -> controller.disconnectServerOnly() }
+                .setNeutralButton("All voice off") { _, _ -> controller.disconnectAllVoice() }
                 .setNegativeButton("Cancel", null)
-                .showXv(pluginContext, destructive = true)
+                .showXv(pluginContext)
         }
 
         // Mission auto-channels (Server tab): the active ATAK mission

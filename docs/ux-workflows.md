@@ -71,7 +71,7 @@ Other parts of the panel:
 - **Status line** (Bluebonnet): connection dot, server, and audio route.
   - Connected: the server name.
   - Reconnecting: the dot at half strength plus a countdown.
-  - **Voice off — tap to connect** after a Disconnect (or before the first connect). Tap to connect.
+  - **Server off — tap to connect** after Disconnect › Server only (mesh stays as backup), or **All voice off — tap to connect** after Disconnect › All voice off. Tap to connect.
   - **refused: <reason> · tap to fix** (red) when the server turned you away for good, e.g. *wrong password* or *no certificate*. Tap to open Settings › Server.
     - Both channels share one server login, so a refusal on either applies to both: each row whose connection is down reads **unavailable · <reason>** (e.g. *access revoked*), PTT is refused on both, and neither retries against the refused credential. Connect (or a successful login once access is restored) clears it.
   - **no TAK server · tap to set up**. Tap to open Settings › Server.
@@ -240,7 +240,7 @@ stateDiagram-v2
   - **Details…** opens the channel's settings. Server channels: mode (Off / Backup / Both) and the **interop patch (OpenMANET RTP)** — this device only, never shared, unencrypted — with **Clear patch**. Offline channels: name and fixed group/port, plus **Interop patch…** for the same patch dialog;
   - **long-press** an offline channel to forget it.
 - **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both. The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
-- **Not after Disconnect:** a manual Disconnect turns voice off on both channels, mesh included (no failover), until you Connect again — from Settings › Server or by tapping *Voice off — tap to connect*.
+- **Disconnect has two choices** (Settings › Server › Disconnect): **Server only** leaves the server and keeps the mesh as backup (channel 1 fails over as above; status *Server off — tap to connect*); **All voice off** stops server and mesh (no failover, nothing heard or sent; status *All voice off — tap to connect*) until you connect again.
 - **Not after a refusal:** if the server *rejects* this device (access revoked, certificate or login refused), the mesh stops too: every mesh leg (interop patch included) closes, so nothing is heard or sent, until access is restored. A server that is just down or unreachable still fails over as above.
 - **+ Add channel** presets:
   - **Private channel:** XV picks the name, group and key.
@@ -309,7 +309,7 @@ flowchart TD
 |---|---|---|
 | **Devices** (opens first) | Speaker-mic, PTT button, Phone Active key, + Add a PTT button, Audio device, Built-in fallback, Troubleshooting, Help | What keys the radio and where you hear it: touched most often |
 | **TX/RX** | Layout (Left-handed, map PTT buttons and their size), Advanced › Low latency mode (Bluetooth only, not recommended; holds the voice link the whole time in a channel), PTT timeout, Talk-permit tone | How transmitting feels |
-| **Server** | TAK server picker, voice Connect / Disconnect (Disconnect asks first), Mission auto-channels | Server-side behaviour: which server, and which channel a mission drives |
+| **Server** | TAK server picker, voice Connect / Disconnect (Server only, or All voice off), Mission auto-channels | Server-side behaviour: which server, and which channel a mission drives |
 | **Mesh** | Master switch + status, channel list (Off/Backup/Both), + Add channel, Share channel plan, Interop patch, Security & recovery | Everything that works without a server |
 
 Other screens:

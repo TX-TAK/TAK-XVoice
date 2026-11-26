@@ -2837,12 +2837,23 @@ class XvMapComponent : AbstractMapComponent() {
                 connectMumbleWithDefaults()
             }
 
-            override fun disconnectMumble() {
-                // Operator rule: Disconnect means no voice on either
-                // channel — the mesh must not fail over to carry channel 1.
+            override fun disconnectMumble() = disconnectServerOnly()
+
+            // Server only: the mesh stays as backup (it fails over once
+            // the server is gone, on channels set to Backup / Both).
+            override fun disconnectServerOnly() {
+                Log.i(TAG, "Controller.disconnectServerOnly()")
+                stopActiveTransport()
+            }
+
+            // All voice off: server and mesh stop until any start of voice.
+            override fun disconnectAllVoice() {
+                Log.i(TAG, "Controller.disconnectAllVoice()")
                 meshVoiceManager?.setOperatorVoiceOff(true)
                 stopActiveTransport()
             }
+
+            override fun allVoiceOff(): Boolean = meshVoiceManager?.isOperatorVoiceOff() == true
 
             override fun connectAina() {
                 val ctx = heldPluginContext ?: return
