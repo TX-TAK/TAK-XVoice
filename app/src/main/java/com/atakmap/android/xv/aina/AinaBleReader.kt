@@ -21,6 +21,10 @@ class AinaBleReader(
     private val context: Context,
     private val onEvent: (AinaButton, isDown: Boolean) -> Unit,
     private val onConnectionState: (Boolean) -> Unit = {},
+    // Fired at most once per connect() when the AINA rejects the link
+    // for security reasons (stale / one-sided bond): the operator has to
+    // forget and re-pair it. The reader keeps retrying slowly.
+    private val onNeedsRepair: (String) -> Unit = {},
     // Test seam — abstracts BluetoothDevice.connectGatt so unit
     // tests can supply a fake BluetoothGatt + drive callbacks
     // synchronously. Production uses [DefaultGattConnector]. Public
@@ -29,12 +33,71 @@ class AinaBleReader(
     // overload-resolution rules reject the lambda when the SAM type
     // is internal. Production callers never reference this type.
     private val gattConnector: GattConnector = DefaultGattConnector,
-) {
+    // Non-bond problems the operator has to act on (buttons not
+    // recognised). Fired once per condition.
+    private val onProblem: (String) -> Unit = {},
+    // Test seam: whether the Bluetooth adapter is on. Reconnects pause
+    // while it is off.
+    private val adapterEnabled: () -> Boolean = { GattSetup.defaultAdapterEnabled() },
+) : BlePttLink {
 
     private val decoder = ButtonMaskDecoder()
     private val handler = Handler(Looper.getMainLooper())
+
+    // Guards [gatt] and the retry counters. connectGatt + assignment run
+    // under it so a callback can tell whether it belongs to the current
+    // connection; close is conditional on the handle a failure was
+    // observed on (see [abandonLink]).
+    private val gattLock = Any()
+
+    // Serializes "is this link live" against tearing it down: the
+    // decoder runs and its edges are dispatched only while the handle is
+    // current and subscribed, and a teardown detaches the handle, clears
+    // [reportedConnected], releases held buttons and reports the drop in
+    // one step. Same contract and lock order as BitmaskGattPttReader:
+    // below VoicePlant's slot locks, above [gattLock] and PttDispatcher.
+    private val stateLock = Any()
+
+    @Volatile
     private var gatt: BluetoothGatt? = null
+
+    @Volatile
     private var targetDevice: BluetoothDevice? = null
+
+    // "Connected" has been reported for this link — set only once the
+    // button CCCD write is confirmed. Button notifications are ignored
+    // until then.
+    @Volatile
+    private var reportedConnected: Boolean = false
+
+    // Sticky until connect() or a confirmed subscription: a later
+    // disconnect with an unrelated reason must not collapse the slow
+    // bond-failure cadence (see BitmaskGattPttReader).
+    @Volatile
+    private var lastFailureWasAuth: Boolean = false
+
+    // The current attempt reached STATE_CONNECTED (device in range).
+    @Volatile
+    private var attemptReachedLink: Boolean = false
+
+    // BLUETOOTH_CONNECT refused: reported once, retries stop until connect().
+    @Volatile
+    private var permissionReported: Boolean = false
+
+    @Volatile
+    private var repairReported: Boolean = false
+
+    @Volatile
+    private var unrecognisedCount: Int = 0
+
+    @Volatile
+    private var unrecognisedReported: Boolean = false
+
+    @Volatile
+    private var cacheRefreshTried: Boolean = false
+
+    @Volatile
+    private var watchdogGatt: BluetoothGatt? = null
 
     @Volatile
     private var disposed: Boolean = false
@@ -42,18 +105,14 @@ class AinaBleReader(
     @Volatile
     private var intentionalDisconnect: Boolean = false
 
+    // Read and written only under [gattLock].
     private var directRetryCount: Int = 0
     private var autoConnectArmed: Boolean = false
 
     // Test-only read access to the retry counter / auto-arm flag.
-    // Package-internal because the M6 quick-win specifically needs
-    // to verify that onServicesDiscovered success resets the
-    // counter — there's no other clean way to observe this without
-    // reaching for reflection or driving a multi-minute reconnect
-    // schedule.
-    internal fun directRetryCountForTest(): Int = directRetryCount
+    internal fun directRetryCountForTest(): Int = synchronized(gattLock) { directRetryCount }
 
-    internal fun autoConnectArmedForTest(): Boolean = autoConnectArmed
+    internal fun autoConnectArmedForTest(): Boolean = synchronized(gattLock) { autoConnectArmed }
 
     // Set in onServicesDiscovered after we kick off the CCCD write.
     // Cleared in onDescriptorWrite after we chain into the CONFIG read.
@@ -62,21 +121,83 @@ class AinaBleReader(
     @Volatile
     private var pendingConfigReadModifyWrite: Boolean = false
 
+    // A retry is queued: still working on the target (see isWorkingOn).
+    @Volatile
+    private var retryQueued: Boolean = false
+
     private val retryRunnable =
         Runnable {
+            retryQueued = false
             val device = targetDevice ?: return@Runnable
-            if (intentionalDisconnect) return@Runnable
-            connectInternal(device, useAutoConnect = autoConnectArmed)
+            if (!wantsReconnect()) return@Runnable
+            if (!adapterEnabled()) {
+                // Pointless while the adapter is off; the plugin's STATE_ON
+                // reconnect pass replaces the (now idle) reader.
+                Log.i(TAG, "Bluetooth adapter off — pausing reconnects until it is back on")
+                return@Runnable
+            }
+            try {
+                connectInternal(device, useAutoConnect = synchronized(gattLock) { autoConnectArmed })
+            } catch (se: SecurityException) {
+                onConnectPermissionDenied(se)
+            } catch (t: Throwable) {
+                // A stack RuntimeException on the main looper must not
+                // crash ATAK.
+                Log.w(TAG, "reconnect attempt threw", t)
+                abandonLink(expected = null, notifyAlways = false)
+                queueRetry("reconnect attempt threw ${t.javaClass.simpleName}", failedFast = true)
+            }
+        }
+
+    private val setupWatchdog =
+        Runnable {
+            val g = watchdogGatt ?: return@Runnable
+            if (isCurrent(g) && !reportedConnected) {
+                escalate(g, "button subscription not confirmed within ${GattSetup.SETUP_WATCHDOG_MS}ms")
+            }
         }
 
     fun connect(device: BluetoothDevice) {
+        if (disposed) {
+            Log.w(TAG, "connect() called on disposed reader — ignoring")
+            return
+        }
         disconnect()
         intentionalDisconnect = false
         targetDevice = device
-        directRetryCount = 0
-        autoConnectArmed = false
-        connectInternal(device, useAutoConnect = false)
+        synchronized(gattLock) {
+            directRetryCount = 0
+            autoConnectArmed = false
+        }
+        lastFailureWasAuth = false
+        repairReported = false
+        permissionReported = false
+        unrecognisedCount = 0
+        unrecognisedReported = false
+        cacheRefreshTried = false
+        // Through the runnable so the settle gap, the adapter check and
+        // the exception guard apply to the first attempt too.
+        postRetry(0L)
     }
+
+    private fun postRetry(delayMs: Long) {
+        retryQueued = true
+        handler.removeCallbacks(retryRunnable)
+        handler.postDelayed(retryRunnable, delayMs)
+    }
+
+    private fun cancelRetry() {
+        retryQueued = false
+        handler.removeCallbacks(retryRunnable)
+    }
+
+    private fun isTarget(mac: String): Boolean = targetDevice?.address.equals(mac, ignoreCase = true)
+
+    override fun isConnectedTo(mac: String): Boolean = isConnected() && isTarget(mac)
+
+    /** Still connecting to, or backing off on, [mac]; false once paused or torn down. */
+    override fun isWorkingOn(mac: String): Boolean =
+        !disposed && isTarget(mac) && wantsReconnect() && (gatt != null || retryQueued)
 
     private fun connectInternal(
         device: BluetoothDevice,
@@ -87,25 +208,61 @@ class AinaBleReader(
         // release the prior GATT handle; without it, status=133 wedge
         // cycles pile up. Defer via the retry runnable rather than
         // busy-waiting on the main looper.
-        val sinceClose = android.os.SystemClock.elapsedRealtime() - lastGattCloseMs
-        if (lastGattCloseMs > 0L && sinceClose < GATT_CLOSE_REOPEN_SETTLE_MS) {
-            val waitMs = GATT_CLOSE_REOPEN_SETTLE_MS - sinceClose
-            Log.i(
-                TAG,
-                "tryConnect: deferring ${waitMs}ms — only ${sinceClose}ms since last close() (BLE stack settle)",
-            )
-            handler.removeCallbacks(retryRunnable)
-            handler.postDelayed(retryRunnable, waitMs)
+        val waitMs = GattSetup.reopenDelayMs(lastGattCloseMs, android.os.SystemClock.elapsedRealtime())
+        if (waitMs > 0L) {
+            Log.i(TAG, "tryConnect: deferring ${waitMs}ms since last close() (BLE stack settle)")
+            postRetry(waitMs)
             return
         }
-        decoder.reset()
+        abandonLink(expected = null, notifyAlways = false)
+        attemptReachedLink = false
         Log.i(
             TAG,
             "Connecting to AINA at ${redactMac(device.address)} " +
-                "(autoConnect=$useAutoConnect, attempt=${directRetryCount + 1})",
+                "(autoConnect=$useAutoConnect, attempt=${synchronized(gattLock) { directRetryCount } + 1})",
         )
-        gatt = gattConnector.connect(context, device, useAutoConnect, callback)
+        // Disposed check inside the lock, ordered against dispose()'s
+        // close: either nothing is opened or dispose closes it.
+        val outcome =
+            synchronized(gattLock) {
+                if (!wantsReconnect()) return
+                try {
+                    gatt = gattConnector.connect(context, device, useAutoConnect, callback)
+                    if (gatt != null) ConnectOutcome.OPENED else ConnectOutcome.NO_HANDLE
+                } catch (se: SecurityException) {
+                    Log.w(TAG, "connectGatt threw SecurityException — BLUETOOTH_CONNECT revoked?", se)
+                    ConnectOutcome.NO_PERMISSION
+                } catch (t: Throwable) {
+                    Log.w(TAG, "connectGatt threw", t)
+                    ConnectOutcome.NO_HANDLE
+                }
+            }
+        when (outcome) {
+            ConnectOutcome.OPENED -> Unit
+            ConnectOutcome.NO_PERMISSION -> onConnectPermissionDenied(null)
+            ConnectOutcome.NO_HANDLE -> queueRetry("connectGatt returned no handle", failedFast = true)
+        }
     }
+
+    private enum class ConnectOutcome { OPENED, NO_HANDLE, NO_PERMISSION }
+
+    // BLUETOOTH_CONNECT is missing: say so once and stop until the next
+    // connect() (picker, STATE_ON pass, permission grant).
+    private fun onConnectPermissionDenied(se: SecurityException?) {
+        Log.e(TAG, "connectGatt refused — BLUETOOTH_CONNECT not granted; reconnects stopped", se)
+        cancelRetry()
+        if (!permissionReported && !disposed) {
+            permissionReported = true
+            try {
+                onProblem("Speaker-mic buttons can't connect: grant XV the Nearby devices permission")
+            } catch (t: Throwable) {
+                Log.w(TAG, "onProblem handler threw", t)
+            }
+        }
+    }
+
+    /** Button subscription confirmed and the reader not torn down. */
+    fun isConnected(): Boolean = reportedConnected && !disposed
 
     fun isConnecting(): Boolean = gatt != null
 
@@ -117,74 +274,219 @@ class AinaBleReader(
     fun disconnect() {
         intentionalDisconnect = true
         targetDevice = null
-        handler.removeCallbacks(retryRunnable)
-        closeGatt()
-        dispatchConnectionState(false)
+        cancelRetry()
+        handler.removeCallbacks(setupWatchdog)
+        abandonLink(expected = null, notifyAlways = true)
     }
 
-    private fun closeGatt() {
-        gatt?.let {
-            try {
-                it.disconnect()
-            } catch (_: Throwable) {
-            }
-            try {
-                it.close()
-            } catch (_: Throwable) {
+    // Up edges for every button the decoder has held, then a clean
+    // decoder. Runs (under [stateLock]) whenever a connection is
+    // abandoned: a press delivered by a link that then failed (our own
+    // close() delivers no STATE_DISCONNECTED) must not stay keyed.
+    private fun releaseHeldLocked() {
+        for ((button, isDown) in decoder.process(0)) {
+            if (!isDown) {
+                Log.i(TAG, "releasing $button held on an abandoned link")
+                dispatchEvent(button, false)
             }
         }
-        gatt = null
+        decoder.reset()
+    }
+
+    private fun isCurrent(g: BluetoothGatt): Boolean = synchronized(gattLock) { g === gatt }
+
+    /**
+     * Abandon the current link. With [expected] non-null, only if it is
+     * still the current handle: a failure observed on a binder thread
+     * must not tear down a newer connection. Under [stateLock] the handle
+     * is detached first, then "connected" is cleared, held buttons are
+     * released and — if it had been reported up, or [notifyAlways] — the
+     * drop is reported. The handle is closed afterwards, outside the
+     * lock. Returns false when [expected] was already stale.
+     */
+    private fun abandonLink(
+        expected: BluetoothGatt?,
+        notifyAlways: Boolean,
+    ): Boolean {
+        val old: BluetoothGatt?
+        synchronized(stateLock) {
+            old =
+                synchronized(gattLock) {
+                    if (expected != null && gatt !== expected) return false
+                    gatt.also { gatt = null }
+                }
+            pendingConfigReadModifyWrite = false
+            watchdogGatt = null
+            handler.removeCallbacks(setupWatchdog)
+            val wasUp = reportedConnected
+            reportedConnected = false
+            releaseHeldLocked()
+            if (wasUp || notifyAlways) dispatchConnectionState(false)
+        }
+        old?.let { closeHandle(it) }
+        return true
+    }
+
+    private fun closeHandle(g: BluetoothGatt) {
+        try {
+            g.disconnect()
+        } catch (_: Throwable) {
+        }
+        try {
+            g.close()
+        } catch (_: Throwable) {
+        }
         // Stamp the close time. The BLE stack needs ~100 ms between a
         // close() and the next connectGatt() call to fully release the
         // GATT handle; without that gap, status=133 wedge cycles pile
         // up and the connection oscillates instead of recovering.
-        // [tryConnect] consults this and defers when needed. Audit M15.
+        // [connectInternal] consults this and defers when needed. Audit M15.
         lastGattCloseMs = android.os.SystemClock.elapsedRealtime()
     }
 
     @Volatile
     private var lastGattCloseMs: Long = 0L
 
-    private fun scheduleReconnect(reason: String) {
-        if (intentionalDisconnect) return
-        val device = targetDevice ?: return
+    // Still supposed to be (re)connecting: not torn down by the owner.
+    private fun wantsReconnect(): Boolean = !intentionalDisconnect && !disposed
 
-        // Always close the stale GATT handle before another attempt — status=133
-        // typically leaves the handle unusable.
-        closeGatt()
-
+    // Schedule the next attempt; the failed link was already abandoned.
+    // [failedFast]: see GattSetup.retryDelayMs.
+    private fun queueRetry(
+        reason: String,
+        failedFast: Boolean,
+    ) {
+        val device = targetDevice
+        if (!wantsReconnect() || device == null) return
+        val auth = lastFailureWasAuth
+        val unrecognised = unrecognisedCount
         // After several failed direct attempts, switch to autoConnect=true so
         // the BLE stack handles long-term reconnect when the AINA returns.
-        if (directRetryCount >= MAX_DIRECT_RETRIES) {
-            autoConnectArmed = true
-        }
-
-        val delayMs =
-            if (autoConnectArmed) {
-                AUTO_CONNECT_DELAY_MS
-            } else {
-                val base = INITIAL_RETRY_DELAY_MS shl directRetryCount.coerceAtMost(4)
-                base.coerceAtMost(MAX_DIRECT_RETRY_DELAY_MS)
+        // A broken bond or an unrecognised device retries rarely.
+        val (delayMs, armed) =
+            synchronized(gattLock) {
+                if (GattSetup.shouldArmAutoConnect(directRetryCount, auth)) autoConnectArmed = true
+                val d =
+                    GattSetup.retryDelayMs(
+                        directRetryCount,
+                        autoConnectArmed,
+                        auth,
+                        unrecognised,
+                        GattSetup.autoConnectWaits(autoConnectAllowed = true, failedFast = failedFast),
+                    )
+                directRetryCount++
+                d to autoConnectArmed
             }
-        directRetryCount++
-
         Log.i(
             TAG,
             "Scheduling reconnect to ${redactMac(device.address)} in ${delayMs}ms " +
-                "($reason, autoConnect=$autoConnectArmed)",
+                "($reason, autoConnect=$armed)",
         )
-        handler.removeCallbacks(retryRunnable)
-        handler.postDelayed(retryRunnable, delayMs)
+        postRetry(delayMs)
     }
 
     private fun dispatchConnectionState(state: Boolean) {
         if (disposed) return
-        onConnectionState(state)
+        try {
+            onConnectionState(state)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onConnectionState($state) handler threw", t)
+        }
+    }
+
+    /**
+     * Setup / post-connect failure on [g]: release anything held, report
+     * disconnected, tear the half-configured link down and go back through
+     * the backoff — instead of leaving the operator with a "connected"
+     * speaker-mic whose buttons do nothing. [opStatus] is a GATT operation
+     * status (not an HCI disconnect reason).
+     */
+    private fun escalate(
+        g: BluetoothGatt,
+        reason: String,
+        opStatus: Int? = null,
+    ) {
+        if (!abandonLink(expected = g, notifyAlways = true)) return
+        Log.w(TAG, "setup failed: $reason — reconnecting")
+        if (GattSetup.isGattOpAuthFailure(opStatus)) {
+            lastFailureWasAuth = true
+            reportNeedsRepair("status=$opStatus ${gattStatusName(opStatus ?: -1)}")
+        }
+        // Every escalation follows STATE_CONNECTED: the device is in range.
+        queueRetry(reason, failedFast = true)
+    }
+
+    private fun reportNeedsRepair(detail: String) {
+        if (repairReported || disposed) return
+        repairReported = true
+        Log.e(TAG, "AINA rejected the button link ($detail) — operator must forget and re-pair")
+        try {
+            onNeedsRepair(detail)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onNeedsRepair handler threw", t)
+        }
+    }
+
+    // The AINA button service / characteristic / CCCD is not there.
+    private fun onUnrecognised(g: BluetoothGatt) {
+        val n = ++unrecognisedCount
+        if (!cacheRefreshTried) {
+            // A stale GATT cache can hide the service; clear it once.
+            cacheRefreshTried = true
+            try {
+                val ok = g.javaClass.getMethod("refresh").invoke(g)
+                Log.i(TAG, "GATT cache refresh requested (result=$ok)")
+            } catch (t: Throwable) {
+                Log.w(TAG, "GATT cache refresh unavailable: ${t.javaClass.simpleName}")
+            }
+        }
+        if (n >= GattSetup.UNRECOGNISED_LIMIT && !unrecognisedReported && !disposed) {
+            unrecognisedReported = true
+            Log.e(TAG, "AINA button service missing after $n connects — wrong device or protocol")
+            try {
+                onProblem("Speaker-mic buttons not recognised — check the device and its button protocol setting")
+            } catch (t: Throwable) {
+                Log.w(TAG, "onProblem handler threw", t)
+            }
+        }
+        escalate(g, "AINA button service / characteristic / CCCD unavailable ($n in a row)")
+    }
+
+    // Returns false when [g] was abandoned first (e.g. by the watchdog):
+    // the confirmation is for a dead handle and nothing is reported.
+    private fun onSubscribed(g: BluetoothGatt): Boolean {
+        synchronized(stateLock) {
+            if (!isCurrent(g)) return false
+            synchronized(gattLock) {
+                directRetryCount = 0
+                autoConnectArmed = false
+            }
+            lastFailureWasAuth = false
+            repairReported = false
+            unrecognisedCount = 0
+            unrecognisedReported = false
+            cacheRefreshTried = false
+            handler.removeCallbacks(setupWatchdog)
+            watchdogGatt = null
+            reportedConnected = true
+            dispatchConnectionState(true)
+        }
+        // High priority only once the link is useful.
+        try {
+            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        } catch (e: SecurityException) {
+            Log.w(TAG, "Lacking BLUETOOTH_CONNECT permission to request high priority", e)
+        }
+        return true
     }
 
     private fun dispatchEvent(button: AinaButton, isDown: Boolean) {
         if (disposed) return
-        onEvent(button, isDown)
+        try {
+            onEvent(button, isDown)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onEvent handler threw", t)
+        }
     }
 
     private val callback =
@@ -194,27 +496,40 @@ class AinaBleReader(
                 status: Int,
                 newState: Int,
             ) {
+                if (!isCurrent(g)) {
+                    // Late callback for a handle already closed/replaced.
+                    Log.i(TAG, "ignoring stale GATT callback (state=$newState status=$status)")
+                    if (newState == BluetoothProfile.STATE_CONNECTED) {
+                        try {
+                            g.close()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    return
+                }
                 when (newState) {
                     BluetoothProfile.STATE_CONNECTED -> {
                         Log.i(
                             TAG,
                             "Connected (status=$status ${gattStatusName(status)}), discovering services",
                         )
-                        try {
-                            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                        } catch (e: SecurityException) {
-                            Log.w(TAG, "Lacking BLUETOOTH_CONNECT permission to request high priority", e)
-                        }
-                        // Quick-win M6 part 1: retry counter resets on
-                        // any successful CONNECTED transition. Part 2
-                        // mirrors this in onServicesDiscovered to
-                        // cover drops that occur AFTER CONNECTED but
-                        // before services finish discovery (the
-                        // pendingConfigReadModifyWrite window).
-                        directRetryCount = 0
-                        autoConnectArmed = false
-                        dispatchConnectionState(true)
-                        g.discoverServices()
+                        attemptReachedLink = true
+                        // Not "connected" yet — that waits for the CCCD
+                        // write confirmation (onSubscribed), bounded by
+                        // the setup watchdog. The retry counter also resets
+                        // there, so a device that links up but never
+                        // subscribes still backs off.
+                        watchdogGatt = g
+                        handler.removeCallbacks(setupWatchdog)
+                        handler.postDelayed(setupWatchdog, GattSetup.SETUP_WATCHDOG_MS)
+                        val started =
+                            try {
+                                g.discoverServices()
+                            } catch (t: Throwable) {
+                                Log.w(TAG, "discoverServices threw", t)
+                                false
+                            }
+                        if (!started) escalate(g, "discoverServices() refused")
                     }
                     BluetoothProfile.STATE_DISCONNECTED -> {
                         Log.i(
@@ -222,22 +537,19 @@ class AinaBleReader(
                             "Disconnected (status=$status ${gattStatusName(status)} " +
                                 "pendingConfig=$pendingConfigReadModifyWrite)",
                         )
-                        decoder.reset()
-                        // Clear the pending flag — a disconnect in the
-                        // middle of the CCCD-write -> CONFIG-read
-                        // sequence has invalidated the half-configured
-                        // state. The reconnect path will re-enter
-                        // onServicesDiscovered cleanly.
-                        if (pendingConfigReadModifyWrite) {
-                            Log.i(
-                                TAG,
-                                "pendingConfigReadModifyWrite: true -> false (disconnect mid-sequence)",
-                            )
-                            pendingConfigReadModifyWrite = false
-                        }
-                        dispatchConnectionState(false)
-                        if (!intentionalDisconnect) {
-                            scheduleReconnect("status=$status ${gattStatusName(status)}")
+                        // Detaches [g], releases held buttons and reports
+                        // the drop atomically; also clears a pending
+                        // CCCD-write -> CONFIG-read sequence (the
+                        // reconnect re-enters onServicesDiscovered).
+                        if (!abandonLink(expected = g, notifyAlways = true)) return
+                        if (wantsReconnect()) {
+                            // [status] is an HCI disconnect reason here.
+                            // Auth stays sticky (see lastFailureWasAuth).
+                            if (GattSetup.isHciStaleBond(status)) {
+                                lastFailureWasAuth = true
+                                reportNeedsRepair("disconnect reason=$status")
+                            }
+                            queueRetry("status=$status ${gattStatusName(status)}", failedFast = attemptReachedLink)
                         }
                     }
                 }
@@ -248,39 +560,24 @@ class AinaBleReader(
                 status: Int,
             ) {
                 if (status != BluetoothGatt.GATT_SUCCESS) {
-                    Log.w(TAG, "Service discovery failed: $status ${gattStatusName(status)}")
+                    escalate(g, "service discovery failed: $status ${gattStatusName(status)}", status) // no-op when stale
                     return
                 }
-                // Quick-win M6 part 2: reset directRetryCount on the
-                // success path of service discovery. The drop window
-                // between STATE_CONNECTED and onServicesDiscovered (the
-                // pendingConfigReadModifyWrite period) was previously
-                // not covered by the reset in
-                // onConnectionStateChange(STATE_CONNECTED) — if a drop
-                // happened during this window the counter kept
-                // growing forever even though the previous attempt
-                // had made measurable progress.
-                directRetryCount = 0
-                autoConnectArmed = false
-                val service =
-                    g.getService(SERVICE_UUID) ?: run {
-                        Log.w(TAG, "AINA service not found on device")
-                        return
-                    }
-                val ch =
-                    service.getCharacteristic(BUTTON_CHAR_UUID) ?: run {
-                        Log.w(TAG, "Button characteristic not found")
-                        return
-                    }
-                if (!g.setCharacteristicNotification(ch, true)) {
-                    Log.w(TAG, "setCharacteristicNotification(true) failed")
+                // Under [stateLock] with the handle re-checked: a link
+                // abandoned meanwhile must not have its closed handle read
+                // as "not recognised" (false notice + 5 min backoff).
+                synchronized(stateLock) {
+                    if (isCurrent(g)) startSubscription(g)
+                }
+            }
+
+            // Caller holds [stateLock] and has checked [g] is current.
+            private fun startSubscription(g: BluetoothGatt) {
+                val cccd = buttonCccd(g)
+                if (cccd == null) {
+                    onUnrecognised(g)
                     return
                 }
-                val cccd =
-                    ch.getDescriptor(CCCD_UUID) ?: run {
-                        Log.w(TAG, "CCCD missing on button characteristic")
-                        return
-                    }
                 val enableValue = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
                 Log.i(
                     TAG,
@@ -288,13 +585,23 @@ class AinaBleReader(
                         "(pendingConfigReadModifyWrite: false -> true)",
                 )
                 pendingConfigReadModifyWrite = true
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    g.writeDescriptor(cccd, enableValue)
-                } else {
-                    @Suppress("DEPRECATION")
-                    cccd.value = enableValue
-                    @Suppress("DEPRECATION")
-                    g.writeDescriptor(cccd)
+                val queued =
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            g.writeDescriptor(cccd, enableValue) == BluetoothGatt.GATT_SUCCESS
+                        } else {
+                            @Suppress("DEPRECATION")
+                            cccd.value = enableValue
+                            @Suppress("DEPRECATION")
+                            g.writeDescriptor(cccd)
+                        }
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "writeDescriptor threw", t)
+                        false
+                    }
+                if (!queued) {
+                    escalate(g, "CCCD writeDescriptor rejected by the stack")
+                    return
                 }
                 // CONFIG read is deferred until onDescriptorWrite fires —
                 // Android GATT serializes operations and only allows one
@@ -309,6 +616,7 @@ class AinaBleReader(
                 descriptor: BluetoothGattDescriptor,
                 status: Int,
             ) {
+                if (!isCurrent(g)) return
                 if (descriptor.uuid != CCCD_UUID) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
                     // Quick-win M5: CCCD-write failure used to just
@@ -318,7 +626,7 @@ class AinaBleReader(
                     // configured subscription — notifications may or
                     // may not flow, and there's no retry. Treat as a
                     // full reconnect: tear the GATT down and let
-                    // scheduleReconnect's backoff bring it up clean.
+                    // queueRetry's backoff bring it up clean.
                     Log.e(
                         TAG,
                         "CCCD write FAILED status=$status ${gattStatusName(status)} — " +
@@ -328,8 +636,7 @@ class AinaBleReader(
                         TAG,
                         "pendingConfigReadModifyWrite: true -> false (CCCD-write failure)",
                     )
-                    pendingConfigReadModifyWrite = false
-                    scheduleReconnect("CCCD write failed status=$status")
+                    escalate(g, "CCCD write failed status=$status", status)
                     return
                 }
                 if (!pendingConfigReadModifyWrite) return
@@ -343,6 +650,7 @@ class AinaBleReader(
                 // requested by issue #88: the log line below confirms
                 // button-subscription readiness post-reconnect. Any button
                 // presses from here on will arrive as onCharacteristicChanged.
+                if (!onSubscribed(g)) return
                 Log.i(TAG, "button subscription ACTIVE — speakermic PTT ready")
                 val service = g.getService(SERVICE_UUID) ?: return
                 val configCh = service.getCharacteristic(CONFIG_CHAR_UUID)
@@ -363,7 +671,7 @@ class AinaBleReader(
                 ch: BluetoothGattCharacteristic,
                 status: Int,
             ) {
-                if (ch.uuid != CONFIG_CHAR_UUID) return
+                if (ch.uuid != CONFIG_CHAR_UUID || !isCurrent(g)) return
                 onConfigRead(g, ch, status, ch.value)
             }
 
@@ -373,7 +681,7 @@ class AinaBleReader(
                 value: ByteArray,
                 status: Int,
             ) {
-                if (ch.uuid != CONFIG_CHAR_UUID) return
+                if (ch.uuid != CONFIG_CHAR_UUID || !isCurrent(g)) return
                 onConfigRead(g, ch, status, value)
             }
 
@@ -442,9 +750,8 @@ class AinaBleReader(
                 g: BluetoothGatt,
                 ch: BluetoothGattCharacteristic,
             ) {
-                if (disposed) return
                 if (ch.uuid != BUTTON_CHAR_UUID) return
-                handleMask(ch.value)
+                handleMask(g, ch.value)
             }
 
             override fun onCharacteristicChanged(
@@ -452,19 +759,60 @@ class AinaBleReader(
                 ch: BluetoothGattCharacteristic,
                 value: ByteArray,
             ) {
-                if (disposed) return
                 if (ch.uuid != BUTTON_CHAR_UUID) return
-                handleMask(value)
+                handleMask(g, value)
             }
 
-            private fun handleMask(bytes: ByteArray?) {
+            // Under [stateLock] end to end, so an edge decoded here can
+            // never be dispatched after abandonLink released this link.
+            private fun handleMask(
+                g: BluetoothGatt,
+                bytes: ByteArray?,
+            ) {
                 if (bytes == null || bytes.isEmpty()) return
-                val mask = bytes[0].toInt() and 0xFF
-                for ((button, isDown) in decoder.process(mask)) {
-                    dispatchEvent(button, isDown)
+                synchronized(stateLock) {
+                    if (acceptsButtonNotify(g)) {
+                        val mask = bytes[0].toInt() and 0xFF
+                        for ((button, isDown) in decoder.process(mask)) {
+                            dispatchEvent(button, isDown)
+                        }
+                    }
                 }
             }
+
+            // Current handle, reader live, subscription confirmed. Before
+            // confirmation the link may still fail and be abandoned, so
+            // nothing it delivers counts yet.
+            private fun acceptsButtonNotify(g: BluetoothGatt): Boolean =
+                when {
+                    disposed || !isCurrent(g) -> false
+                    !reportedConnected -> {
+                        Log.i(TAG, "ignoring button notify before subscription is confirmed")
+                        false
+                    }
+                    else -> true
+                }
         }
+
+    // Button CCCD with notifications enabled locally, or null when the
+    // service, characteristic or descriptor is missing / refused.
+    private fun buttonCccd(g: BluetoothGatt): BluetoothGattDescriptor? {
+        val ch = g.getService(SERVICE_UUID)?.getCharacteristic(BUTTON_CHAR_UUID)
+        val cccd =
+            when {
+                ch == null -> {
+                    Log.w(TAG, "AINA service or button characteristic not found on device")
+                    null
+                }
+                !g.setCharacteristicNotification(ch, true) -> {
+                    Log.w(TAG, "setCharacteristicNotification(true) failed")
+                    null
+                }
+                else -> ch.getDescriptor(CCCD_UUID)
+            }
+        if (ch != null && cccd == null) Log.w(TAG, "no usable CCCD on button characteristic")
+        return cccd
+    }
 
     /**
      * Test seam — abstracts BluetoothDevice.connectGatt so unit
@@ -500,22 +848,8 @@ class AinaBleReader(
     companion object {
         private const val TAG = "AinaBleReader"
 
-        // Direct-connect retry strategy: a few quick attempts (handles
-        // status=133 GATT_ERROR which is usually a transient stack glitch),
-        // then fall back to autoConnect=true so the BLE stack itself handles
-        // long-term reconnect when the AINA returns from sleep / out-of-range.
-        private const val MAX_DIRECT_RETRIES = 4
-        private const val INITIAL_RETRY_DELAY_MS = 2_000L
-
-        // Minimum gap between BluetoothGatt.close() and the next
-        // connectGatt(). The BLE stack needs ~100ms to fully release
-        // the prior handle; without the wait, status=133 wedge cycles
-        // accumulate instead of resolving. Conservative 120ms covers
-        // OEM stacks (Samsung in particular is slower than stock
-        // Android). Audit M15.
-        private const val GATT_CLOSE_REOPEN_SETTLE_MS: Long = 120L
-        private const val MAX_DIRECT_RETRY_DELAY_MS = 16_000L
-        private const val AUTO_CONNECT_DELAY_MS = 5_000L
+        // Retry cadence, the close→reopen settle gap and the setup
+        // watchdog live in [GattSetup], shared with BitmaskGattPttReader.
 
         val SERVICE_UUID: UUID = UUID.fromString("127FACE1-CB21-11E5-93D0-0002A5D5C51B")
         val BUTTON_CHAR_UUID: UUID = UUID.fromString("127FBEEF-CB21-11E5-93D0-0002A5D5C51B")
@@ -539,10 +873,13 @@ class AinaBleReader(
         internal fun gattStatusName(status: Int): String =
             when (status) {
                 BluetoothGatt.GATT_SUCCESS -> "GATT_SUCCESS"
+                5 -> "AUTHENTICATION"
                 8 -> "CONN_TIMEOUT"
+                15 -> "INSUFFICIENT_ENCRYPTION"
                 19 -> "GATT_CONN_TERMINATE_PEER_USER"
                 22 -> "LMP_RESPONSE_TIMEOUT"
                 133 -> "GATT_ERROR"
+                137 -> "GATT_AUTH_FAIL"
                 else -> "STATUS_$status"
             }
     }

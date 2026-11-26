@@ -63,7 +63,7 @@ class Bt02BleReaderTest {
     fun `isBt02Name matches the advertised B02PTT prefix`() {
         // Real advert is "B02PTT-<unit>"; we match the prefix so every
         // unit is recognized without baking in a device-specific suffix.
-        assertTrue(Bt02BleReader.isBt02Name("B02PTT-AB12"))
+        assertTrue(Bt02BleReader.isBt02Name("B02PTT-0000"))
         assertTrue(Bt02BleReader.isBt02Name("b02ptt-xyz")) // case-insensitive
         assertTrue(Bt02BleReader.isBt02Name("  B02PTT-0001  ")) // space tolerant
     }
@@ -79,10 +79,10 @@ class Bt02BleReaderTest {
 
     @Test
     fun `matchesCompanionBleName matches exact unit name and rejects other units`() {
-        assertTrue(Bt02BleReader.matchesCompanionBleName("B02PTT-AB12", "B02PTT-AB12"))
-        assertTrue(Bt02BleReader.matchesCompanionBleName("B02PTT-AB12", "b02ptt-ab12"))
-        assertFalse(Bt02BleReader.matchesCompanionBleName("B02PTT-AB12", "B02PTT-9999"))
-        assertFalse(Bt02BleReader.matchesCompanionBleName("B02PTT-AB12", "APTT304B9F"))
-        assertTrue(Bt02BleReader.matchesCompanionBleName(null, "B02PTT-AB12"))
+        assertTrue(Bt02BleReader.matchesCompanionBleName("B02PTT-0000", "B02PTT-0000"))
+        assertTrue(Bt02BleReader.matchesCompanionBleName("B02PTT-0000", "b02ptt-0000"))
+        assertFalse(Bt02BleReader.matchesCompanionBleName("B02PTT-0000", "B02PTT-9999"))
+        assertFalse(Bt02BleReader.matchesCompanionBleName("B02PTT-0000", "APTT304B9F"))
+        assertTrue(Bt02BleReader.matchesCompanionBleName(null, "B02PTT-0000"))
     }
 }
