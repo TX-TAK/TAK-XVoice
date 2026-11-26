@@ -1,6 +1,5 @@
 package com.atakmap.android.xv.util
 
-import android.view.KeyEvent
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -264,132 +263,31 @@ class SamsungActiveKeyTest {
         )
     }
 
-    // ============================================================
-    // handleKeyEvent — pure fallback classifier for the KeyEvent path
-    // ============================================================
-    // The foreground-KeyEvent fallback exists because on-device
-    // validation 2026-07-10 (Samsung Galaxy Tab Active5 / SM-X308U)
-    // confirmed the HARD_KEY_REPORT broadcast is NOT emitted by
-    // shipping firmware. The plain KeyEvent, in contrast, produces
-    // both ACTION_DOWN (with repeatCount == 0) and ACTION_UP for
-    // keyCode == 1015, so we route those into the same
-    // SAMSUNG_ACTIVE_KEY-tagged edges the broadcast path uses.
-
     @Test
-    fun `handleKeyEvent — keyCode=1015 ACTION_DOWN repeat=0 → PTT_DOWN`() {
+    fun `Samsung key constants match the documented values`() {
+        // A silent change to any of these breaks PTT on every
+        // supported device, so pin them.
+        assertEquals(1015, SamsungActiveKey.KEY_CODE_PTT)
+        assertEquals(1, SamsungActiveKey.KEY_REPORT_TYPE_PRESSED)
+        assertEquals(2, SamsungActiveKey.KEY_REPORT_TYPE_RELEASED)
         assertEquals(
-            SamsungActiveKey.FallbackAction.PTT_DOWN,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = SamsungActiveKey.KEY_CODE_PTT,
-                action = KeyEvent.ACTION_DOWN,
-                repeatCount = 0,
-            ),
+            "com.samsung.android.knox.intent.action.HARD_KEY_REPORT",
+            SamsungActiveKey.ACTION_HARD_KEY_REPORT,
+        )
+        assertEquals(
+            "com.samsung.android.knox.intent.action.HARD_KEY_PRESS",
+            SamsungActiveKey.META_HARD_KEY_PRESS,
         )
     }
 
     @Test
-    fun `handleKeyEvent — keyCode=1015 ACTION_UP → PTT_UP`() {
-        assertEquals(
-            SamsungActiveKey.FallbackAction.PTT_UP,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = SamsungActiveKey.KEY_CODE_PTT,
-                action = KeyEvent.ACTION_UP,
-                repeatCount = 0,
-            ),
-        )
-    }
-
-    @Test
-    fun `handleKeyEvent — keyCode=1015 ACTION_DOWN repeat=1 → IGNORE (auto-repeat suppressed)`() {
-        // Physically-held key produces down events with repeatCount > 0.
-        // Dropping them keeps the log narrative honest (one "DOWN" line
-        // per press) and is belt-and-suspenders on top of PttDispatcher's
-        // OR-gate dedupe by source.
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = SamsungActiveKey.KEY_CODE_PTT,
-                action = KeyEvent.ACTION_DOWN,
-                repeatCount = 1,
-            ),
-        )
-    }
-
-    @Test
-    fun `handleKeyEvent — keyCode=1015 ACTION_DOWN repeat=5 → IGNORE (auto-repeat suppressed)`() {
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = SamsungActiveKey.KEY_CODE_PTT,
-                action = KeyEvent.ACTION_DOWN,
-                repeatCount = 5,
-            ),
-        )
-    }
-
-    @Test
-    fun `handleKeyEvent — keyCode=25 VOLUME_DOWN → IGNORE`() {
-        // Volume rockers must never fire PTT.
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = KeyEvent.KEYCODE_VOLUME_DOWN,
-                action = KeyEvent.ACTION_DOWN,
-                repeatCount = 0,
-            ),
-        )
-    }
-
-    @Test
-    fun `handleKeyEvent — keyCode=24 VOLUME_UP → IGNORE`() {
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = KeyEvent.KEYCODE_VOLUME_UP,
-                action = KeyEvent.ACTION_DOWN,
-                repeatCount = 0,
-            ),
-        )
-    }
-
-    @Test
-    fun `handleKeyEvent — keyCode=4 BACK → IGNORE`() {
-        // Any non-Active-Key keycode is passed through untouched.
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = KeyEvent.KEYCODE_BACK,
-                action = KeyEvent.ACTION_UP,
-                repeatCount = 0,
-            ),
-        )
-    }
-
-    @Test
-    @Suppress("DEPRECATION")
-    fun `handleKeyEvent — keyCode=1015 ACTION_MULTIPLE → IGNORE (unusual action dropped)`() {
-        // ACTION_MULTIPLE is deprecated and semantically ambiguous —
-        // treat it as a non-edge and drop.
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = SamsungActiveKey.KEY_CODE_PTT,
-                action = KeyEvent.ACTION_MULTIPLE,
-                repeatCount = 0,
-            ),
-        )
-    }
-
-    @Test
-    fun `handleKeyEvent — keyCode=1015 with an unknown action code → IGNORE`() {
-        // Future firmware surfaces we've never seen shouldn't misfire.
-        assertEquals(
-            SamsungActiveKey.FallbackAction.IGNORE,
-            SamsungActiveKey.handleKeyEvent(
-                keyCode = SamsungActiveKey.KEY_CODE_PTT,
-                action = 99,
-                repeatCount = 0,
-            ),
-        )
+    fun `isAssignedInternal — true only when the switch is on and the app is ours`() {
+        val pkg = "com.example.plugin"
+        assertTrue(SamsungActiveKey.isAssignedInternal(1, pkg, pkg))
+        assertTrue(SamsungActiveKey.isAssignedInternal(1, " $pkg ", pkg))
+        assertFalse("switch off", SamsungActiveKey.isAssignedInternal(0, pkg, pkg))
+        assertFalse("another app", SamsungActiveKey.isAssignedInternal(1, "com.example.other", pkg))
+        assertFalse("nothing chosen", SamsungActiveKey.isAssignedInternal(1, "", pkg))
+        assertFalse("setting absent", SamsungActiveKey.isAssignedInternal(1, null, pkg))
     }
 }

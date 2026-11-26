@@ -2,7 +2,6 @@ package com.atakmap.android.xv.util
 
 import android.content.Context
 import android.os.Build
-import android.view.KeyEvent
 
 /**
  * Capability detection for the programmable Active Key found on Samsung
@@ -23,13 +22,18 @@ import android.view.KeyEvent
  * Despite the `knox` prefix in the action string, the broadcast is
  * emitted by the Samsung framework itself on qualifying hardware and
  * does NOT require the Knox SDK, a Knox license, or any Samsung
- * enterprise entitlement to receive. Any app that registers a
- * [android.content.BroadcastReceiver] for the action gets the events.
+ * enterprise entitlement to receive. We therefore do NOT depend on
+ * the Knox SDK jar.
  *
- * We therefore do NOT depend on the Knox SDK jar. The reader
- * ([com.atakmap.android.xv.ptt.SamsungActiveKeyReader]) simply
- * registers a normal broadcast receiver against the well-known action
- * string when the operator flips the toggle in Settings.
+ * It is NOT a system-wide broadcast, though. The framework addresses
+ * it to exactly one package: the app the operator picked under
+ * Settings → Advanced features → Active button → "Use Active button
+ * with app". An app is only offered there if its manifest carries
+ * [META_HARD_KEY_PRESS] and a receiver for [ACTION_HARD_KEY_REPORT]
+ * ([com.atakmap.android.xv.ptt.SamsungHardKeyReceiver]). Verified
+ * 2026-11-25 on a Tab Active5 (SM-X308U, Android 16): with both
+ * declared and XV selected, reports arrive in the foreground, in the
+ * background, and with the screen off and locked.
  *
  * Sources (2026-07):
  *   - Samsung Knox docs, "Unmanaged key mappings":
@@ -116,8 +120,8 @@ object SamsungActiveKey {
     /**
      * True when the current device is a Samsung ruggedized model that
      * carries the programmable Active Key. Consulted at Settings-row
-     * inflation time to decide whether to show the "Enable Samsung
-     * Active Key as PTT" toggle at all. On any non-Samsung device this
+     * inflation time to decide whether to show the "Samsung Active Key
+     * PTT" row at all. On any non-Samsung device this
      * is a fast constant `false`.
      *
      * [context] is accepted for symmetry with the Android-runtime
@@ -175,32 +179,11 @@ object SamsungActiveKey {
     }
 
     /**
-     * Classification returned by [handleKeyEvent] for a single Android
-     * [KeyEvent] observed while XV / ATAK is in the foreground. Used by
-     * the foreground-KeyEvent fallback path
-     * ([com.atakmap.android.xv.ptt.SamsungActiveKeyForegroundReader]) so
-     * the transport layer maps to the same [com.atakmap.android.xv.audio.PttSource]
-     * edges that the broadcast path fires — while keeping the decision
-     * itself pure and unit-testable (no Android runtime, no
-     * Robolectric).
-     *
-     * The fallback exists because on-device validation 2026-07-10
-     * against a Samsung Galaxy Tab Active5 (SM-X308U) confirmed that
-     * shipping firmware does **not** emit the `HARD_KEY_REPORT`
-     * broadcast — the operator's Settings → Advanced features → Active
-     * Key surface only offers "launch app" style intents, which
-     * produce one intent on press and no release signal (unusable as a
-     * PTT source). The plain `KeyEvent` path, in contrast, produces
-     * both `ACTION_DOWN` (with `repeatCount == 0`) and `ACTION_UP` —
-     * which is exactly what PTT needs.
-     *
-     * The trade-off: a `KeyEvent` routed by
-     * `PhoneWindowManager.interceptKeyTq` -> `InputDispatcher` is
-     * delivered to the top activity only, so this path works only
-     * while ATAK is in the foreground. That's the same limitation
-     * every non-system, non-IME hardware-button PTT app has; the
-     * broadcast path (which does work backgrounded on qualifying
-     * firmware) is still the ideal and stays in place.
+     * Classification of a single Samsung `HARD_KEY_REPORT` broadcast,
+     * returned by [classifyHardKeyReport]. Kept pure so the decision is
+     * unit-testable without the Android runtime; the receiver maps it
+     * to [com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY]
+     * edges.
      */
     enum class FallbackAction {
         /** Fire a PTT down edge tagged [com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY]. */
@@ -214,31 +197,77 @@ object SamsungActiveKey {
     }
 
     /**
-     * Pure classification of a single Android [KeyEvent] tuple for the
-     * foreground-KeyEvent fallback path. Returns [FallbackAction.PTT_DOWN]
-     * on the initial press of `KEYCODE == 1015` (the Samsung Active
-     * Key), [FallbackAction.PTT_UP] on release, and [FallbackAction.IGNORE]
-     * for everything else — including auto-repeat down events
-     * (`repeatCount > 0`), volume / navigation keys, and unusual
-     * actions like [KeyEvent.ACTION_MULTIPLE].
-     *
-     * Auto-repeat is dropped so a physically held key doesn't spam the
-     * dispatcher with duplicate down edges after the first — this is
-     * belt-and-suspenders (the dispatcher's OR-gate would ignore the
-     * duplicates anyway, since `PttSource.SAMSUNG_ACTIVE_KEY` is
-     * already held), but it also keeps log output readable.
+     * Manifest `<meta-data>` name that opts the APK in to Samsung's
+     * unmanaged key mapping. With it set to `true`, the app is offered
+     * under Settings → Advanced features → XCover / Active key →
+     * "Control … key with app"; once the operator picks it, the
+     * framework reports press / release via [ACTION_HARD_KEY_REPORT].
+     * Kept here only as the single documented reference for the string
+     * — the manifest cannot read a Kotlin constant.
      */
-    fun handleKeyEvent(
+    const val META_HARD_KEY_PRESS: String =
+        "com.samsung.android.knox.intent.action.HARD_KEY_PRESS"
+
+    /**
+     * Action that opens Samsung's Active button settings screen, where
+     * the operator assigns the key to an app. Observed on Tab Active5
+     * (SM-X308U, Android 16); not a documented public API, so callers
+     * must tolerate it being absent.
+     */
+    const val ACTION_ACTIVE_KEY_SETTINGS: String = "com.samsung.ACTIVE_KEY_SETTINGS"
+
+    // Samsung `Settings.System` keys behind "Use Active button with
+    // app". Observed on SM-X308U (Android 16); undocumented, so every
+    // read is best-effort and a failure reads as "not assigned".
+    private const val SETTING_DEDICATED_APP = "dedicated_app_xcover"
+    private const val SETTING_DEDICATED_APP_SWITCH = "dedicated_app_xcover_switch"
+
+    /**
+     * True when Samsung's "Use Active button with app" setting is on
+     * and names [packageName]. Drives the read-only settings row; it is
+     * NOT a gate on PTT — the framework simply stops sending reports
+     * when the operator unassigns the key.
+     */
+    fun isAssignedTo(
+        context: Context,
+        packageName: String,
+    ): Boolean =
+        try {
+            val cr = context.contentResolver
+            isAssignedInternal(
+                switchValue = android.provider.Settings.System.getInt(cr, SETTING_DEDICATED_APP_SWITCH, 0),
+                dedicatedApp = android.provider.Settings.System.getString(cr, SETTING_DEDICATED_APP),
+                packageName = packageName,
+            )
+        } catch (_: Throwable) {
+            false
+        }
+
+    /** Pure test seam for [isAssignedTo]. */
+    fun isAssignedInternal(
+        switchValue: Int,
+        dedicatedApp: String?,
+        packageName: String,
+    ): Boolean = switchValue == 1 && !dedicatedApp.isNullOrBlank() && dedicatedApp.trim() == packageName
+
+    /**
+     * Pure classification of one `HARD_KEY_REPORT` broadcast, for the
+     * manifest-declared receiver
+     * ([com.atakmap.android.xv.ptt.SamsungHardKeyReceiver]). Returns
+     * [FallbackAction.PTT_DOWN] / [FallbackAction.PTT_UP] for the side
+     * key (1015) with report type 1 / 2 and [FallbackAction.IGNORE] for
+     * anything else — wrong action, the Top key (1079), a missing extra,
+     * or an unknown report type.
+     */
+    fun classifyHardKeyReport(
+        action: String?,
         keyCode: Int,
-        action: Int,
-        repeatCount: Int,
-    ): FallbackAction {
-        if (keyCode != KEY_CODE_PTT) return FallbackAction.IGNORE
-        return when (action) {
-            KeyEvent.ACTION_DOWN ->
-                if (repeatCount == 0) FallbackAction.PTT_DOWN else FallbackAction.IGNORE
-            KeyEvent.ACTION_UP -> FallbackAction.PTT_UP
+        reportType: Int,
+    ): FallbackAction =
+        when {
+            action != ACTION_HARD_KEY_REPORT || keyCode != KEY_CODE_PTT -> FallbackAction.IGNORE
+            reportType == KEY_REPORT_TYPE_PRESSED -> FallbackAction.PTT_DOWN
+            reportType == KEY_REPORT_TYPE_RELEASED -> FallbackAction.PTT_UP
             else -> FallbackAction.IGNORE
         }
-    }
 }

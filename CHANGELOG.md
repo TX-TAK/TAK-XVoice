@@ -2,6 +2,19 @@
 
 All notable user-visible and operationally significant changes to TAK-XVoice are documented in this file.
 
+## [1.1.3]
+
+`versionCode` 33. Supersedes 1.1.2 (versionCode 32 was not releasable).
+
+### Changed
+- **Samsung Active Key background and locked-screen PTT now uses Samsung's native key mapping instead of an accessibility service.** XV declares the `HARD_KEY_PRESS` manifest metadata and an exported `HARD_KEY_REPORT` receiver, so it appears under Samsung Settings → Active button → "Use Active button with app"; once assigned, press and release reach XV in the foreground, with ATAK backgrounded, and with the screen off and locked. Validated on a Galaxy Tab Active5 (SM-X308U). No Knox SDK or license is involved.
+- Samsung Active Key setup is now a single XV settings row, **Samsung Active Key PTT**, which shows whether the key is assigned to XV and opens Samsung's Active button screen. Samsung's own "Use Active button with app" setting is the only on/off switch; the key does nothing in XV until it is assigned.
+- `AIDL_API_VERSION` 5 → 6 (breaking: Samsung Active Key methods removed mid-interface).
+
+### Removed
+- `SamsungActiveKeyAccessibilityService`, its descriptor and the `BIND_ACCESSIBILITY_SERVICE` declaration. XV no longer requests any accessibility permission. Operators who enabled the old service should assign the key to XV in Samsung Settings instead.
+- The XV-side "Use Samsung Active Key as PTT" toggle and its persisted preference, the runtime `HARD_KEY_REPORT` reader (`SamsungActiveKeyReader`) and the foreground-KeyEvent reader (`SamsungActiveKeyForegroundReader`), plus the `setSamsungActiveKeyEnabled` / `isSamsungActiveKeyRunning` / `notifySamsungActiveKeyEdge` AIDL methods. They duplicated the manifest receiver, and the XV toggle did not actually stop background PTT once the key was assigned.
+
 ## [1.1.1]
 
 `versionCode` 31. Supersedes 1.1.0 as the shipping build of the Inrico BT02 (B02) speaker-mic feature. No functional change: an internal, behavior-preserving refactor of the BT02 BLE paths (`Bt02BleReader`, `BlePttScanner`, `BitmaskGattPttReader`, `XvMapComponent`) to satisfy the detekt `ReturnCount` and loop-jump rules. The unit suite is unchanged. See [1.1.0] below for the feature itself.
