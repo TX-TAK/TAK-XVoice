@@ -203,4 +203,20 @@ class MapHudPolicyTest {
         org.junit.Assert.assertTrue(MapHudPolicy.button(s, held = true).onMesh)
         org.junit.Assert.assertFalse(MapHudPolicy.button(s.copy(onMesh = false)).onMesh)
     }
+
+    @Test
+    fun `talker lines give each channel its own line`() {
+        val a = MapHudPolicy.SlotState(0, "Alpha", live = true, listenOnly = false, transmitting = false, talkers = listOf("Bravo-2"))
+        val b = MapHudPolicy.SlotState(1, "Charlie", live = true, listenOnly = false, transmitting = false, talkers = listOf("Delta-4"))
+        assertEquals(
+            listOf(MapHudPolicy.TalkerLine("1 · Bravo-2", true), MapHudPolicy.TalkerLine("2 · Delta-4", true)),
+            MapHudPolicy.talkerLines(a, b),
+        )
+        assertEquals(listOf(null, MapHudPolicy.TalkerLine("2 · Delta-4", true)), MapHudPolicy.talkerLines(a.copy(talkers = emptyList()), b))
+        assertEquals(
+            listOf(MapHudPolicy.TalkerLine("Voice offline", false), null),
+            MapHudPolicy.talkerLines(a.copy(talkers = emptyList()), b.copy(talkers = emptyList()), "Voice offline")
+        )
+        assertEquals(1, MapHudPolicy.talkerLines(a, null).size)
+    }
 }

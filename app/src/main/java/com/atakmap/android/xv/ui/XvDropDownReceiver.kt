@@ -1447,7 +1447,10 @@ class XvDropDownReceiver(
         }
         val memberCount = controller.channelMembersForSlot(slot)?.members?.size ?: 0
         v.findViewById<TextView>(ids.members).apply {
-            visibility = if (live) View.VISIBLE else View.GONE
+            // INVISIBLE, not GONE, and a fixed width (xv_main.xml): the
+            // PTT beside it shares the row by weight, so a count that
+            // appears, hides or changes width must never move the button.
+            visibility = if (live) View.VISIBLE else View.INVISIBLE
             text = "👥 $memberCount"
             contentDescription = "$memberCount ${if (memberCount == 1) "member" else "members"} on channel ${slot + 1}"
         }

@@ -122,7 +122,7 @@ Feedback and refusals:
   - Texas Red fill + **TX**: you're transmitting (confirmed).
   - Red outline + **DENIED**: the press was refused (briefly).
   - Dim: listen-only, or the slot isn't live.
-- A pill above the buttons names each talking slot and talker, both channels at once when both are busy. With nobody talking it shows **Voice offline** when there's no server or mesh link, or **PTT1 → <channel>** for a few seconds after a swap.
+- Above the buttons, one talker line per channel (**1 · <name>**, **2 · <name>**), so both are readable when both channels are busy. The lines keep their place while quiet, so incoming audio never moves the buttons. With nobody talking it shows **Voice offline** when there's no server or mesh link, or **PTT1 → <channel>** for a few seconds after a swap.
 - Size is Small, Medium or Large (Settings › TX/RX): a share of the screen's shorter side, never below 48 dp. Toggle the buttons off in Settings › TX/RX; they're on by default.
 
 **Connects to:**

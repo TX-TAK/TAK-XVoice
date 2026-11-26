@@ -148,6 +148,34 @@ object MapHudPolicy {
             .joinToString("   ") { "${it.slot + 1} · ${it.talkers.joinToString(", ")}" }
             .ifEmpty { null }
 
+    /** One map talker line: [talking] = names (Honey), else a notice. */
+    data class TalkerLine(
+        val text: String,
+        val talking: Boolean,
+    )
+
+    /**
+     * The map's talker lines, one per channel shown (1, or 2 with channel
+     * 2 on), so both channels' talkers are readable at once: "1 · Bravo-2"
+     * on line 1, "2 · Charlie-1" on line 2; null = that channel is quiet.
+     * With nobody talking, a [notice] takes line 1.
+     */
+    fun talkerLines(
+        slot1: SlotState,
+        slot2: SlotState?,
+        notice: String? = null,
+    ): List<TalkerLine?> {
+        val lines =
+            listOfNotNull(slot1, slot2).map { s ->
+                s.talkers.takeIf { it.isNotEmpty() }?.let { TalkerLine("${s.slot + 1} · ${it.joinToString(", ")}", talking = true) }
+            }
+        return if (lines.all { it == null } && notice != null) {
+            listOf(TalkerLine(notice, talking = false)) + lines.drop(1)
+        } else {
+            lines
+        }
+    }
+
     /** Full upper-case channel name (never truncated; long names scroll). */
     fun labelName(channel: String?): String = channel?.trim().orEmpty().uppercase().ifEmpty { "—" }
 

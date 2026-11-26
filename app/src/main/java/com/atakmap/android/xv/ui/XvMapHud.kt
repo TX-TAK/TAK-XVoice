@@ -58,7 +58,9 @@ class XvMapHud(
     private var dock: LinearLayoutWidget? = null
     private var dockedSide: MapHudPolicy.Side? = null
     private val holder = LinearLayoutWidget(LinearLayoutWidget.WRAP_CONTENT, LinearLayoutWidget.WRAP_CONTENT, LinearLayoutWidget.VERTICAL)
-    private val talkerPill = TextWidget("")
+
+    // One talker line per channel ("1 · name", "2 · name") above the buttons.
+    private val talkerLines = listOf(TextWidget(""), TextWidget(""))
     private val buttons = mapOf(0 to MarkerIconWidget(), 1 to MarkerIconWidget())
     private val renderedKey = mutableMapOf<Int, String>()
     private val iconUris = mutableMapOf<String, String>()
@@ -121,11 +123,12 @@ class XvMapHud(
                 return@post
             }
             holder.setName("XV map PTT")
-            talkerPill.setName("XV talker")
-            talkerPill.setTextFormat(com.atakmap.android.maps.MapTextFormat(android.graphics.Typeface.DEFAULT_BOLD, TALKER_TEXT_SIZE))
-            talkerPill.setColor(pluginContext.resources.getColor(R.color.xv_voice, null))
-            talkerPill.setBackground(TextWidget.TRANSLUCENT_BLACK)
-            holder.addWidget(talkerPill)
+            talkerLines.forEachIndexed { i, line ->
+                line.setName("XV talker ${i + 1}")
+                line.setTextFormat(com.atakmap.android.maps.MapTextFormat(android.graphics.Typeface.DEFAULT_BOLD, TALKER_TEXT_SIZE))
+                line.setColor(pluginContext.resources.getColor(R.color.xv_voice, null))
+                holder.addWidget(line)
+            }
             for ((slot, w) in buttons) {
                 w.setName("XV PTT ${slot + 1}")
                 w.addOnPressListener(MapWidget.OnPressListener { _, _ -> press(slot) })
@@ -238,12 +241,22 @@ class XvMapHud(
         redock(MapHudPolicy.side(snap.leftHanded))
         holder.setVisible(visible)
         if (!visible) return
-        val talkers = MapHudPolicy.talkerPill(snap.slot1, snap.slot2)
-        val pill = talkers ?: snap.notice
+        // A line per channel, each kept (blank, clear background) while
+        // quiet: showing / hiding them resized the dock and shifted the PTT
+        // buttons under the operator's thumb whenever audio came in.
+        val lines = MapHudPolicy.talkerLines(snap.slot1, snap.slot2, snap.notice)
         val res = pluginContext.resources
-        talkerPill.setColor(res.getColor(if (talkers != null) R.color.xv_voice else R.color.xv_text, null))
-        talkerPill.setText(pill.orEmpty())
-        talkerPill.setVisible(pill != null)
+        talkerLines.forEachIndexed { i, w ->
+            if (i >= lines.size) {
+                w.setVisible(false)
+                return@forEachIndexed
+            }
+            val line = lines[i]
+            w.setColor(res.getColor(if (line?.talking == true) R.color.xv_voice else R.color.xv_text, null))
+            w.setText(line?.text ?: " ")
+            w.setBackground(if (line != null) TextWidget.TRANSLUCENT_BLACK else android.graphics.Color.TRANSPARENT)
+            w.setVisible(true)
+        }
         for ((slot, w) in buttons) {
             val b = drawn.firstOrNull { it.slot == slot }
             w.setVisible(b != null)
@@ -257,6 +270,9 @@ class XvMapHud(
         val r = root ?: return
         dock?.removeWidget(holder)
         val edge = if (side == MapHudPolicy.Side.LEFT) RootLayoutWidget.LEFT_EDGE else RootLayoutWidget.RIGHT_EDGE
+        // Buttons hug the screen edge; a wider talker pill grows away
+        // from it instead of pushing the buttons sideways.
+        holder.setGravity(if (side == MapHudPolicy.Side.LEFT) android.view.Gravity.LEFT else android.view.Gravity.RIGHT)
         dock = r.getLayout(edge).also { it.addWidget(holder) }
         dockedSide = side
     }

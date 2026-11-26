@@ -228,7 +228,7 @@
 
         <TextView
             android:id="@+id/xv_members_1"
-            android:layout_width="wrap_content"
+            android:layout_width="56dp"
             android:layout_height="48dp"
             android:background="?android:attr/selectableItemBackground"
             android:clickable="true"
@@ -332,7 +332,7 @@
 
         <TextView
             android:id="@+id/xv_members_2"
-            android:layout_width="wrap_content"
+            android:layout_width="56dp"
             android:layout_height="48dp"
             android:background="?android:attr/selectableItemBackground"
             android:clickable="true"
