@@ -1799,13 +1799,10 @@ class XvVoiceService : Service() {
         } catch (t: Throwable) {
             Log.e(TAG, "addNewIncomingCall threw", t)
         }
-        // Post the system Notification.CallStyle incoming-call surface.
-        // On API 31+ this is the OS-rendered full-screen ring + heads-up
-        // with system Answer / Decline buttons — replaces the legacy
-        // XvIncomingCallActivity. The HIGH-importance xv_call_incoming
-        // channel triggers the full-screen surface automatically; no
-        // setFullScreenIntent (and no USE_FULL_SCREEN_INTENT permission)
-        // is required.
+        // Post the incoming-call heads-up with Answer / Decline actions
+        // on the HIGH-importance xv_call_incoming channel. No full-screen
+        // intent: USE_FULL_SCREEN_INTENT is not declared until direct
+        // calling ships (see CallStyleNotifier KDoc).
         callStyleNotifier.postIncoming(
             callerCallsign = callerCallsign,
             tempChannelId = tempChannelId,
@@ -1901,8 +1898,15 @@ class XvVoiceService : Service() {
      * is permitted. Without this swap, BAL_BLOCK fires and the
      * operator sees only a heads-up notification with no Mute / route /
      * Hang Up controls available.
+     *
+     * No-op while [PHONE_CALL_FGS_ENABLED] is false: requesting a type
+     * the manifest does not declare makes startForeground throw.
      */
     private fun promoteToPhoneCallForeground() {
+        if (!PHONE_CALL_FGS_ENABLED) {
+            Log.i(TAG, "promoteToPhoneCallForeground: phoneCall fg type disabled; staying mic|connectedDevice")
+            return
+        }
         startForegroundWithTypes(includePhoneCall = true)
     }
 
@@ -2297,6 +2301,15 @@ class XvVoiceService : Service() {
         // after the next service start (Android's channel registry
         // is per-channel-id, so adding the new one is sufficient).
         private const val NOTIFICATION_ID = 4711
+
+        // phoneCall foreground type is DISABLED until direct calling
+        // ships. FOREGROUND_SERVICE_PHONE_CALL and the phoneCall entry in
+        // the service's foregroundServiceType are commented out in the
+        // manifest so Play does not require a phone-call declaration.
+        // Normal PTT never used it: its Telecom self-managed call and
+        // voice audio focus run under microphone|connectedDevice. Flip
+        // this to true together with the two manifest entries.
+        private const val PHONE_CALL_FGS_ENABLED = false
 
         // Mirrors com.atakmap.android.xv.plugin.XvTool.SHOW_XV — the
         // AtakBroadcast action that XvMapComponent registers for and

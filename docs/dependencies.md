@@ -29,8 +29,8 @@ routing, VoIP call management, and background reliability:
 | `ACCESS_WIFI_STATE`, `CHANGE_WIFI_MULTICAST_STATE` | Acquiring Android's `MulticastLock` when alpha mesh-voice failover is enabled. |
 | `BLUETOOTH_CONNECT`, `BLUETOOTH_SCAN` *(Android 12+)* / `BLUETOOTH`, `BLUETOOTH_ADMIN` *(Android ≤ 11)* | Discovering and connecting to Bluetooth speaker-mics and BLE PTT buttons (`neverForLocation` flag set — no location data accessed). |
 | `MANAGE_OWN_CALLS`, `CALL_PHONE`, `READ_PHONE_STATE` | Android self-managed VoIP (`ConnectionService`) for clean audio focus arbitration and Bluetooth SCO routing. |
-| `FOREGROUND_SERVICE` (`MICROPHONE`, `CONNECTED_DEVICE`, `PHONE_CALL`) | Keeping voice sessions and private calls alive when ATAK is backgrounded or the screen is off. |
-| `POST_NOTIFICATIONS`, `USE_FULL_SCREEN_INTENT` | Foreground voice notification and full-screen incoming direct-call ring UI. |
+| `FOREGROUND_SERVICE` (`MICROPHONE`, `CONNECTED_DEVICE`) | Keeping voice sessions and Bluetooth PTT accessories alive when ATAK is backgrounded or the screen is off. |
+| `POST_NOTIFICATIONS` | Foreground voice notification and incoming direct-call ring notification. |
 | `REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`, `WAKE_LOCK` | Preventing Android Doze from killing active voice sockets and handling earpiece proximity screen-off. |
 
 ---
