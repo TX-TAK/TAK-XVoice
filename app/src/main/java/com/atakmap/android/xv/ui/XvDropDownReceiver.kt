@@ -1616,6 +1616,12 @@ class XvDropDownReceiver(
     ) {
         val actions = mutableListOf<Pair<String, () -> Unit>>()
         actions += "Mesh options…" to { promptConfigureChannel(v, ch.name) { populateChannelList(v) } }
+        // Share from the channel itself (the same flow as Settings › Mesh ›
+        // Share channel plan, pre-selected to this channel).
+        controller
+            .shareableChannels()
+            .firstOrNull { MulticastGroupDerivation.canonicalChannelName(it) == MulticastGroupDerivation.canonicalChannelName(ch.name) }
+            ?.let { shareName -> actions += "Share this channel…" to { promptPickTeammatesThenShare(listOf(shareName)) } }
         if (ch.offline) {
             actions += "Forget channel" to { confirmForgetOfflineChannel(ch.name) }
         }

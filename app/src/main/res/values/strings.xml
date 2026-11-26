@@ -24,7 +24,7 @@
          channel binding is fixed by design; swapping channels in the
          channel list is the only way to invert it. -->
     <string name="xv_button_map_speaker_mic" translatable="false">PTT 1      →  channel 1\nPTT 2      →  channel 2\n             (channel 1 when 2 is off)\nEmergency  →  ATAK alert\nFixed mapping · swap channels to change</string>
-    <string name="xv_button_map_button" translatable="false">PTT        →  channel 1\n2nd PTT    →  channel 2 (if fitted)\nFixed mapping · swap channels to change</string>
+    <string name="xv_button_map_button" translatable="false">PTT        →  channel 1\nFixed mapping · swap channels to change</string>
     <string name="xv_channels_search_hint">Search channels</string>
     <string name="xv_channels_swap">⇅ Swap</string>
     <string name="xv_channels_footer">Tap 1 or 2 to assign. Channel 1 is always set; tap a lit 2 to turn channel 2 off.
