@@ -171,6 +171,43 @@
                         android:layout_height="wrap_content"/>
                 </LinearLayout>
 
+                <!-- On-map PTT buttons (map HUD). On by default; shown on
+                     the map while the XV panel is collapsed, docked on the
+                     same side as the left-handed setting. -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/xv_card_bg"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
+                    android:orientation="horizontal"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:id="@+id/xv_label_map_ptt"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:labelFor="@+id/xv_switch_map_ptt"
+                        android:text="PTT buttons on the map"
+                        android:textColor="@color/xv_text"
+                        android:textSize="14sp"/>
+
+                    <Switch
+                        android:id="@+id/xv_switch_map_ptt"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Hex PTT buttons docked on the map edge while the XV panel is closed. Button 1 keys channel 1, button 2 keys channel 2."
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="11sp"/>
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

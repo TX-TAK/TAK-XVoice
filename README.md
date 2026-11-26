@@ -156,7 +156,14 @@ XV also adds:
   name, who is talking, and a large PTT button about half the row wide).
   The panel opens only as tall as it needs instead of half the screen.
   A **Left-handed** setting (Settings › TX/RX) moves the PTT buttons to
-  the left edge. Tapping a channel opens one searchable
+  the left edge.
+- **PTT buttons on the map** — while the XV panel is closed, hex PTT
+  buttons for channel 1 (and channel 2 when on) sit on the map edge,
+  docked with ATAK's own widgets so they stay clear of the compass and
+  scale bar. They show who is talking and turn red while you transmit.
+  On by default; turn them off in Settings › TX/RX. They follow the
+  left-handed setting, and opening the panel hides them (releasing a
+  held button). Tapping a channel opens one searchable
   channel list with **[1] [2]** pills per row, subchannels indented,
   and **Swap** in its header; long-press a channel for mesh options.
   With channel 2 off, its row becomes "+ Add channel 2". The 👥 count

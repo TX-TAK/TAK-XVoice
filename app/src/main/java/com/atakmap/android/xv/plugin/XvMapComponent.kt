@@ -1384,6 +1384,8 @@ class XvMapComponent : AbstractMapComponent() {
         // so resources resolve from XV's APK.
         val dd = XvDropDownReceiver(mapView, pluginContext, buildController())
         dropDown = dd
+        // On-map PTT buttons, shown while the XV panel is collapsed.
+        dd.attachMapHud()
         showReceiver =
             object : BroadcastReceiver() {
                 override fun onReceive(
@@ -2727,6 +2729,10 @@ class XvMapComponent : AbstractMapComponent() {
             override fun pttOnLeft(): Boolean = settings.persistedPttOnLeft()
 
             override fun setPttOnLeft(onLeft: Boolean) = settings.persistPttOnLeft(onLeft)
+
+            override fun mapPttEnabled(): Boolean = settings.persistedMapPttEnabled()
+
+            override fun setMapPttEnabled(enabled: Boolean) = settings.persistMapPttEnabled(enabled)
 
             override fun availableAinaDevices(): List<com.atakmap.android.xv.aina.AinaDeviceInfo> {
                 // Speaker-mic slot = audio-carrying PTT hardware only

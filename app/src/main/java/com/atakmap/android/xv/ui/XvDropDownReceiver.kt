@@ -204,6 +204,11 @@ class XvDropDownReceiver(
 
         fun setPttOnLeft(onLeft: Boolean) {}
 
+        // On-map PTT buttons (map HUD); on by default.
+        fun mapPttEnabled(): Boolean = true
+
+        fun setMapPttEnabled(enabled: Boolean) {}
+
         // ---- AINA speakermic picker (Settings → Preferences) ----
         // Bonded devices whose name looks like an AINA. Each entry's
         // generation is derived from BluetoothDevice.getType() so the UI
@@ -634,7 +639,48 @@ class XvDropDownReceiver(
      * (TextView.setText / setBackgroundResource short-circuit when the
      * value is unchanged).
      */
+    // On-map PTT buttons (approved map-HUD mockup). Shown while this panel
+    // is collapsed, hidden while it's open; uses the same fixed PTT1/PTT2
+    // mapping as the panel and the speaker-mic.
+    private var mapHud: XvMapHud? = null
+
+    fun attachMapHud() {
+        if (mapHud != null) return
+        mapHud =
+            XvMapHud(
+                mapView = mapView,
+                pluginContext = pluginContext,
+                pttDown = { slot -> controller.startTx(slot) },
+                pttUp = { _ -> controller.stopTx() },
+                state = { mapHudSnapshot() },
+            ).also { it.attach() }
+    }
+
+    private fun mapHudSnapshot(): XvMapHud.Snapshot {
+        val ch2 = controller.secondaryChannelName()?.takeIf { it.isNotBlank() }
+        return XvMapHud.Snapshot(
+            enabled = controller.mapPttEnabled(),
+            leftHanded = controller.pttOnLeft(),
+            slot1 = hudSlot(0, controller.currentChannelName(), controller.currentChannelName() != null),
+            slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
+        )
+    }
+
+    private fun hudSlot(
+        slot: Int,
+        channel: String?,
+        live: Boolean,
+    ) = MapHudPolicy.SlotState(
+        slot = slot,
+        channel = channel?.let { MumbleTransport.lobbyLabel(it) },
+        live = live,
+        listenOnly = live && !controller.canSpeakOnSlot(slot),
+        transmitting = live && controller.isTransmittingOnSlot(slot),
+        talkers = if (live) controller.activeSpeakers(slot) else emptyList(),
+    )
+
     fun refreshNow() {
+        mapHud?.refreshNow()
         mainHandler.post {
             refreshMain()
             // A swap landing / channel-2 change must reach an open channel
@@ -733,6 +779,7 @@ class XvDropDownReceiver(
     }
 
     fun show() {
+        mapHud?.setPanelOpen(true)
         mainHandler.post {
             val v = inflateMain()
             showMainDropDown(v)
@@ -755,6 +802,8 @@ class XvDropDownReceiver(
     }
 
     override fun disposeImpl() {
+        mapHud?.detach()
+        mapHud = null
         stopRefreshLoop()
         mainView = null
         openPickerSlot = null
@@ -772,6 +821,7 @@ class XvDropDownReceiver(
     override fun onDropDownSelectionRemoved() {}
 
     override fun onDropDownClose() {
+        mapHud?.setPanelOpen(false)
         stopRefreshLoop()
         // Don't keep (or later repaint) a detached channel list, and don't
         // carry an old search into the next visit.
@@ -786,6 +836,8 @@ class XvDropDownReceiver(
     ) {}
 
     override fun onDropDownVisible(visible: Boolean) {
+        // Panel open hides the map PTT buttons (and releases a held one).
+        mapHud?.setPanelOpen(visible)
         if (visible) startRefreshLoop() else stopRefreshLoop()
     }
 
@@ -2246,6 +2298,15 @@ class XvDropDownReceiver(
             setOnCheckedChangeListener { _, on ->
                 controller.setPttOnLeft(on)
                 mainView = null
+                // The map buttons dock on the same side.
+                mapHud?.refreshNow()
+            }
+        }
+        v.findViewById<Switch>(R.id.xv_switch_map_ptt).apply {
+            isChecked = controller.mapPttEnabled()
+            setOnCheckedChangeListener { _, on ->
+                controller.setMapPttEnabled(on)
+                mapHud?.refreshNow()
             }
         }
         val sw = v.findViewById<Switch>(R.id.xv_switch_latched)

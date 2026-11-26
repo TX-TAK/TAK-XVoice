@@ -272,6 +272,14 @@ class XvSettings(
         prefs()?.edit()?.putBoolean(PREF_PTT_ON_LEFT, onLeft)?.apply()
     }
 
+    // On-map PTT buttons (map HUD). ON by default: a fresh install shows
+    // them; operators can turn them off in Settings › TX/RX.
+    fun persistedMapPttEnabled(): Boolean = prefs()?.getBoolean(PREF_MAP_PTT, true) ?: true
+
+    fun persistMapPttEnabled(enabled: Boolean) {
+        prefs()?.edit()?.putBoolean(PREF_MAP_PTT, enabled)?.apply()
+    }
+
     // Snapshot of the server's channel directory, refreshed while
     // Mumble is connected (1 Hz tick, write-on-change). This is what
     // makes registration configure EVERY channel for offline use: when
@@ -535,6 +543,9 @@ class XvSettings(
 
         // Left-handed main-panel layout (PTT buttons on the left).
         private const val PREF_PTT_ON_LEFT = "ptt_on_left"
+
+        // On-map PTT overlay (default on).
+        private const val PREF_MAP_PTT = "map_ptt_enabled"
 
         // Mesh-voice (multicast) master toggle + per-channel overrides.
         // See persistedMeshVoiceEnabled / channelMulticastConfigs.
