@@ -84,14 +84,19 @@ object ChannelSwap {
     fun decide(s: State): Decision {
         // Order matters only for which reason the operator sees; the
         // most actionable one wins (keyed / in a call before topology).
-        if (s.swapInFlight) return Decision.Refuse(Refusal.SWAP_IN_PROGRESS)
-        if (s.transmitting) return Decision.Refuse(Refusal.TRANSMITTING)
-        if (s.inPrivateCall) return Decision.Refuse(Refusal.IN_CALL)
-        if (!s.primaryConnected || s.primaryChannelId < 0) return Decision.Refuse(Refusal.NOT_CONNECTED)
-        if (!s.secondaryPresent) return Decision.Refuse(Refusal.NO_CHANNEL_2)
-        if (!s.secondaryConnected || s.secondaryChannelId < 0) return Decision.Refuse(Refusal.CHANNEL_2_NOT_JOINED)
-        if (s.primaryChannelId == s.secondaryChannelId) return Decision.Refuse(Refusal.SAME_CHANNEL)
-        return Decision.Proceed(Plan(primaryFromId = s.primaryChannelId, secondaryFromId = s.secondaryChannelId))
+        val refusal =
+            when {
+                s.swapInFlight -> Refusal.SWAP_IN_PROGRESS
+                s.transmitting -> Refusal.TRANSMITTING
+                s.inPrivateCall -> Refusal.IN_CALL
+                !s.primaryConnected || s.primaryChannelId < 0 -> Refusal.NOT_CONNECTED
+                !s.secondaryPresent -> Refusal.NO_CHANNEL_2
+                !s.secondaryConnected || s.secondaryChannelId < 0 -> Refusal.CHANNEL_2_NOT_JOINED
+                s.primaryChannelId == s.secondaryChannelId -> Refusal.SAME_CHANNEL
+                else -> null
+            }
+        return refusal?.let { Decision.Refuse(it) }
+            ?: Decision.Proceed(Plan(primaryFromId = s.primaryChannelId, secondaryFromId = s.secondaryChannelId))
     }
 
     /** What the adapter should do after observing the slots' channels. */
@@ -131,9 +136,9 @@ object ChannelSwap {
     ): Resolution {
         val primaryMoved = observedPrimaryId == plan.primaryToId
         val secondaryMoved = observedSecondaryId == plan.secondaryToId
-        if (primaryMoved && secondaryMoved) return Resolution.Done
-        if (!timedOut) return Resolution.Wait
         return when {
+            primaryMoved && secondaryMoved -> Resolution.Done
+            !timedOut -> Resolution.Wait
             primaryMoved -> Resolution.RollBackPrimary(plan.primaryFromId)
             secondaryMoved -> Resolution.RollBackSecondary(plan.secondaryFromId)
             else -> Resolution.NothingMoved

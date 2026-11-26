@@ -1374,57 +1374,69 @@ class MumbleTransport(
         timedOut: Boolean,
         token: Long = -1L,
     ) {
-        val outcome: ChannelSwap.Outcome
-        synchronized(swapLock) {
-            val plan = pendingSwap ?: return
-            if (token >= 0 && token != pendingSwapToken) return
-            val sec = secondary
-            val res =
-                ChannelSwap.resolve(
-                    plan,
-                    observedPrimaryId = primary.joinedChannelId,
-                    observedSecondaryId = sec?.joinedChannelId ?: -1,
-                    timedOut = timedOut,
-                )
-            outcome =
-                when (res) {
-                    ChannelSwap.Resolution.Wait -> return
-                    ChannelSwap.Resolution.Done ->
-                        ChannelSwap.Outcome.Completed(
-                            primaryName = primary.joinedChannelName(),
-                            secondaryName = sec?.joinedChannelName() ?: activeSecondaryName,
-                        )
-                    is ChannelSwap.Resolution.RollBackPrimary -> {
-                        // VS2's join was refused, so VS1 now sits on VS2's
-                        // channel. Send VS1 home.
-                        Log.w(TAG, "swapChannels: VS2 join refused — rolling VS1 back to ${res.toId}")
-                        activeSecondaryName = pendingSwapPrevSecondaryName
-                        primary.lastSelfJoinAttemptMs = System.currentTimeMillis()
-                        primary.session?.joinChannel(res.toId)
-                        ChannelSwap.Outcome.RolledBack(failedSlot = 1)
-                    }
-                    is ChannelSwap.Resolution.RollBackSecondary -> {
-                        Log.w(TAG, "swapChannels: VS1 join refused — rolling VS2 back to ${res.toId}")
-                        activeSecondaryName = pendingSwapPrevSecondaryName
-                        sec?.lastSelfJoinAttemptMs = System.currentTimeMillis()
-                        sec?.session?.joinChannel(res.toId)
-                        ChannelSwap.Outcome.RolledBack(failedSlot = 0)
-                    }
-                    ChannelSwap.Resolution.NothingMoved -> {
-                        Log.w(TAG, "swapChannels: both joins refused — nothing changed")
-                        activeSecondaryName = pendingSwapPrevSecondaryName
-                        ChannelSwap.Outcome.Failed
-                    }
-                }
-            pendingSwap = null
-            pendingSwapPrevSecondaryName = null
-        }
+        val outcome = synchronized(swapLock) { resolvePendingSwapLocked(timedOut, token) } ?: return
         Log.i(TAG, "swapChannels outcome: $outcome")
         try {
             onChannelsSwapped(outcome)
         } catch (t: Throwable) {
             Log.w(TAG, "onChannelsSwapped threw", t)
         }
+    }
+
+    // Body of checkSwap under swapLock. Returns the outcome to report, or
+    // null when there is nothing to report yet (no swap pending, stale
+    // deadline token, or still waiting on an ack). Clears the pending
+    // swap whenever it returns an outcome.
+    private fun resolvePendingSwapLocked(
+        timedOut: Boolean,
+        token: Long,
+    ): ChannelSwap.Outcome? {
+        val plan = pendingSwap
+        val stale = token >= 0 && token != pendingSwapToken
+        if (plan == null || stale) return null
+        val sec = secondary
+        val res =
+            ChannelSwap.resolve(
+                plan,
+                observedPrimaryId = primary.joinedChannelId,
+                observedSecondaryId = sec?.joinedChannelId ?: -1,
+                timedOut = timedOut,
+            )
+        val outcome =
+            when (res) {
+                ChannelSwap.Resolution.Wait -> null
+                ChannelSwap.Resolution.Done ->
+                    ChannelSwap.Outcome.Completed(
+                        primaryName = primary.joinedChannelName(),
+                        secondaryName = sec?.joinedChannelName() ?: activeSecondaryName,
+                    )
+                is ChannelSwap.Resolution.RollBackPrimary -> {
+                    // VS2's join was refused, so VS1 now sits on VS2's
+                    // channel. Send VS1 home.
+                    Log.w(TAG, "swapChannels: VS2 join refused — rolling VS1 back to ${res.toId}")
+                    activeSecondaryName = pendingSwapPrevSecondaryName
+                    primary.lastSelfJoinAttemptMs = System.currentTimeMillis()
+                    primary.session?.joinChannel(res.toId)
+                    ChannelSwap.Outcome.RolledBack(failedSlot = 1)
+                }
+                is ChannelSwap.Resolution.RollBackSecondary -> {
+                    Log.w(TAG, "swapChannels: VS1 join refused — rolling VS2 back to ${res.toId}")
+                    activeSecondaryName = pendingSwapPrevSecondaryName
+                    sec?.lastSelfJoinAttemptMs = System.currentTimeMillis()
+                    sec?.session?.joinChannel(res.toId)
+                    ChannelSwap.Outcome.RolledBack(failedSlot = 0)
+                }
+                ChannelSwap.Resolution.NothingMoved -> {
+                    Log.w(TAG, "swapChannels: both joins refused — nothing changed")
+                    activeSecondaryName = pendingSwapPrevSecondaryName
+                    ChannelSwap.Outcome.Failed
+                }
+            }
+        if (outcome != null) {
+            pendingSwap = null
+            pendingSwapPrevSecondaryName = null
+        }
+        return outcome
     }
 
     private fun slotFor(idx: Int): Slot? =

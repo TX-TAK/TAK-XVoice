@@ -11,11 +11,9 @@ object SecondaryChannelPersistence {
     /** Persisted raw value → channel 2 to restore on connect, or null = off. */
     fun restore(raw: String?): String? {
         val v = raw?.trim().orEmpty()
-        if (v.isEmpty()) return null
         // A temp call channel is deleted server-side when the call ends;
         // never try to rejoin one (mirrors the channel-1 guard).
-        if (v.startsWith(PRIVATE_CALL_PREFIX)) return null
-        return v
+        return v.takeUnless { it.isEmpty() || it.startsWith(PRIVATE_CALL_PREFIX) }
     }
 
     /**
