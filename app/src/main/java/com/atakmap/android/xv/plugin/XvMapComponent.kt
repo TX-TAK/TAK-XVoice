@@ -17,6 +17,7 @@ import com.atakmap.android.maps.MapView
 import com.atakmap.android.xv.aina.AinaBleReader
 import com.atakmap.android.xv.aina.AinaButton
 import com.atakmap.android.xv.aina.AinaSppReader
+import com.atakmap.android.xv.aina.redactMac
 import com.atakmap.android.xv.audio.AudioRouter
 import com.atakmap.android.xv.audio.OutputRoute
 import com.atakmap.android.xv.audio.TptPlayer
@@ -1359,7 +1360,7 @@ class XvMapComponent : AbstractMapComponent() {
                         }
                         Log.i(
                             TAG,
-                            "setAinaProtocolOverride($mac, $proto): persisted; effective on next connect",
+                            "setAinaProtocolOverride(${redactMac(mac)}, $proto): persisted; effective on next connect",
                         )
                     }
 
@@ -1640,6 +1641,18 @@ class XvMapComponent : AbstractMapComponent() {
                             ACL_RECONNECT_SETTLE_MS,
                         )
                     }
+                    val forSavedSlot =
+                        AclReconnectDecision.shouldReconnectOnAcl(mac, savedAinaMac) ||
+                            AclReconnectDecision.shouldReconnectOnAcl(mac, savedExtMac)
+                    if (!forSavedSlot) {
+                        // Some other device: maybe a speaker-mic paired or
+                        // powered on mid-session. Decide once its profiles
+                        // have settled (availability needs HFP).
+                        autoReconnectHandler.postDelayed(
+                            { maybeAutoSelectPrimaryMidSession(mac) },
+                            MID_SESSION_AUTO_SELECT_SETTLE_MS,
+                        )
+                    }
                 }
             }
         aclReconnectReceiver?.let { receiver ->
@@ -1683,7 +1696,7 @@ class XvMapComponent : AbstractMapComponent() {
         try {
             val snap = listBondedAinaDevices()
             Log.i(TAG, "load-time picker snapshot: ${snap.size} input device(s) selectable")
-            for (d in snap) Log.i(TAG, "  picker: ${d.displayLabel()} mac=${d.mac}")
+            for (d in snap) Log.i(TAG, "  picker: ${d.displayLabel()} mac=${redactMac(d.mac)}")
         } catch (t: Throwable) {
             Log.w(TAG, "load-time picker snapshot threw", t)
         }
@@ -2919,7 +2932,7 @@ class XvMapComponent : AbstractMapComponent() {
             override fun ainaConnectionUp(): Boolean = isAinaConnected()
 
             override fun setSelectedAina(mac: String?) {
-                Log.i(TAG, "Controller.setSelectedAina('$mac')")
+                Log.i(TAG, "Controller.setSelectedAina(${redactMac(mac)})")
                 // A different speaker-mic: the old one's problem no longer applies.
                 if (mac != settings.persistedAinaMac()) pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.SPEAKER_MIC)
                 setSelectedAinaInternal(mac)
@@ -3028,12 +3041,24 @@ class XvMapComponent : AbstractMapComponent() {
             }
 
             override fun setSelectedExternalButton(mac: String?) {
-                Log.i(TAG, "Controller.setSelectedExternalButton('$mac')")
+                Log.i(TAG, "Controller.setSelectedExternalButton(${com.atakmap.android.xv.aina.redactMac(mac)})")
+                // The operator's own choice: "Off" stays off (nothing
+                // auto-assigns a button again); picking a button clears it.
+                settings.persistExternalButtonOff(mac.isNullOrBlank())
                 if (mac != settings.persistedExternalButtonMac()) {
                     pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.BUTTON)
                 }
                 setSelectedExternalButtonInternal(mac)
             }
+
+            override fun externalButtonOff(): Boolean = settings.externalButtonOff()
+
+            override fun externalButtonAutoAssignAllowed(): Boolean =
+                com.atakmap.android.xv.aina.DeviceAutoSelect.mayAutoAssignButton(
+                    slotOff = settings.externalButtonOff(),
+                    autoConnectEnabled = settings.persistedAutoConnectBtEnabled(),
+                    currentMac = settings.persistedExternalButtonMac(),
+                )
 
             override fun autoConnectBtEnabled(): Boolean = settings.persistedAutoConnectBtEnabled()
 
@@ -4675,7 +4700,7 @@ class XvMapComponent : AbstractMapComponent() {
             if (savedMac != null && com.atakmap.android.xv.aina.OsBondedBleHidDetector.isOsBondedBleHid(savedMac)) {
                 Log.w(
                     TAG,
-                    "autoConnectAina: saved MAC $savedMac is an OS-bonded BLE_HID device. " +
+                    "autoConnectAina: saved MAC ${redactMac(savedMac)} is an OS-bonded BLE_HID device. " +
                         "Clearing from preferences to prevent pairing loops.",
                 )
                 settings.persistAinaMac(null)
@@ -4694,7 +4719,7 @@ class XvMapComponent : AbstractMapComponent() {
                 if (saved != null && saved.available) {
                     Log.i(
                         TAG,
-                        "autoConnectAina: saved selection $savedMac is reachable — restoring",
+                        "autoConnectAina: saved selection ${redactMac(savedMac)} is reachable — restoring",
                     )
                     connectSavedAinaPrimary(ctx, savedMac)
                     return@postDelayed
@@ -4702,13 +4727,13 @@ class XvMapComponent : AbstractMapComponent() {
                 if (saved != null && !saved.available) {
                     Log.i(
                         TAG,
-                        "autoConnectAina: saved selection $savedMac bonded but not currently reachable — " +
+                        "autoConnectAina: saved selection ${redactMac(savedMac)} bonded but not currently reachable — " +
                             "considering first-available fallback (saved pref preserved)",
                     )
                 } else {
                     Log.i(
                         TAG,
-                        "autoConnectAina: saved MAC $savedMac not in picker list — " +
+                        "autoConnectAina: saved MAC ${redactMac(savedMac)} not in picker list — " +
                             "considering first-available fallback",
                     )
                 }
@@ -4753,20 +4778,49 @@ class XvMapComponent : AbstractMapComponent() {
             }
             Log.i(
                 TAG,
-                "autoConnectAina: auto-picked first-available device → ${picked.name} ${picked.mac} " +
+                "autoConnectAina: auto-picked first-available device → ${picked.name} ${redactMac(picked.mac)} " +
                     "(${picked.buttonProtocol})",
             )
-            // Persist so it sticks across launches AND so the picker UI
-            // shows the auto-picked device as the current selection.
-            // Operator can change the pick later; "(none)" in the
-            // picker then disconnects, and the next launch's auto-pick
-            // is suppressed because savedMac is now blank-but-set if
-            // we choose to write a "auto-pick locked off" sentinel.
-            // For now: just persist the MAC like a manual pick would.
-            settings.persistAinaMac(picked.mac)
+            // Persist only when the operator had no pick: a fallback
+            // used while the saved speaker-mic is off must not replace
+            // it, so the saved one is restored when it comes back.
+            if (com.atakmap.android.xv.aina.DeviceAutoSelect.shouldPersistAutoPrimary(settings.persistedAinaMac())) {
+                settings.persistAinaMac(picked.mac)
+            }
             lastAinaMac = picked.mac
             connectAinaInternal(ctx, picked.mac, null, "auto")
         }, 1200)
+    }
+
+    // A device whose Bluetooth link came up mid-session that is not a
+    // saved slot. If it is a speaker-mic, auto-connect is on and the
+    // primary has no working button link, connect it — saving it as the
+    // pick only when the operator had none (see DeviceAutoSelect).
+    private fun maybeAutoSelectPrimaryMidSession(mac: String) {
+        val ctx = heldPluginContext ?: return
+        val savedPrimary = settings.persistedAinaMac()
+        val candidate = listBondedAinaDevices().firstOrNull { it.mac.equals(mac, ignoreCase = true) }
+        val isSpeakerMic =
+            candidate != null && com.atakmap.android.xv.aina.AinaDeviceClassifier.pickPrimary(listOf(candidate)) != null
+        val select =
+            com.atakmap.android.xv.aina.DeviceAutoSelect.shouldAutoSelectPrimary(
+                connectedMac = mac,
+                savedPrimaryMac = savedPrimary,
+                primaryLinkUp = isAinaConnected(),
+                autoConnectEnabled = settings.persistedAutoConnectBtEnabled(),
+                isSpeakerMic = isSpeakerMic,
+            )
+        if (!select) return
+        Log.i(
+            TAG,
+            "mid-session: speaker-mic ${com.atakmap.android.xv.aina.redactMac(mac)} came up with no working " +
+                "primary — connecting it (saved=${savedPrimary != null})",
+        )
+        if (com.atakmap.android.xv.aina.DeviceAutoSelect.shouldPersistAutoPrimary(savedPrimary)) {
+            settings.persistAinaMac(mac)
+        }
+        lastAinaMac = mac
+        connectAinaInternal(ctx, mac, candidate?.name, "auto")
     }
 
     @SuppressWarnings("MissingPermission")
@@ -4848,10 +4902,10 @@ class XvMapComponent : AbstractMapComponent() {
         val device =
             bonded.firstOrNull { it.address.equals(savedMac, ignoreCase = true) }
                 ?: run {
-                    Log.w(TAG, "connectSavedAinaPrimary: saved MAC $savedMac no longer bonded")
+                    Log.w(TAG, "connectSavedAinaPrimary: saved MAC ${redactMac(savedMac)} no longer bonded")
                     return
                 }
-        Log.i(TAG, "connectSavedAinaPrimary: saved selection → ${device.name} ${device.address}")
+        Log.i(TAG, "connectSavedAinaPrimary: saved selection → ${device.name} ${redactMac(device.address)}")
         lastAinaMac = device.address
         connectAinaInternal(ctx, device.address, null, "auto")
     }
@@ -4973,7 +5027,7 @@ class XvMapComponent : AbstractMapComponent() {
                 val accept = plausible && hasButton
                 Log.i(
                     TAG,
-                    "  bonded: name='${dev.name ?: "?"}' addr=${dev.address} type=${dev.type} " +
+                    "  bonded: name='${dev.name ?: "?"}' addr=${redactMac(dev.address)} type=${dev.type} " +
                         "majorClass=${cls?.majorDeviceClass ?: "?"} proto=$proto plausible=$plausible " +
                         "hasButton=$hasButton uuids=$uuids → ${if (accept) "INCLUDE" else "skip"}",
                 )
@@ -5339,7 +5393,7 @@ class XvMapComponent : AbstractMapComponent() {
         if (savedMac != null && com.atakmap.android.xv.aina.OsBondedBleHidDetector.isOsBondedBleHid(savedMac)) {
             Log.w(
                 TAG,
-                "autoConnectExternalButton[$source]: saved MAC $savedMac is an OS-bonded BLE_HID device. " +
+                "autoConnectExternalButton[$source]: saved MAC ${redactMac(savedMac)} is an OS-bonded BLE_HID device. " +
                     "Clearing from preferences to prevent pairing loops.",
             )
             settings.persistExternalButtonMac(null)
@@ -5355,8 +5409,17 @@ class XvMapComponent : AbstractMapComponent() {
             Log.i(TAG, "autoConnectExternalButton[$source]: complete (restore path)")
             return
         }
-        if (!settings.persistedAutoConnectBtEnabled()) {
-            Log.i(TAG, "autoConnectExternalButton[$source]: no saved selection and auto-connect disabled — skipping")
+        val mayAutoAssign =
+            com.atakmap.android.xv.aina.DeviceAutoSelect.mayAutoAssignButton(
+                slotOff = settings.externalButtonOff(),
+                autoConnectEnabled = settings.persistedAutoConnectBtEnabled(),
+                currentMac = settings.persistedExternalButtonMac(),
+            )
+        if (!mayAutoAssign) {
+            Log.i(
+                TAG,
+                "autoConnectExternalButton[$source]: no saved selection and slot off / auto-connect disabled — skipping",
+            )
             return
         }
         // Auto-pick an EXTERNAL BUTTON: prefer a BLE_HID puck
@@ -5501,7 +5564,7 @@ class XvMapComponent : AbstractMapComponent() {
             lastExternalButtonMac = null
             lastExternalButtonConnected = false
         }
-        Log.i(TAG, "setSelectedAinaInternal: connecting $mac as kind=$kind")
+        Log.i(TAG, "setSelectedAinaInternal: connecting ${redactMac(mac)} as kind=$kind")
         connectAinaInternal(ctx, mac, null, kind)
     }
 
@@ -5702,7 +5765,7 @@ class XvMapComponent : AbstractMapComponent() {
                     }
                 }
             } catch (t: Throwable) {
-                Log.w(TAG, "could not classify $mac for kind, falling back to hint / auto", t)
+                Log.w(TAG, "could not classify ${redactMac(mac)} for kind, falling back to hint / auto", t)
                 null
             }
         val persistedHint = settings.persistedExternalButtonKind()
@@ -6617,7 +6680,7 @@ class XvMapComponent : AbstractMapComponent() {
                 disconnectAinaInternal()
                 return
             }
-        Log.i(TAG, "resolved AINA: ${device.name} ${device.address}")
+        Log.i(TAG, "resolved AINA: ${device.name} ${redactMac(device.address)}")
         currentAinaDevice = device
         // Strict button mapping — no per-device overrides allowed. Same
         // physical button on V1 (SPP-ASCII) and V2 (BLE-mask) maps to the
@@ -6881,7 +6944,7 @@ class XvMapComponent : AbstractMapComponent() {
         val bonded = adapter.bondedDevices ?: emptySet()
         Log.i(TAG, "${bonded.size} bonded device(s):")
         for (d in bonded) {
-            Log.i(TAG, "  ${d.address}  type=${d.type}  name='${d.name}'")
+            Log.i(TAG, "  ${redactMac(d.address)}  type=${d.type}  name='${d.name}'")
         }
     }
 
@@ -7019,6 +7082,11 @@ class XvMapComponent : AbstractMapComponent() {
         // but short delays have been observed to race SDP-cache
         // population on some OEM stacks.
         internal const val ACL_RECONNECT_SETTLE_MS = 300L
+
+        // ACL_CONNECTED → mid-session speaker-mic auto-select. Longer than
+        // the reconnect settle: the decision needs the device's HFP side
+        // up so the picker list marks it available.
+        private const val MID_SESSION_AUTO_SELECT_SETTLE_MS = 1_500L
 
         /**
          * Pure decision: should an ACTION_ACL_CONNECTED broadcast for

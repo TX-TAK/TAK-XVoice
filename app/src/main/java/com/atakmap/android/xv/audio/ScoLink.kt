@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
+import com.atakmap.android.xv.aina.redactMac
 import java.util.concurrent.CopyOnWriteArraySet
 
 // Reference-counted Bluetooth SCO link. Both RX (AudioPlayback) and TX
@@ -571,7 +572,7 @@ class ScoLink(
         if (current?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO && matchesWanted) return
         Log.i(
             TAG,
-            "reassertCommDevice: current commDev is ${current?.productName}/type=${current?.type}/mac=$currentMac" +
+            "reassertCommDevice: current commDev is ${current?.productName}/type=${current?.type}/mac=${redactMac(currentMac)}" +
                 (wantedMac?.let { " wanted=$it" } ?: " (no preference)") +
                 " — re-asserting",
         )
@@ -588,7 +589,7 @@ class ScoLink(
         }
         try {
             val ok = audioManager.setCommunicationDevice(sco)
-            Log.i(TAG, "reassertCommDevice → ${sco.productName}/mac=${macOf(sco)}/type=${sco.type} ok=$ok")
+            Log.i(TAG, "reassertCommDevice → ${sco.productName}/mac=${redactMac(macOf(sco))}/type=${sco.type} ok=$ok")
         } catch (t: Throwable) {
             Log.w(TAG, "reassertCommDevice threw", t)
         }
@@ -728,10 +729,10 @@ class ScoLink(
         Log.i(
             TAG,
             "available comm devices: ${candidates.size} " +
-                "(override=${overrideMac ?: "<none>"} hint=${hintMac ?: "<none>"})",
+                "(override=${redactMac(overrideMac)} hint=${redactMac(hintMac)})",
         )
         for (d in candidates) {
-            Log.i(TAG, "  candidate type=${d.type} name='${d.productName}' mac='${macOf(d)}'")
+            Log.i(TAG, "  candidate type=${d.type} name='${d.productName}' mac='${redactMac(macOf(d))}'")
         }
         val sco = pickBtCommDevice(candidates)
         if (sco == null) {
@@ -739,7 +740,7 @@ class ScoLink(
             beginDisconnect()
             return
         }
-        Log.i(TAG, "setCommunicationDevice → ${sco.productName}/mac=${macOf(sco)}/type=${sco.type}")
+        Log.i(TAG, "setCommunicationDevice → ${sco.productName}/mac=${redactMac(macOf(sco))}/type=${sco.type}")
         val ok =
             try {
                 audioManager.setCommunicationDevice(sco)

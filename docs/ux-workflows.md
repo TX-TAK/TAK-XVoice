@@ -193,20 +193,20 @@ flowchart LR
   - a Bluebonnet status line;
   - a read-only button map: PTT1 → 1, PTT2 → 2 (1 when 2 is off), emergency → the chosen alert;
   - **Emergency button sends**: 911 Alert (default), Ring The Bell, Troops In Contact or Geo-fence Breached, or **Off**. Choosing Off asks twice: a warning, then type **DISABLE**. Cancelling either step leaves the button on. With it off, a press does nothing but show a toast saying so.
+- **Phone Active key card** (Samsung hardware only): shows whether the key is assigned to XV. Tap to open Samsung's settings.
 - **PTT button card:**
-  - a role chip (BUTTON ONLY), a picker, and status;
+  - a role chip (BUTTON ONLY), a picker, and status. The picker's first entry is **Off — no Bluetooth button**: once you pick Off it stays off, and nothing auto-assigns a button again until you pick or add one;
+  - **+ Add a button** and **Forget an added button**, side by side under the picker. Add scans for BLE pucks that don't pair through Android; the device you pick is assigned to the slot automatically;
   - a read-only map: PTT → channel 1;
   - a red **Fix this button** action appears if the button is paired in Android Bluetooth Settings, which causes pairing loops.
-- **Phone Active key card** (Samsung hardware only): shows whether the key is assigned to XV. Tap to open Samsung's settings.
-- **+ Add a PTT button:** scans for BLE pucks that don't pair through Android. Pick the device, and it's assigned to its slot automatically.
 - **Audio device:** where you hear and speak. Auto, or a chosen Bluetooth device. **Built-in fallback** (speaker or earpiece) applies when nothing is connected.
-- **Auto-select:** at start, XV restores your last speaker-mic if it's reachable; otherwise it picks the first live supported device. A device that drops for 15 s falls back to the phone speaker and comes back when it reconnects.
+- **Auto-select:** at start, XV restores your last speaker-mic if it's reachable; otherwise it picks the first live supported device, without overwriting your saved choice. If no speaker-mic is selected and one connects mid-session, it's selected then. A device that drops for 15 s falls back to the phone speaker and comes back when it reconnects. Device addresses are redacted in XV's logs.
 - **Problem chips:** the speaker-mic and PTT button cards show a red chip when the Bluetooth service reports a problem with that input:
   - **NEEDS RE-PAIR**: the device rejects the bond. Tap for details and **Bluetooth settings**; forget the device there and pair it again.
   - **NOT RECOGNISED**: the device connects but isn't the expected device, or a permission is missing. Tap for details.
   - Every report is also a toast. A report that doesn't name which input it's about stays a toast only, so a chip never points at the wrong device.
-  - The chip clears when you pick a different device for that card, or re-pair the device it backs.
-- **Troubleshooting** (collapsed): the pairing warning, **Forget an added PTT button**, and **Auto-connect compatible Bluetooth**.
+  - The chip clears when that device reconnects cleanly, you pick a different device for that card, or you re-pair the device it backs.
+- **Troubleshooting** (collapsed): the pairing warning and **Auto-connect compatible Bluetooth**.
 - **Bluetooth off:** a banner at the top. Tap it to turn Bluetooth on.
 
 ---

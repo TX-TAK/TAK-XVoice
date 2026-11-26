@@ -179,6 +179,34 @@
                         android:contentDescription="Alert the emergency button sends" />
                 </LinearLayout>
 
+                <!-- Card: Samsung Active key. Visible only on Samsung
+                     hardware with the programmable key
+                     (wireSamsungActiveKeyRow). Samsung's own setting is the
+                     on/off switch; tapping the card opens it. -->
+                <LinearLayout
+                    android:id="@+id/xv_row_samsung_active_key"
+                    style="@style/XV.Row"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/XV.Row.Label"
+                        android:text="Phone Active key"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/xv_label_samsung_active_key_status"
+                        style="@style/XV.Chip.Net"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/xv_label_samsung_active_key_help"
+                    style="@style/XV.CaptionBlock"
+                    android:text="Active key  →  channel 1. Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. Works in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
+                    android:visibility="gone" />
+
                 <!-- Card: button-only PTT (puck, handlebar, glove) -->
                 <LinearLayout style="@style/XV.Card">
 
@@ -219,6 +247,38 @@
                         android:layout_marginTop="6dp"
                         android:text="—" />
 
+                    <!-- Add / forget a Bluetooth PTT button, side by side
+                         under the picker. Pick Off above to turn the button
+                         slot off; XV then never assigns one on its own. -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/xv_btn_scan_ble_ptt"
+                            style="@style/XV.Button.Pill"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_weight="1"
+                            android:text="+  Add a button" />
+
+                        <Button
+                            android:id="@+id/xv_btn_remove_ble_ptt"
+                            style="@style/XV.Button"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:text="Forget an added button" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Add buttons here, not in Android Bluetooth settings: pairing one there causes connect loops. Pick Off to turn the button off — XV then never assigns one on its own." />
+
                     <!-- Shown only when the assigned button is paired in
                          Android Bluetooth Settings (OS-bonded), which causes
                          GATT pairing loops (wireExternalButtonPicker). -->
@@ -235,42 +295,6 @@
                         android:layout_marginTop="10dp"
                         android:text="@string/xv_button_map_button" />
                 </LinearLayout>
-
-                <!-- Card: Samsung Active key. Visible only on Samsung
-                     hardware with the programmable key
-                     (wireSamsungActiveKeyRow). Samsung's own setting is the
-                     on/off switch; tapping the card opens it. -->
-                <LinearLayout
-                    android:id="@+id/xv_row_samsung_active_key"
-                    style="@style/XV.Row"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:visibility="gone">
-
-                    <TextView
-                        style="@style/XV.Row.Label"
-                        android:text="Phone Active key"
-                        android:textStyle="bold" />
-
-                    <TextView
-                        android:id="@+id/xv_label_samsung_active_key_status"
-                        style="@style/XV.Chip.Net"
-                        android:textSize="11sp" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/xv_label_samsung_active_key_help"
-                    style="@style/XV.CaptionBlock"
-                    android:text="Active key  →  channel 1. Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. Works in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
-                    android:visibility="gone" />
-
-                <!-- Add a BLE PTT button that doesn't pair via Android
-                     Bluetooth (vendor-service pucks): the scan dialog. -->
-                <Button
-                    android:id="@+id/xv_btn_scan_ble_ptt"
-                    style="@style/XV.Button.Pill"
-                    android:layout_marginTop="12dp"
-                    android:text="+  Add a PTT button (handlebar, glove, puck)" />
 
                 <!-- Audio device -->
                 <TextView
@@ -326,12 +350,7 @@
                         style="@style/XV.Text.Warning"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Don't pair Bluetooth PTT buttons in Android Bluetooth Settings — it causes pairing loops. Add them with the button above. If you see loops, Forget the button in Android Settings." />
-
-                    <Button
-                        android:id="@+id/xv_btn_remove_ble_ptt"
-                        style="@style/XV.Button"
-                        android:text="Forget an added PTT button" />
+                        android:text="Don't pair Bluetooth PTT buttons in Android Bluetooth Settings — it causes pairing loops. Add them on the PTT button card. If you see loops, forget the button in Android Bluetooth settings." />
 
                     <LinearLayout style="@style/XV.Row">
 
