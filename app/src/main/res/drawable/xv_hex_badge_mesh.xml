@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Slot-number hex badge while the server is down and a mesh leg is
+     carrying the slot: Bluebonnet (system / network) instead of Honey. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="44dp" android:height="50dp"
+    android:viewportWidth="88" android:viewportHeight="100">
+    <path android:fillColor="@color/xv_net"
+        android:pathData="M44,3 L81.2,24.5 L81.2,75.5 L44,97 L6.8,75.5 L6.8,24.5 Z" />
+</vector>

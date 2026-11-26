@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- On-screen PTT at rest while a mesh leg is carrying the channel (server
+     down): Bluebonnet outline instead of Honey. Red (xv_ptt_bg_tx) once
+     the transmission is confirmed, as on the server. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_pressed="true">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/xv_surface_alt"/>
+            <stroke android:width="1.5dp" android:color="@color/xv_net"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="@color/xv_bg"/>
+            <stroke android:width="1.5dp" android:color="@color/xv_net"/>
+            <corners android:radius="8dp"/>
+        </shape>
+    </item>
+</selector>

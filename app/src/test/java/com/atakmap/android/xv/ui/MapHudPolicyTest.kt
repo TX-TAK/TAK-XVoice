@@ -187,4 +187,20 @@ class MapHudPolicyTest {
         assertEquals(1, MapHudPolicy.fitChars("ALPHA", maxWidth = 1f) { it.length * 10f })
         assertEquals(3, MapHudPolicy.fitChars("ALPHA", maxWidth = 30f) { it.length * 10f })
     }
+
+    @Test
+    fun `a slot carried by the mesh draws as mesh, in every look`() {
+        val s = MapHudPolicy.SlotState(
+            0,
+            "Alpha",
+            live = true,
+            listenOnly = false,
+            transmitting = false,
+            talkers = emptyList(),
+            onMesh = true
+        )
+        org.junit.Assert.assertTrue(MapHudPolicy.button(s).onMesh)
+        org.junit.Assert.assertTrue(MapHudPolicy.button(s, held = true).onMesh)
+        org.junit.Assert.assertFalse(MapHudPolicy.button(s.copy(onMesh = false)).onMesh)
+    }
 }

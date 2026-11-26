@@ -74,12 +74,16 @@ object MapHudPolicy {
         val listenOnly: Boolean,
         val transmitting: Boolean,
         val talkers: List<String>,
+        // The server is down and a mesh leg is carrying this slot: drawn
+        // in Bluebonnet (system / network) instead of the voice Honey.
+        val onMesh: Boolean = false,
     )
 
     data class Button(
         val slot: Int,
         val look: Look,
         val label: String,
+        val onMesh: Boolean = false,
     )
 
     fun visible(
@@ -128,7 +132,7 @@ object MapHudPolicy {
                 Look.DENIED -> "DENIED"
                 else -> labelName(s.channel)
             }
-        return Button(s.slot, look, label)
+        return Button(s.slot, look, label, onMesh = s.onMesh)
     }
 
     /**

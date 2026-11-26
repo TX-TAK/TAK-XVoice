@@ -728,7 +728,13 @@ class XvDropDownReceiver(
             enabled = controller.mapPttEnabled(),
             leftHanded = controller.pttOnLeft(),
             size = MapHudPolicy.Size.parse(controller.mapPttSize()),
-            slot1 = hudSlot(0, controller.currentChannelName(), SlotRowPolicy.channel1Live(controller.currentChannelName(), linked, false)),
+            slot1 =
+            hudSlot(
+                0,
+                controller.currentChannelName(),
+                SlotRowPolicy.channel1Live(controller.currentChannelName(), linked, false),
+                onMesh = !controller.isMumbleConnected() && controller.meshStatus()?.active == true,
+            ),
             slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
             notice = ptt1Hint(0) ?: hudNotice(linked),
         )
@@ -738,6 +744,7 @@ class XvDropDownReceiver(
         slot: Int,
         channel: String?,
         live: Boolean,
+        onMesh: Boolean = false,
     ) = MapHudPolicy.SlotState(
         slot = slot,
         channel = channel?.let { MumbleTransport.lobbyLabel(it) },
@@ -745,6 +752,7 @@ class XvDropDownReceiver(
         listenOnly = live && !controller.canSpeakOnSlot(slot),
         transmitting = live && controller.isTransmittingOnSlot(slot),
         talkers = if (live) controller.activeSpeakers(slot) else emptyList(),
+        onMesh = live && onMesh,
     )
 
     fun refreshNow() {
@@ -1360,7 +1368,9 @@ class XvDropDownReceiver(
     ) {
         val ids = slotViews(slot)
         val listenOnly = live && !controller.canSpeakOnSlot(slot)
-        renderSlotHeader(v, ids, slot, channel, live)
+        // Server down, a mesh leg carrying the slot: Bluebonnet accents.
+        val onMesh = live && !connected
+        renderSlotHeader(v, ids, slot, channel, live, onMesh)
         // TalkBack: the slot badge is decorative, so the header names the slot.
         v.findViewById<View>(if (slot == 0) R.id.xv_ptt_header_1 else R.id.xv_ptt_header_2).contentDescription =
             "Channel ${slot + 1}: ${channel?.let { MumbleTransport.lobbyLabel(it) } ?: "none"}. Opens the channel list."
@@ -1377,6 +1387,7 @@ class XvDropDownReceiver(
             live = live,
             listenOnly = listenOnly,
             transmitting = live && controller.isTransmittingOnSlot(slot),
+            onMesh = onMesh,
         )
     }
 
@@ -1387,10 +1398,17 @@ class XvDropDownReceiver(
         slot: Int,
         channel: String?,
         live: Boolean,
+        onMesh: Boolean,
     ) {
         val res = pluginContext.resources
         v.findViewById<TextView>(ids.badge).apply {
-            setBackgroundResource(if (live) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off)
+            setBackgroundResource(
+                when {
+                    !live -> R.drawable.xv_hex_badge_off
+                    onMesh -> R.drawable.xv_hex_badge_mesh
+                    else -> R.drawable.xv_hex_badge
+                },
+            )
             setTextColor(res.getColor(if (live) R.color.xv_bg else R.color.xv_text_dim, null))
         }
         val display = channel?.let { MumbleTransport.lobbyLabel(it) } ?: "Pick a channel"
@@ -1461,6 +1479,7 @@ class XvDropDownReceiver(
         live: Boolean,
         listenOnly: Boolean,
         transmitting: Boolean,
+        onMesh: Boolean = false,
     ) {
         val enabled = live || slot == 0
         // A disabled view gets no UP/CANCEL: release before disabling it.
@@ -1485,7 +1504,9 @@ class XvDropDownReceiver(
         ptt.setBackgroundResource(
             when {
                 transmitting -> R.drawable.xv_ptt_bg_tx
+                held && onMesh -> R.drawable.xv_ptt_bg_pressed_mesh
                 held -> R.drawable.xv_ptt_bg_pressed
+                onMesh -> R.drawable.xv_ptt_bg_mesh
                 else -> R.drawable.xv_ptt_bg
             },
         )

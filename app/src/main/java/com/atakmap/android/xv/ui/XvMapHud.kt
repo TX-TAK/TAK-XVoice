@@ -266,7 +266,7 @@ class XvMapHud(
         b: MapHudPolicy.Button,
     ) {
         val frame = labelFrame(b.label)
-        val key = "${b.look}|$frame|${hexWidthPx.toInt()}"
+        val key = "${b.look}|${b.onMesh}|$frame|${hexWidthPx.toInt()}"
         if (renderedKey[b.slot] == key) return
         renderedKey[b.slot] = key
         // Pre-draw this slot's PRESSED and TX images, so press feedback is
@@ -310,7 +310,7 @@ class XvMapHud(
 
     // Drawn + written once per slot/look/label/size; later uses are a map hit.
     private fun iconUri(b: MapHudPolicy.Button): String? {
-        val key = "${b.slot}|${b.look}|${b.label}|${hexWidthPx.toInt()}"
+        val key = "${b.slot}|${b.look}|${b.onMesh}|${b.label}|${hexWidthPx.toInt()}"
         // ATAK's GL image loader didn't render a base64:// URI on device
         // (widget took touches but drew nothing). Write the PNG into ATAK's
         // own cache dir — same process/UID as the map renderer, readable
@@ -329,7 +329,10 @@ class XvMapHud(
     ) {
         pendingIcons += key
         val bmp = drawHex(b)
-        val safe = "${b.slot}_${b.look}_${b.label}_${hexWidthPx.toInt()}".replace(Regex("[^A-Za-z0-9_]"), "_")
+        val safe = "${b.slot}_${b.look}_${if (b.onMesh) "mesh_" else ""}${b.label}_${hexWidthPx.toInt()}".replace(
+            Regex("[^A-Za-z0-9_]"),
+            "_"
+        )
         io.execute {
             val uri = writeIconFile(safe, bmp)
             bmp.recycle()
@@ -367,7 +370,8 @@ class XvMapHud(
         val bmp = Bitmap.createBitmap(w + (2 * m).toInt(), h + (2 * m).toInt(), Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
         val res = pluginContext.resources
-        val honey = res.getColor(R.color.xv_voice, null)
+        // On mesh the accent is Bluebonnet (network), else the voice Honey.
+        val honey = res.getColor(if (b.onMesh) R.color.xv_net else R.color.xv_voice, null)
         val red = res.getColor(R.color.xv_ptt_active, null)
         val black = res.getColor(R.color.xv_bg, null)
         val dim = res.getColor(R.color.xv_text_dim, null)

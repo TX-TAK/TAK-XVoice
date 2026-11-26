@@ -61,6 +61,7 @@ Each channel row shows, left to right:
 - a hex slot badge: Honey when live, an outline when the slot isn't live;
 - the channel name, which shrinks and then wraps to two lines. With no channel yet it reads **Pick a channel**. A **⚑** before channel 1's name means the active mission set it (Settings › Server);
 - what's happening on the channel: talker names in Honey with a waveform, or *quiet*, *joining…*, *not connected*, *listen only*, or *mesh* (Bluebonnet: the server is down and a mesh leg is carrying channel 1);
+- while the mesh is carrying channel 1, its slot badge, PTT outline and map PTT hex turn Bluebonnet instead of Honey (still Texas Red while transmitting);
 - a **👥 N** member count (the same number the channel list shows for that channel);
 - a large **PTT** button.
 
