@@ -13,6 +13,8 @@
   pick another channel to move it). Channel 2 is optional; tapping its
   lit pill clears it, and both speaker-mic PTT buttons then key channel 1.
   PTT1/PTT2 are fixed to channels 1/2; Swap is the only way to invert them.
+  A channel already on one slot has the other slot's pill greyed out, so
+  a pick never swaps by side effect.
 
   Rows are added by XvDropDownReceiver.populateChannelList into
   xv_channel_rows.
@@ -181,7 +183,7 @@
         </LinearLayout>
     </ScrollView>
 
-    <!-- Undo bar: Swap and turning channel 2 off act on one tap; this
+    <!-- Undo bar: Swap acts on one tap; this
          offers ~5 s to take it back (XvDropDownReceiver.showUndo). -->
     <LinearLayout
         android:id="@+id/xv_undo_bar"

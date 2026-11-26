@@ -149,7 +149,7 @@ flowchart LR
     L -->|tap 1 on a channel| C1[Becomes channel 1]
     L -->|tap 2 on a channel| C2[Becomes channel 2]
     L -->|tap the lit 2| OFF[Channel 2 off]
-    L -->|Swap / tap the other slot's pill| SW[Swap: one chirp, ~1 s + Undo]
+    L -->|⇅ Swap button| SW[Swap: one chirp, ~1 s + Undo]
     SW -->|server refuses one side| RB[Rolled back + toast]
     L -->|long-press| M[Mesh options / Share / Forget]
 ```
@@ -166,7 +166,7 @@ flowchart LR
 - **Pill rules:**
   - **[1]** assigns channel 1. A lit **[1]** can't be cleared; pick another channel to move it.
   - **[2]** assigns channel 2. A lit **[2]** turns channel 2 off; this works on mesh-only rows offline too.
-  - Tapping the pill of the other slot's channel swaps the two. This is online only; offline it explains instead.
+  - A channel already on one slot has the other slot's pill **greyed out**: channel 1's **[2]** and channel 2's **[1]**. Tapping it says to use **Swap**. Exchanging the two is only ever the explicit Swap button, never a side effect of picking a channel.
   - **No-access** rows have grey pills that explain why.
   - **Mesh-only** rows can't be channel 2. While the server is up they can't be channel 1 either: the mesh leg follows the server channel.
 - **Channel 2 on/off:** tap **[2]** on a channel to make it channel 2; tap the lit **[2]** to turn channel 2 off. Both are one direct tap, and the list marks the change immediately. With channel 2 off, the panel is single-channel and both PTT buttons key channel 1.

@@ -82,10 +82,14 @@ class Channel2FlowTest {
     }
 
     @Test
-    fun `channel 2 pill on channel 1 swaps, never blanks channel 1`() {
+    fun `channel 2 pill on channel 1 is greyed and never swaps or blanks channel 1`() {
         tap(1, bravo)
+        assertEquals(Pill.DISABLED, pill(1, alpha))
         val a = ChannelListPolicy.onPillTap(1, alpha, ch1, ch2)
-        assertEquals(Action.Swap, a)
+        assertTrue(a is Action.Explain)
         assertFalse(a is Action.ClearSecondary)
+        tap(1, alpha)
+        assertEquals("Alpha", ch1)
+        assertEquals("Bravo", ch2)
     }
 }

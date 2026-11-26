@@ -1859,7 +1859,6 @@ class XvDropDownReceiver(
             // Channel 2 off is one direct tap (operator: no Undo step):
             // both PTT buttons go back to channel 1.
             ChannelListPolicy.Action.ClearSecondary -> controller.setSecondaryChannel("")
-            ChannelListPolicy.Action.Swap -> swapWithUndo(v)
             is ChannelListPolicy.Action.Explain ->
                 android.widget.Toast.makeText(pluginContext, action.message, android.widget.Toast.LENGTH_SHORT).show()
         }

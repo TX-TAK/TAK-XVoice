@@ -8,8 +8,9 @@ package com.atakmap.android.xv.ui
  * Operator rules encoded here:
  *  - Channel 1 is never blank: its lit pill can't be tapped off.
  *  - Channel 2 is optional: tapping its lit pill clears it.
- *  - Tapping a channel's pill for the slot the channel does NOT hold,
- *    when it already holds the other slot, swaps the slots.
+ *  - A channel already on one slot can't be picked for the other: that
+ *    pill is greyed out and explains instead. Exchanging the slots is
+ *    only the explicit Swap button (operator: no swap by side effect).
  *  - PTT1/PTT2 stay fixed to slots 1/2; swapping is the only inversion.
  */
 object ChannelListPolicy {
@@ -101,8 +102,6 @@ object ChannelListPolicy {
 
         data object ClearSecondary : Action()
 
-        data object Swap : Action()
-
         /** Do nothing; tell the operator why. */
         data class Explain(
             val message: String,
@@ -164,10 +163,7 @@ object ChannelListPolicy {
             channel.offline && online && !onCh1 ->
                 Action.Explain("$name is mesh-only — it carries channel 1 when the server is unreachable")
             onCh1 -> Action.Explain("Channel 1 is always set — pick another channel to move it")
-            // Swap is two server moves: only possible online. Offline, say
-            // how to get there instead of a swap that can only fail.
-            onCh2 && online -> Action.Swap
-            onCh2 -> Action.Explain("$name is channel 2 — swapping needs the server; tap its lit 2 to clear it first")
+            onCh2 -> Action.Explain(alreadyOnOtherSlot(name, otherSlot = 2))
             else -> Action.SetPrimary(name)
         }
     }
@@ -185,11 +181,16 @@ object ChannelListPolicy {
         return when {
             onCh2 -> Action.ClearSecondary
             channel.offline -> Action.Explain("Channel 2 needs a server channel — $name is mesh-only")
-            onCh1 && ch2On -> Action.Swap
+            onCh1 && ch2On -> Action.Explain(alreadyOnOtherSlot(name, otherSlot = 1))
             onCh1 -> Action.Explain("$name is channel 1 — pick a different channel for 2")
             else -> Action.SetSecondary(name)
         }
     }
+
+    private fun alreadyOnOtherSlot(
+        name: String,
+        otherSlot: Int,
+    ): String = "$name is already channel $otherSlot — use Swap to exchange channels 1 and 2"
 
     /** Pill visual state for a row. */
     enum class Pill { ON, OFF, DISABLED }
@@ -204,6 +205,9 @@ object ChannelListPolicy {
         when {
             slot == 0 && same(channel.name, ch1) -> Pill.ON
             slot == 1 && !ch2.isNullOrBlank() && same(channel.name, ch2) -> Pill.ON
+            // Already on the other slot: greyed out (Swap is the way).
+            slot == 0 && !ch2.isNullOrBlank() && same(channel.name, ch2) -> Pill.DISABLED
+            slot == 1 && same(channel.name, ch1) -> Pill.DISABLED
             channel.access == Access.NONE -> Pill.DISABLED
             channel.offline && (slot == 1 || online) -> Pill.DISABLED
             else -> Pill.OFF

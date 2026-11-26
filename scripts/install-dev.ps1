@@ -24,6 +24,7 @@
 #   .\scripts\install-dev.ps1 -Serial <ID>      # single device
 #   .\scripts\install-dev.ps1 -Uninstall        # signing cert change (e.g. after TPP-signed install)
 #   .\scripts\install-dev.ps1 -SkipBuild        # reinstall the last-built APK
+#   .\scripts\install-dev.ps1 -Serial <ID> -LoadPlugin   # install, then restart ATAK with the plugin loaded
 #   .\scripts\install-dev.ps1 -InstallAtakDev                 # install Dev ATAK for defaultBaseline
 #   .\scripts\install-dev.ps1 -InstallAtakDev -Baseline 5.6.0 # install the 5.6 Dev ATAK
 #   .\scripts\install-dev.ps1 -InstallAtakRelease -Baseline 5.7.0
@@ -65,7 +66,14 @@ param(
 
     # Install a production/release ATAK-CIV APK (from config.atakReleaseApks,
     # keyed by -Baseline) instead of the plugin. Same uninstall-first behavior.
-    [switch] $InstallAtakRelease
+    [switch] $InstallAtakRelease,
+
+    # After installing, cold-start ATAK with the plugin marked to load —
+    # no tapping through ATAK > Plugins > Load. A reinstall can leave the
+    # plugin "Not loaded"; ATAK reads a per-plugin "shouldLoad-<package>"
+    # flag at startup. Developer-edition ATAK only (it's debuggable, so
+    # `adb shell run-as` can reach its preferences). Force-stops ATAK.
+    [switch] $LoadPlugin
 )
 
 $ErrorActionPreference = "Stop"
@@ -208,6 +216,32 @@ if (-not (Test-Path $apk)) {
     throw "APK not found at $apk — build must produce it before install can run."
 }
 
+# Force-stop ATAK, set its "load this plugin at startup" flag, relaunch.
+# Reads/writes ATAK's own prefs with run-as (Developer edition only).
+function Invoke-PluginLoad([string] $Device) {
+    $atak = $cfg.atakPackage
+    $key = "shouldLoad-$($cfg.pluginPackage)"
+    $prefs = "shared_prefs/$($atak)_preferences.xml"
+    & adb -s $Device shell am force-stop $atak | Out-Null
+    $xml = (& adb -s $Device exec-out run-as $atak cat $prefs 2>$null) -join "`n"
+    if ($LASTEXITCODE -ne 0 -or $xml -notmatch '</map>') {
+        Write-Host "  -LoadPlugin: can't read ATAK prefs via run-as (not the Developer edition?) — load it in ATAK > Plugins." -ForegroundColor Yellow
+        return $false
+    }
+    $pattern = '<boolean name="' + [regex]::Escape($key) + '" value="(true|false)" />'
+    $line = '<boolean name="' + $key + '" value="true" />'
+    if ($xml -match $pattern -and $Matches[1] -eq 'true') {
+        Write-Host "  -LoadPlugin: $key already true" -ForegroundColor DarkGray
+    } else {
+        $updated = if ($xml -match $pattern) { $xml -replace $pattern, $line } else { $xml -replace '</map>', "    $line`n</map>" }
+        $updated | & adb -s $Device exec-in run-as $atak sh -c "cat > $prefs"
+        Write-Host "  -LoadPlugin: set $key=true" -ForegroundColor DarkGray
+    }
+    & adb -s $Device shell monkey -p $atak -c android.intent.category.LAUNCHER 1 2>&1 | Out-Null
+    Write-Host "  -LoadPlugin: ATAK restarted with the plugin set to load" -ForegroundColor Green
+    return $true
+}
+
 # -- 4. Fan out to every target device --------------------------------
 
 $results = @()
@@ -247,6 +281,7 @@ foreach ($t in $targets) {
         $sigs = Get-FirstMatch $after 'signatures:\[([0-9a-f]+)\]'
         Write-Host "  Installed: $ver (vc=$vc) sig=$sigs" -ForegroundColor Green
         $results += [PSCustomObject]@{ Serial = $t; Status = "OK"; Version = $ver; Sig = $sigs }
+        if ($LoadPlugin) { Invoke-PluginLoad $t | Out-Null }
     } else {
         Write-Host "  Installed but dumpsys can't find the plugin — unusual." -ForegroundColor Yellow
         $results += [PSCustomObject]@{ Serial = $t; Status = "UNVERIFIED"; Version = ""; Sig = "" }

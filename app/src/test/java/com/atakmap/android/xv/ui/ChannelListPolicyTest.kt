@@ -70,13 +70,24 @@ class ChannelListPolicyTest {
     }
 
     @Test
-    fun `tapping 1 on channel 2 swaps`() {
-        assertEquals(Action.Swap, ChannelListPolicy.onPillTap(0, command, ch1 = "Alpha", ch2 = "Command"))
+    fun `tapping 1 on channel 2 explains Swap instead of swapping`() {
+        val a = ChannelListPolicy.onPillTap(0, command, ch1 = "Alpha", ch2 = "Command")
+        assertTrue(a is Action.Explain && a.message.contains("Swap"))
     }
 
     @Test
-    fun `tapping 2 on channel 1 swaps when channel 2 is on`() {
-        assertEquals(Action.Swap, ChannelListPolicy.onPillTap(1, alpha, ch1 = "Alpha", ch2 = "Command"))
+    fun `tapping 2 on channel 1 explains Swap instead of swapping`() {
+        val a = ChannelListPolicy.onPillTap(1, alpha, ch1 = "Alpha", ch2 = "Command")
+        assertTrue(a is Action.Explain && a.message.contains("Swap"))
+    }
+
+    @Test
+    fun `the other slot's pill on an assigned channel is greyed out`() {
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(0, command, "Alpha", "Command"))
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(1, alpha, "Alpha", "Command"))
+        // With channel 2 off, channel 1's [2] is greyed too (it can't be both).
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(1, alpha, "Alpha", null))
+        assertEquals(Pill.OFF, ChannelListPolicy.pillState(1, logistics, "Alpha", "Command"))
     }
 
     @Test
@@ -102,7 +113,8 @@ class ChannelListPolicyTest {
 
     @Test
     fun `slot names match case-insensitively`() {
-        assertEquals(Action.Swap, ChannelListPolicy.onPillTap(0, command, ch1 = "ALPHA", ch2 = " command "))
+        assertEquals(Pill.ON, ChannelListPolicy.pillState(1, command, ch1 = "ALPHA", ch2 = " command "))
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(0, command, ch1 = "ALPHA", ch2 = " command "))
     }
 
     // ---- pill state ----
@@ -110,7 +122,7 @@ class ChannelListPolicyTest {
     @Test
     fun `pill state reflects assignment and access`() {
         assertEquals(Pill.ON, ChannelListPolicy.pillState(0, alpha, "Alpha", "Command"))
-        assertEquals(Pill.OFF, ChannelListPolicy.pillState(1, alpha, "Alpha", "Command"))
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(1, alpha, "Alpha", "Command"))
         assertEquals(Pill.ON, ChannelListPolicy.pillState(1, command, "Alpha", "Command"))
         assertEquals(Pill.OFF, ChannelListPolicy.pillState(1, command, "Alpha", null))
         assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(0, restricted, "Alpha", "Command"))
@@ -158,8 +170,8 @@ class ChannelListPolicyTest {
     }
 
     @Test
-    fun `1 on channel 2 swaps online and explains offline`() {
-        assertEquals(Action.Swap, ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = true))
+    fun `1 on channel 2 explains online and offline`() {
+        assertTrue(ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = true) is Action.Explain)
         assertTrue(ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = false) is Action.Explain)
     }
 
