@@ -197,7 +197,9 @@ data class ChannelMulticastConfig(
      *    e.g. left behind by the VX-interop Accept prompt): becomes an
      *    XV-native REQUIRED primary on the derived endpoint, and the old
      *    interop endpoint + framing move to a CLEARTEXT patch leg.
-     *  - Interop primary that already has a patch: returned unchanged
+     *  - Unpinned interop primary (invalid; written by the retired
+     *    VX-interop prompt): becomes XV-native REQUIRED, unpinned.
+     *  - Pinned interop primary that already has a patch: returned unchanged
      *    (two interop endpoints don't fit one config; the migration
      *    report lists those).
      *
@@ -218,6 +220,11 @@ data class ChannelMulticastConfig(
                     patchWireFormat = wireFormat,
                     patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
                 )
+            // Unpinned interop primary: invalid (interop needs a pin), and the
+            // retired VX-interop prompt wrote exactly this. Nothing to move
+            // to a patch, so it simply becomes encrypted XV-native again.
+            wireFormat.isInterop && (pinnedGroup == null || pinnedPort == null) ->
+                copy(wireFormat = WireFormat.XV_NATIVE, cryptoPolicy = CryptoPolicy.REQUIRED, pinnedGroup = null, pinnedPort = null)
             else -> this
         }
 

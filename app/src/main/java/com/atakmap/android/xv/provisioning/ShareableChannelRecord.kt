@@ -9,8 +9,9 @@ import com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
  * `preSharedKey = null` over a held key drops it from disk (and from any
  * later comms-plan export) while the mesh is down.
  *
- * Key precedence: a key minted by this save, else the key the prior record
- * carried, else the live key the mesh holds for the channel.
+ * Key precedence: a key minted by this save, else the live key the mesh
+ * holds for the channel (it may have rotated since the record was made),
+ * else the key the prior record carried (mesh down / not yet keyed).
  */
 object ShareableChannelRecord {
     fun updated(
@@ -22,6 +23,6 @@ object ShareableChannelRecord {
         CommsPlan.Channel(
             displayName = prior?.displayName ?: config.channelName,
             config = config,
-            preSharedKey = newKey ?: prior?.preSharedKey ?: liveKey,
+            preSharedKey = newKey ?: liveKey ?: prior?.preSharedKey,
         )
 }

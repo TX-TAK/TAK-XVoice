@@ -105,4 +105,61 @@ class CommsPlanDeviceLocalInteropTest {
         assertEquals(com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS, merged.mode)
         assertEquals("no local config: nothing to keep", imported, imported.withLocalPatchOf(null))
     }
+
+    @Test
+    fun `inbound old plan with an interop primary imports as encrypted XV-native without its endpoint`() {
+        val oldInteropPrimary =
+            ChannelMulticastConfig(
+                channelName = "vx",
+                wireFormat = WireFormat.VX_COMPAT,
+                cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                pinnedGroup = "239.4.4.4",
+                pinnedPort = 5010,
+            )
+        val old =
+            JSONObject()
+                .put("v", CommsPlan.SCHEMA_VERSION)
+                .put("planId", "p")
+                .put("name", "n")
+                .put("createdAtMs", 1)
+                .put(
+                    "channels",
+                    org.json.JSONArray().put(
+                        JSONObject().put("displayName", "VX").put("config", JSONObject(oldInteropPrimary.toJson())),
+                    ),
+                ).toString()
+        val imported = CommsPlan.fromJson(old).channels.single().config
+        assertEquals(WireFormat.XV_NATIVE, imported.wireFormat)
+        assertEquals(CryptoPolicy.REQUIRED, imported.cryptoPolicy)
+        assertNull("the interop endpoint is not carried in", imported.pinnedGroup)
+        assertNull("and never becomes a local patch", imported.patchGroup)
+    }
+
+    @Test
+    fun `locked carrier round trip carries no patch`() {
+        val pass = "correct horse battery".toCharArray()
+        val withKey =
+            CommsPlan(
+                planId = "p",
+                name = "n",
+                createdAtMs = 1,
+                serverIdentity = "tak.example.com",
+                channels = listOf(CommsPlan.Channel("Ops 1", gateway, ByteArray(32) { 0x42 })),
+            )
+        val decoded = CommsPlanCarrier.decode(CommsPlanCarrier.encodeLocked(withKey, pass), "correct horse battery".toCharArray())
+        val ch = decoded.channels.single()
+        assertNull(ch.config.patchGroup)
+        assertNull(ch.config.patchPort)
+        assertEquals(32, ch.preSharedKey!!.size)
+    }
+
+    @Test
+    fun `re-sharing an imported channel after keeping the local patch still strips it`() {
+        val imported = gateway.sharedForm()
+        val withLocal = imported.withLocalPatchOf(gateway)
+        assertEquals("239.1.2.3", withLocal.patchGroup)
+        val reshared = CommsPlan.fromJson(plan(withLocal).toCanonicalJson()).channels.single().config
+        assertNull(reshared.patchGroup)
+        assertFalse(plan(withLocal).toCanonicalJson().contains("239.1.2.3"))
+    }
 }

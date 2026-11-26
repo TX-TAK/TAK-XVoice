@@ -190,6 +190,26 @@ class MulticastWireCodecTest {
         )
     }
 
+    @Test
+    fun `keyed REQUIRED receiver reports a frame from an epoch it doesn't hold as UNKNOWN_EPOCH`() {
+        val tx = XvNativeWireCodec(ssrc, CryptoPolicy.REQUIRED, keyRegistry = registryWithKey(epoch = 9))
+        tx.beginBurst()
+        val datagram = tx.encodeTx(opus)!!
+
+        val rx = XvNativeWireCodec(ssrc = 1L, cryptoPolicy = CryptoPolicy.REQUIRED, keyRegistry = registryWithKey(epoch = 3))
+        assertEquals(
+            MulticastWireCodec.DropReason.UNKNOWN_EPOCH,
+            dropReason(rx.decodeRx(datagram, sourceHost = "198.51.100.7")),
+        )
+    }
+
+    @Test
+    fun `REQUIRED sender without a key sends nothing, never cleartext`() {
+        val tx = XvNativeWireCodec(ssrc, CryptoPolicy.REQUIRED, keyRegistry = ChannelKeyRegistry(1))
+        tx.beginBurst()
+        assertNull(tx.encodeTx(opus))
+    }
+
     // ---- XV native, non-voice datagrams ----
 
     @Test

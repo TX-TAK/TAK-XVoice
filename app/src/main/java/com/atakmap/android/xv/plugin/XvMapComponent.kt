@@ -725,7 +725,6 @@ class XvMapComponent : AbstractMapComponent() {
     private var presencePublisher: XvCotPublisher? = null
     private var presenceListener: XvCotListener? = null
     private var bridgeCotPublisher: com.atakmap.android.xv.presence.XvBridgeCotPublisher? = null
-    private var interopNotificationManager: com.atakmap.android.xv.interop.InteropNotificationManager? = null
 
     override fun onCreate(
         context: Context,
@@ -3195,21 +3194,12 @@ class XvMapComponent : AbstractMapComponent() {
         val registry = XvPresenceRegistry()
         presenceRegistry = registry
 
-        val ctx = heldPluginContext
-        if (ctx != null) {
-            interopNotificationManager = com.atakmap.android.xv.interop.InteropNotificationManager(
-                pluginContext = ctx,
-                atakContext = heldMapView?.context ?: ctx,
-                registry = registry,
-                cryptoPolicyForChannel = { settings.effectiveChannelMulticastConfig(it).cryptoPolicy },
-                onChannelDowngrade = { channel ->
-                    val existing = settings.effectiveChannelMulticastConfig(channel)
-                    val downgraded = com.atakmap.android.xv.interop.InteropNotificationManager.cleartextConfigFor(existing)
-                    settings.persistChannelMulticastConfig(downgraded)
-                    dropDown?.refreshNow()
-                }
-            )
-            interopNotificationManager?.start()
+        // The VX-interop downgrade prompt is retired (mesh is always
+        // encrypted; interop moves to the manual OpenMANET gateway). Clear
+        // any sticky notification an older build left behind: its Accept
+        // would otherwise still write a cleartext VX primary.
+        (heldMapView?.context ?: heldPluginContext)?.let {
+            com.atakmap.android.xv.interop.InteropNotificationManager.retireLingeringNotifications(it)
         }
 
         // Cert fingerprint is best-effort: only available once a TAK
@@ -4189,14 +4179,29 @@ class XvMapComponent : AbstractMapComponent() {
             // keep this device's own patch leg for the channel, if any, so
             // an import never wipes or moves a local OpenMANET gateway.
             val local = settings.channelMulticastConfigFor(ch.config.channelName)
-            val materialized =
-                ch.copy(config = ch.config.materializedFor(plan.serverIdentity).withLocalPatchOf(local))
-            settings.persistChannelMulticastConfig(materialized.config)
-            materialized.preSharedKey?.let { key ->
-                meshVoiceManager?.installPresharedKey(materialized.config.channelName, key)
+            val config =
+                ch.config
+                    .materializedFor(plan.serverIdentity)
+                    .withLocalPatchOf(local)
+                    .meshPolicyNormalized()
+            settings.persistChannelMulticastConfig(config)
+            ch.preSharedKey?.let { key ->
+                meshVoiceManager?.installPresharedKey(config.channelName, key)
             }
             // A received channel is re-shareable — now carrying the pinned
-            // config so the next offline recipient is covered too.
+            // config so the next offline recipient is covered too. A keyless
+            // re-import must not drop a key this device already holds (the
+            // vault is re-sealed from these records below, even with the
+            // mesh down), so go through the same key-precedence helper.
+            val prior = synchronized(provisionedChannels) { provisionedChannels[config.channelName] }
+            val materialized =
+                com.atakmap.android.xv.provisioning.ShareableChannelRecord
+                    .updated(
+                        prior = prior,
+                        config = config,
+                        newKey = ch.preSharedKey,
+                        liveKey = meshVoiceManager?.currentKeyFor(config.channelName),
+                    ).let { if (prior == null) it.copy(displayName = ch.displayName) else it }
             recordShareableChannel(materialized)
         }
         // Same directory merge as acceptSharedChannels: the picker
@@ -4274,7 +4279,6 @@ class XvMapComponent : AbstractMapComponent() {
         }
         meshVoiceManager = null
         bridgeCotPublisher?.stop()
-        interopNotificationManager?.stop()
         missionChannelProvisioner?.reset()
         missionChannelProvisioner = null
     }

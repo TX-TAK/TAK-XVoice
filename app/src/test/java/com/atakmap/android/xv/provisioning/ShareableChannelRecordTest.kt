@@ -40,4 +40,17 @@ class ShareableChannelRecordTest {
     fun `cleartext channel with nothing held stays keyless`() {
         assertNull(ShareableChannelRecord.updated(prior = null, config = cfg).preSharedKey)
     }
+
+    @Test
+    fun `a live rotated key wins over the prior record's stale key`() {
+        val rec = ShareableChannelRecord.updated(CommsPlan.Channel("Ops One", cfg, held), cfg, newKey = null, liveKey = live)
+        assertArrayEquals(live, rec.preSharedKey)
+        assertEquals("Ops One", rec.displayName)
+    }
+
+    @Test
+    fun `keyless re-import with the mesh down keeps the held key`() {
+        val rec = ShareableChannelRecord.updated(CommsPlan.Channel("Ops One", cfg, held), cfg, newKey = null, liveKey = null)
+        assertArrayEquals(held, rec.preSharedKey)
+    }
 }

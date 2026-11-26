@@ -715,7 +715,11 @@ class MeshVoiceManager(
         // Failover evaluation. The policy's "active leg" drives
         // FAILOVER-mode TX routing and the operator badge.
         val decision = failoverPolicy.evaluate(now, mumbleConnected())
-        val newMeshTx = legs.isNotEmpty() && decision.active == FailoverPolicy.Leg.MULTICAST
+        // Any live leg counts: an offline converted interop channel has no
+        // resolvable primary (no server identity to derive it from) and
+        // runs on its patch leg alone, which must still take failover TX.
+        val anyLeg = legs.isNotEmpty() || patchLegs.isNotEmpty()
+        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST
         if (newMeshTx != meshTxActive) {
             meshTxActive = newMeshTx
             onMeshTxStateChanged(newMeshTx)
@@ -729,7 +733,7 @@ class MeshVoiceManager(
         // mesh beacons via handleBeacon — see the note above [tick] on
         // why CoT presence must not feed it.
         val wasBridging = bridging
-        bridging = legs.isNotEmpty() && bridgeElection.evaluate(now, mumbleConnected())
+        bridging = anyLeg && bridgeElection.evaluate(now, mumbleConnected())
         if (bridging != wasBridging) {
             // Notify local-mesh peers of our bridge role change via CoT.
             bridgeCotPublisher?.setBridging(bridging)
@@ -968,9 +972,12 @@ class MeshVoiceManager(
             // Re-applying a patch on the SAME group:port with a different
             // wire format / crypto policy (e.g. VX_COMPAT -> OPENMANET_RTP)
             // must rebuild the live leg, or the old codec keeps running.
+            // The patch leg is built with the channel's mode, so a mode
+            // change must rebuild it too (TX gating reads leg.config.mode).
             endpoint != patchLeg.endpoint ||
                 cfg.patchWireFormat != patchLeg.config.wireFormat ||
-                cfg.patchCryptoPolicy != patchLeg.config.cryptoPolicy
+                cfg.patchCryptoPolicy != patchLeg.config.cryptoPolicy ||
+                cfg.mode != patchLeg.config.mode
         }.keys
         stalePatch.forEach { channel ->
             patchLegs.remove(channel)?.let { runCatching { it.close() } }
@@ -1424,8 +1431,11 @@ class MeshVoiceManager(
     }
 
     private fun broadcastBeacons() {
+        // Device-local interop never leaves the device: no patch endpoint in
+        // the beacon (wire fields kept, always ""/0 — older receivers parse
+        // them), and an interop-primary leg is not advertised at all.
         val channelInfos =
-            legs.map { (name, leg) ->
+            legs.filter { (_, leg) -> !leg.config.wireFormat.isInterop }.map { (name, leg) ->
                 val config = configForChannel(name)
                 ControlPacket.Message.PeerBeacon.Channel(
                     name = name,
@@ -1435,8 +1445,8 @@ class MeshVoiceManager(
                     keyFp = currentKeys[name]?.let { ourKeyFingerprint(name, it) } ?: 0,
                     cryptoPolicy = config.cryptoPolicy.ordinal,
                     wireFormat = config.wireFormat.ordinal,
-                    patchGroup = config.patchGroup ?: "",
-                    patchPort = config.patchPort ?: 0,
+                    patchGroup = "",
+                    patchPort = 0,
                 )
             }
         val beacon =

@@ -63,6 +63,9 @@ class MeshVoiceManagerTest {
     private class Harness(
         ourUid: String = "uid-mmm",
         configOverride: ((String) -> ChannelMulticastConfig)? = null,
+        // null models a device with no server identity (offline / never
+        // enrolled): a derived primary endpoint can't be resolved.
+        serverIdentityValue: ServerIdentity? = ServerIdentity.fromHostname("tak.example.com"),
     ) {
         var now = 10_000L
         var meshOn = true
@@ -87,7 +90,7 @@ class MeshVoiceManagerTest {
                 ourCallsign = { "Alpha-1" },
                 meshEnabled = { meshOn },
                 configForChannel = configOverride ?: { ChannelMulticastConfig.defaultFor(it) },
-                serverIdentity = { ServerIdentity.fromHostname("tak.example.com") },
+                serverIdentity = { serverIdentityValue },
                 mumbleConnected = { mumbleUp },
                 legFactory = { cfg, endpoint, registry, _ ->
                     FakeLeg(cfg, endpoint, registry).also {
@@ -341,6 +344,98 @@ class MeshVoiceManagerTest {
         h.manager.tick()
         assertFalse(leg.closed)
         assertTrue(leg === h.channelLeg())
+    }
+
+    @Test
+    fun `wire-format change on the same pinned endpoint rebuilds the primary leg`() {
+        var wire = WireFormat.XV_NATIVE
+        val h =
+            Harness(configOverride = {
+                ChannelMulticastConfig.defaultFor(it).copy(
+                    wireFormat = wire,
+                    cryptoPolicy = if (wire == WireFormat.XV_NATIVE) CryptoPolicy.REQUIRED else CryptoPolicy.CLEARTEXT,
+                    pinnedGroup = "239.7.7.7",
+                    pinnedPort = 5500,
+                )
+            })
+        h.joinAndTick()
+        // The rendezvous leg is XV-native too: select the channel's own leg.
+        val old = h.created.single { it.channelName == "ops-1" && it.config.wireFormat == WireFormat.XV_NATIVE }
+
+        wire = WireFormat.OPENMANET_RTP
+        h.manager.tick()
+
+        assertTrue(old.closed)
+        val rebuilt = h.created.single { it.channelName == "ops-1" && it.config.wireFormat == WireFormat.OPENMANET_RTP }
+        assertEquals(old.endpoint, rebuilt.endpoint)
+    }
+
+    @Test
+    fun `patch-only channel (no resolvable primary) still takes failover TX`() {
+        val h = Harness(configOverride = patched(WireFormat.OPENMANET_RTP), serverIdentityValue = null)
+        h.joinAndTick()
+        assertTrue(
+            "no server identity: derived primary can't resolve",
+            h.created.none { it.channelName == "ops-1" && it.config.wireFormat == WireFormat.XV_NATIVE },
+        )
+        val patch = h.created.single { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("patch leg alone must activate mesh TX", h.manager.isMeshTxActive())
+
+        h.manager.beginTxBurst()
+        h.manager.sendTxOpus(byteArrayOf(9), targetSlot = 0)
+        assertEquals(1, patch.sentOpus.size)
+    }
+
+    @Test
+    fun `mode change rebuilds the patch leg too`() {
+        var mode = MulticastMode.FAILOVER
+        val h = Harness(configOverride = { patched(WireFormat.OPENMANET_RTP)(it).copy(mode = mode) })
+        h.joinAndTick()
+        val oldPatch = h.created.single { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+
+        mode = MulticastMode.ALWAYS
+        h.manager.tick()
+
+        assertTrue(oldPatch.closed)
+        val rebuilt = h.created.last { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+        assertEquals(MulticastMode.ALWAYS, rebuilt.config.mode)
+    }
+
+    @Test
+    fun `beacons never carry the device-local patch endpoint or interop-primary legs`() {
+        val h = Harness(configOverride = patched(WireFormat.OPENMANET_RTP))
+        h.joinAndTick()
+        val beacons =
+            h.created
+                .flatMap { it.sentControl }
+                .filterIsInstance<ControlPacket.Message.PeerBeacon>()
+        assertTrue("a beacon was sent", beacons.isNotEmpty())
+        beacons.flatMap { it.channels }.forEach {
+            assertEquals("", it.patchGroup)
+            assertEquals(0, it.patchPort)
+        }
+
+        val interop =
+            Harness(configOverride = {
+                ChannelMulticastConfig(
+                    channelName = MulticastGroupDerivation.canonicalChannelName(it),
+                    wireFormat = WireFormat.VX_COMPAT,
+                    cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                    pinnedGroup = "239.8.8.8",
+                    pinnedPort = 5600,
+                )
+            })
+        interop.joinAndTick()
+        val advertised =
+            interop.created
+                .flatMap { it.sentControl }
+                .filterIsInstance<ControlPacket.Message.PeerBeacon>()
+                .flatMap { it.channels }
+        assertTrue("interop-primary leg is not advertised", advertised.none { it.group == "239.8.8.8" })
     }
 
     // ---- RX merge + dedup ----

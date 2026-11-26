@@ -218,6 +218,26 @@ class InteropNotificationManager(
         const val EXTRA_PEER_UID = "peer_uid"
 
         /**
+         * RETIRED (2026-11-25): the XV mesh leg is always encrypted, so the
+         * "downgrade this channel to cleartext VX" prompt has no valid
+         * outcome; OpenMANET / VX interop moves to the manual gateway
+         * switch. This manager is no longer started. A sticky notification
+         * posted by a pre-upgrade build could still be tapped, so remove
+         * any still showing and delete the channel. Best-effort.
+         */
+        fun retireLingeringNotifications(context: Context) {
+            try {
+                val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                nm.activeNotifications
+                    .filter { it.notification.channelId == CHANNEL_ID }
+                    .forEach { nm.cancel(it.tag, it.id) }
+                nm.deleteNotificationChannel(CHANNEL_ID)
+            } catch (t: Throwable) {
+                Log.w(TAG, "could not retire interop notifications", t)
+            }
+        }
+
+        /**
          * Produce an updated [ChannelMulticastConfig] that downgrades the
          * channel's primary leg to cleartext + VX-compat wire format.
          * Called from [XvDropDownReceiver] when the operator accepts.

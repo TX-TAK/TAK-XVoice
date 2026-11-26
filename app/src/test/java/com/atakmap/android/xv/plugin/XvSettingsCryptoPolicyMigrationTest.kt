@@ -107,4 +107,49 @@ class XvSettingsCryptoPolicyMigrationTest {
         // XvSettings' private PREF_CHANNEL_MULTICAST key.
         private const val MULTICAST_KEY = "channel_multicast_configs"
     }
+
+    @Test
+    fun `unconvertible interop primary is reported on every run, then converted once its patch is cleared`() {
+        val busy =
+            ChannelMulticastConfig(
+                "busy",
+                wireFormat = WireFormat.VX_COMPAT,
+                cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                pinnedGroup = "239.1.1.1",
+                pinnedPort = 5007,
+                patchGroup = "239.2.2.2",
+                patchPort = 5010,
+                patchWireFormat = WireFormat.OPENMANET_RTP,
+            )
+        storeRaw(busy)
+
+        assertEquals(listOf("busy"), settings.migrateMeshCryptoPolicy().unconvertibleInteropPrimaries)
+        assertEquals(
+            "still reported after the once-only rewrite",
+            listOf("busy"),
+            settings.migrateMeshCryptoPolicy().unconvertibleInteropPrimaries,
+        )
+        assertEquals(WireFormat.VX_COMPAT, settings.effectiveChannelMulticastConfig("busy").wireFormat)
+
+        // Operator clears the patch in the gear dialog and saves.
+        settings.persistChannelMulticastConfig(busy.copy(patchGroup = null, patchPort = null))
+
+        val cfg = settings.effectiveChannelMulticastConfig("busy")
+        assertEquals(WireFormat.XV_NATIVE, cfg.wireFormat)
+        assertEquals(CryptoPolicy.REQUIRED, cfg.cryptoPolicy)
+        assertEquals("239.1.1.1", cfg.patchGroup)
+        assertTrue(settings.migrateMeshCryptoPolicy().unconvertibleInteropPrimaries.isEmpty())
+    }
+
+    @Test
+    fun `unpinned interop primary left by the retired VX prompt becomes encrypted XV-native`() {
+        storeRaw(ChannelMulticastConfig("vx", wireFormat = WireFormat.VX_COMPAT, cryptoPolicy = CryptoPolicy.CLEARTEXT))
+        val report = settings.migrateMeshCryptoPolicy()
+        assertTrue(report.unconvertibleInteropPrimaries.isEmpty())
+        val cfg = settings.effectiveChannelMulticastConfig("vx")
+        assertEquals(WireFormat.XV_NATIVE, cfg.wireFormat)
+        assertEquals(CryptoPolicy.REQUIRED, cfg.cryptoPolicy)
+        assertEquals(null, cfg.patchGroup)
+        assertEquals(null, cfg.validate())
+    }
 }

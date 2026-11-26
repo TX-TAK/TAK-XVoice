@@ -29,7 +29,7 @@ object LegacyCryptoPolicyMigration {
             normalized = stored.mapNotNull { cfg -> cfg.meshPolicyNormalized().takeIf { it != cfg } },
             unconvertibleInteropPrimaries =
             stored
-                .filter { it.wireFormat.isInterop && !it.interopPrimaryConvertible }
+                .filter { it.meshPolicyNormalized().wireFormat.isInterop }
                 .map { it.channelName },
         )
 }
