@@ -124,6 +124,9 @@ class ReconnectingMumbleTransport(
     // rejection on either is a verdict on both (see SharedIdentityState).
     private val identity = SharedIdentityState()
 
+    /** The server rejected this device's credential (shared by both channels). */
+    fun credentialRejected(): Boolean = identity.rejected
+
     /** Why voice was refused for good: the shared-identity verdict first. */
     fun fatalReason(): String? = identity.rejectedReason ?: fatalReason
 

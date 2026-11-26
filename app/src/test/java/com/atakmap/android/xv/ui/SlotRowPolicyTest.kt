@@ -89,10 +89,10 @@ class SlotRowPolicyTest {
     }
 
     @Test
-    fun `refused with a mesh leg carrying channel 1 says mesh only`() {
+    fun `refused never reads mesh only`() {
         assertEquals(
-            Idle.REFUSED_MESH,
-            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = false, listenOnly = false, refused = true))
+            Idle.REFUSED,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = false, listenOnly = false, refused = true)),
         )
     }
 }

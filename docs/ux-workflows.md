@@ -73,6 +73,7 @@ Other parts of the panel:
   - Reconnecting: the dot at half strength plus a countdown.
   - **Voice off — tap to connect** after a Disconnect (or before the first connect). Tap to connect.
   - **refused: <reason> · tap to fix** (red) when the server turned you away for good, e.g. *wrong password* or *no certificate*. Tap to open Settings › Server.
+    - Both channels share one server login, so a refusal on either applies to both: each row whose connection is down reads **unavailable · <reason>** (e.g. *access revoked*), PTT is refused on both, and neither retries against the refused credential. Connect (or a successful login once access is restored) clears it.
   - **no TAK server · tap to set up**. Tap to open Settings › Server.
 - **Mesh line**: shown only while a mesh leg exists (hidden when mesh is off or no channel has a leg).
   - Bluebonnet normally; Honey for `· KEY NEEDED`; red, bold, only for `· CLEAR` (an unencrypted leg).
@@ -239,6 +240,7 @@ stateDiagram-v2
   - **Details…** opens the channel's settings. Server channels: mode (Off / Backup / Both) and the **interop patch (OpenMANET RTP)** — this device only, never shared, unencrypted — with **Clear patch**. Offline channels: name and fixed group/port, plus **Interop patch…** for the same patch dialog;
   - **long-press** an offline channel to forget it.
 - **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both. The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
+- **Not after a refusal:** if the server *rejects* this device (access revoked, certificate or login refused), the mesh stops too: no failover, and no mesh transmit even on Both, until access is restored. A server that is just down or unreachable still fails over as above.
 - **+ Add channel** presets:
   - **Private channel:** XV picks the name, group and key.
   - **Join a channel plan:** import a plan you were sent.

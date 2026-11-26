@@ -1404,8 +1404,7 @@ class XvDropDownReceiver(
                 SlotRowPolicy.SlotStatus(slot, live, connected, listenOnly, refused = refusedReason != null, slotServerUp = slotUp)
             )
         return when (idle) {
-            SlotRowPolicy.Idle.REFUSED -> "$refusedReason" to R.color.xv_err
-            SlotRowPolicy.Idle.REFUSED_MESH -> "mesh only · $refusedReason" to R.color.xv_err
+            SlotRowPolicy.Idle.REFUSED -> "unavailable · $refusedReason" to R.color.xv_err
             SlotRowPolicy.Idle.MESH -> idle.text to R.color.xv_net
             else -> idle.text to R.color.xv_text_dim
         }

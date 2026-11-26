@@ -22,11 +22,12 @@ object SlotRowPolicy {
         LISTEN_ONLY("listen only"),
         QUIET("quiet"),
 
-        /** The server refused our (shared) credential; the caller shows the reason. */
-        REFUSED("refused"),
-
-        /** Same, but a mesh leg still carries channel 1. */
-        REFUSED_MESH("mesh only"),
+        /**
+         * The server refused our (shared) credential; the caller shows
+         * "unavailable · <reason>". The mesh is stopped too in that case,
+         * so there is no "mesh only" variant.
+         */
+        REFUSED("unavailable"),
     }
 
     /**
@@ -49,7 +50,6 @@ object SlotRowPolicy {
     /** What the row's activity line says when nobody is talking. */
     fun idle(s: SlotStatus): Idle =
         when {
-            s.refused && !s.slotServerUp && s.live && s.slot == 0 -> Idle.REFUSED_MESH
             s.refused && !s.slotServerUp -> Idle.REFUSED
             !s.serverConnected && s.live && s.slot == 0 -> Idle.MESH
             !s.serverConnected -> Idle.NOT_CONNECTED

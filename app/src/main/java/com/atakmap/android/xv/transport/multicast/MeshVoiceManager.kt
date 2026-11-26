@@ -366,6 +366,8 @@ class MeshVoiceManager(
         opus: ByteArray,
         targetSlot: Int,
     ) {
+        // Revoked / rejected server credential: no mesh TX in any mode.
+        if (serverAccessRejected) return
         val targetChannel = if (targetSlot == 0) primaryChannel else secondaryChannel
         if (targetChannel == null) return
         if (legs.isEmpty() && patchLegs.isEmpty()) return
@@ -390,6 +392,26 @@ class MeshVoiceManager(
                     MulticastMode.OFF -> false
                 }
             if (txNow) leg.sendOpus(opus)
+        }
+    }
+
+    // Operator rule: when the voice server REJECTS this device's credential
+    // (access revoked, certificate or auth refused), the mesh stops too —
+    // no failover, no mesh TX in any mode — until access is restored. A
+    // server that is merely down / unreachable still fails over as usual.
+    @Volatile
+    private var serverAccessRejected = false
+
+    /** Set from the plugin's shared-identity verdict; clears on a good login / Connect. */
+    @Synchronized
+    fun setServerAccessRejected(rejected: Boolean) {
+        if (rejected == serverAccessRejected) return
+        serverAccessRejected = rejected
+        logDiag("server access ${if (rejected) "rejected — mesh TX blocked" else "restored — mesh TX allowed"}")
+        if (rejected && meshTxActive) {
+            meshTxActive = false
+            onMeshTxStateChanged(false)
+            logDiag("failover TX -> MESH OFF (server access rejected)")
         }
     }
 
@@ -719,7 +741,7 @@ class MeshVoiceManager(
         // resolvable primary (no server identity to derive it from) and
         // runs on its patch leg alone, which must still take failover TX.
         val anyLeg = legs.isNotEmpty() || patchLegs.isNotEmpty()
-        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST
+        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST && !serverAccessRejected
         if (newMeshTx != meshTxActive) {
             meshTxActive = newMeshTx
             onMeshTxStateChanged(newMeshTx)

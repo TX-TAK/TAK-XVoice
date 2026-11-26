@@ -726,6 +726,12 @@ class XvMapComponent : AbstractMapComponent() {
                 } catch (t: Throwable) {
                     Log.w(TAG, "slot-1 gate refresh threw", t)
                 }
+                // Revoked / rejected credential stops the mesh too (operator
+                // rule); a plain outage still fails over.
+                meshVoiceManager?.setServerAccessRejected(
+                    (activeTransport as? com.atakmap.android.xv.transport.ReconnectingMumbleTransport)
+                        ?.credentialRejected() == true,
+                )
                 try {
                     meshVoiceManager?.tick()
                 } catch (t: Throwable) {

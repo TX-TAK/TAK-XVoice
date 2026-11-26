@@ -216,6 +216,47 @@ class MeshVoiceManagerTest {
     }
 
     @Test
+    fun `revoked server credential blocks mesh failover and mesh TX`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setServerAccessRejected(true)
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertFalse("rejected credential: failover must not start", h.manager.isMeshTxActive())
+        h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
+        assertTrue(h.channelLeg().sentOpus.isEmpty())
+
+        // Access restored (good login / Connect): a still-down server fails over.
+        h.manager.setServerAccessRejected(false)
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue(h.manager.isMeshTxActive())
+    }
+
+    @Test
+    fun `a rejection while already on mesh drops failover at once`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue(h.manager.isMeshTxActive())
+        h.manager.setServerAccessRejected(true)
+        assertFalse(h.manager.isMeshTxActive())
+        assertEquals(listOf(true, false), h.meshTxStateChanges)
+    }
+
+    @Test
+    fun `rejected credential also blocks Both-mode mesh TX`() {
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = MulticastMode.ALWAYS) })
+        h.joinAndTick()
+        h.manager.setServerAccessRejected(true)
+        h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
+        assertTrue(h.channelLeg().sentOpus.isEmpty())
+    }
+
+    @Test
     fun `failback needs recovered health plus hysteresis`() {
         val h = Harness()
         h.joinAndTick()
