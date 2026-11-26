@@ -22,6 +22,11 @@ import org.robolectric.RobolectricTestRunner
 class CommsPlanTest {
     private val psk = ByteArray(AeadCodec.KEY_BYTES) // all-zero test key, 32 bytes
 
+    // The frozen known-answer bytes below encode PREFERRED; pin it
+    // explicitly so the KATs keep guarding the encoding, independent of
+    // what defaultFor() returns (REQUIRED since 2026-11-25).
+    private fun preferred(name: String) = ChannelMulticastConfig.defaultFor(name).copy(cryptoPolicy = CryptoPolicy.PREFERRED)
+
     private fun samplePlan(): CommsPlan =
         CommsPlan(
             planId = "plan-0001",
@@ -32,7 +37,7 @@ class CommsPlanTest {
             listOf(
                 CommsPlan.Channel(
                     displayName = "Ops 1",
-                    config = ChannelMulticastConfig.defaultFor("ops-1"),
+                    config = preferred("ops-1"),
                 ),
                 CommsPlan.Channel(
                     displayName = "Bravo",
@@ -55,7 +60,7 @@ class CommsPlanTest {
 
     @Test
     fun `materializedFor pins the derived endpoint using the server identity`() {
-        val cfg = ChannelMulticastConfig.defaultFor("ops-1")
+        val cfg = preferred("ops-1")
         assertNull(cfg.pinnedGroup)
         assertNull(cfg.pinnedPort)
         val pinned = cfg.materializedFor("tak.example.com")
@@ -70,7 +75,7 @@ class CommsPlanTest {
 
     @Test
     fun `materializedFor leaves the config unpinned when no server identity`() {
-        val cfg = ChannelMulticastConfig.defaultFor("ops-1")
+        val cfg = preferred("ops-1")
         assertEquals(cfg, cfg.materializedFor(null))
         assertEquals(cfg, cfg.materializedFor(""))
         assertEquals(cfg, cfg.materializedFor("   "))
@@ -231,7 +236,7 @@ class CommsPlanTest {
                 name = "n",
                 createdAtMs = 1,
                 serverIdentity = null,
-                channels = listOf(CommsPlan.Channel("Ops 1", ChannelMulticastConfig.defaultFor("ops-1"))),
+                channels = listOf(CommsPlan.Channel("Ops 1", preferred("ops-1"))),
                 notAfterMs = 999,
             )
         assertEquals(

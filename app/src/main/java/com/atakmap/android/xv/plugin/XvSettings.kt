@@ -3,6 +3,7 @@ package com.atakmap.android.xv.plugin
 import android.content.SharedPreferences
 import com.atakmap.android.xv.audio.TptTone
 import com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
+import com.atakmap.android.xv.transport.multicast.LegacyCryptoPolicyMigration
 import com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
 
 // Persistent settings for the XV plugin. Wraps a SharedPreferences
@@ -413,7 +414,14 @@ class XvSettings(
     // Entries that fail to parse (e.g. written by a newer XV with an
     // enum this build doesn't know) are skipped, degrading that
     // channel to the default rather than failing channel setup.
-    fun channelMulticastConfigs(): List<ChannelMulticastConfig> {
+    //
+    // Every config read here is normalized to the mesh-policy invariant
+    // (ChannelMulticastConfig.meshPolicyNormalized), so a stale PREFERRED /
+    // CLEARTEXT XV-native entry (e.g. written by an older build after the
+    // one-time migration ran) can never reach a live leg.
+    fun channelMulticastConfigs(): List<ChannelMulticastConfig> = rawChannelMulticastConfigs().map { it.meshPolicyNormalized() }
+
+    private fun rawChannelMulticastConfigs(): List<ChannelMulticastConfig> {
         val raw = prefs()?.getStringSet(PREF_CHANNEL_MULTICAST, emptySet()) ?: emptySet()
         return raw
             .mapNotNull { ChannelMulticastConfig.fromJson(it) }
@@ -428,7 +436,10 @@ class XvSettings(
     // Upsert by canonical channel name: at most one override per
     // channel, and a re-save replaces the prior one.
     fun persistChannelMulticastConfig(cfg: ChannelMulticastConfig) {
-        val canonical = cfg.copy(channelName = MulticastGroupDerivation.canonicalChannelName(cfg.channelName))
+        val canonical =
+            cfg
+                .copy(channelName = MulticastGroupDerivation.canonicalChannelName(cfg.channelName))
+                .meshPolicyNormalized()
         val existing =
             prefs()
                 ?.getStringSet(PREF_CHANNEL_MULTICAST, emptySet())
@@ -453,23 +464,44 @@ class XvSettings(
         }
     }
 
-    fun channelCryptoPolicyFor(channelName: String): com.atakmap.android.xv.transport.multicast.CryptoPolicy {
-        val canonical = MulticastGroupDerivation.canonicalChannelName(channelName)
-        val name = prefs()?.getString("xv_crypto_policy_$canonical", null)
-        return try {
-            if (name != null) {
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.valueOf(name)
-            } else {
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
+    // The config a channel actually runs on: its stored override, else the
+    // auto-derived default. Its cryptoPolicy is the ONLY per-channel crypto
+    // posture; UI, interop prompt and the multicast leg all read it here.
+    fun effectiveChannelMulticastConfig(channelName: String): ChannelMulticastConfig =
+        channelMulticastConfigFor(channelName) ?: ChannelMulticastConfig.defaultFor(channelName)
+
+    // Once-only (flag-guarded) storage rewrite to the mesh-policy invariant
+    // (XV-native legs always REQUIRED, cleartext only on interop legs) plus
+    // deletion of the retired `xv_crypto_policy_<channel>` prefs. Reads and
+    // writes already normalize (channelMulticastConfigs /
+    // persistChannelMulticastConfig), so this only makes disk match. The
+    // report's unconvertible list is current on every call.
+    fun migrateMeshCryptoPolicy(): LegacyCryptoPolicyMigration.Report {
+        val p = prefs()
+        // With no prefs there are no stored configs, so this is the empty report.
+        val report = LegacyCryptoPolicyMigration.plan(rawChannelMulticastConfigs())
+        return when {
+            p == null -> report
+            p.getBoolean(PREF_MESH_POLICY_MIGRATED, false) -> report.copy(normalized = emptyList())
+            else -> {
+                rewriteToMeshPolicy(p, report)
+                report
             }
-        } catch (_: Exception) {
-            com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
         }
     }
 
-    fun persistCryptoPolicy(channelName: String, policy: com.atakmap.android.xv.transport.multicast.CryptoPolicy) {
-        val canonical = MulticastGroupDerivation.canonicalChannelName(channelName)
-        prefs()?.edit()?.putString("xv_crypto_policy_$canonical", policy.name)?.apply()
+    private fun rewriteToMeshPolicy(
+        p: SharedPreferences,
+        report: LegacyCryptoPolicyMigration.Report,
+    ) {
+        report.normalized.forEach { persistChannelMulticastConfig(it) }
+        val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
+        val legacyKeys = p.all.keys.filter { it.startsWith(prefix) }
+        p.edit().apply {
+            legacyKeys.forEach { remove(it) }
+            putBoolean(PREF_MESH_POLICY_MIGRATED, true)
+            apply()
+        }
     }
 
     // Sealed per-channel key vault. The bytes stored here are the output
@@ -505,6 +537,9 @@ class XvSettings(
 
         // Persistent keys.
         private const val PREF_AINA_MAC = "aina_mac"
+
+        // v2 supersedes the dev-only v1 flag, which preserved explicit PREFERRED.
+        private const val PREF_MESH_POLICY_MIGRATED = "xv_mesh_policy_enforced_v2"
 
         // External-button input pair — see persistedExternalButtonMac.
         //

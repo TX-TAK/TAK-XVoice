@@ -350,6 +350,10 @@ class MeshVoiceManager(
     fun beginTxBurst() {
         lastLocalTxMs = nowMs()
         legs.values.forEach { it.beginVoiceBurst() }
+        // Patch legs carry stateful codecs too (OPENMANET_RTP holds a
+        // half-pair and arms the RTP marker per burst); without this a
+        // stranded frame leaks into the next PTT press.
+        patchLegs.values.forEach { it.beginVoiceBurst() }
     }
 
     /**
@@ -711,7 +715,11 @@ class MeshVoiceManager(
         // Failover evaluation. The policy's "active leg" drives
         // FAILOVER-mode TX routing and the operator badge.
         val decision = failoverPolicy.evaluate(now, mumbleConnected())
-        val newMeshTx = legs.isNotEmpty() && decision.active == FailoverPolicy.Leg.MULTICAST
+        // Any live leg counts: an offline converted interop channel has no
+        // resolvable primary (no server identity to derive it from) and
+        // runs on its patch leg alone, which must still take failover TX.
+        val anyLeg = legs.isNotEmpty() || patchLegs.isNotEmpty()
+        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST
         if (newMeshTx != meshTxActive) {
             meshTxActive = newMeshTx
             onMeshTxStateChanged(newMeshTx)
@@ -725,7 +733,7 @@ class MeshVoiceManager(
         // mesh beacons via handleBeacon — see the note above [tick] on
         // why CoT presence must not feed it.
         val wasBridging = bridging
-        bridging = legs.isNotEmpty() && bridgeElection.evaluate(now, mumbleConnected())
+        bridging = anyLeg && bridgeElection.evaluate(now, mumbleConnected())
         if (bridging != wasBridging) {
             // Notify local-mesh peers of our bridge role change via CoT.
             bridgeCotPublisher?.setBridging(bridging)
@@ -869,7 +877,7 @@ class MeshVoiceManager(
         return StatusSnapshot(
             active = meshTxActive,
             bridging = bridging,
-            cleartext = legs.values.any { !it.encryptedNow } || patchLegs.values.any { !it.encryptedNow },
+            cleartext = legs.values.any { sendsCleartext(it) } || patchLegs.values.any { sendsCleartext(it) },
             keyNeeded = legs.values.any { it.awaitingKey } || patchLegs.values.any { it.awaitingKey },
             legCount = legs.size + patchLegs.size,
             patched = patchLegs.isNotEmpty(),
@@ -940,11 +948,17 @@ class MeshVoiceManager(
         // re-derives to a different group, and a leg keyed only by
         // channel name would otherwise silently stay on the old
         // server's multicast group forever.
+        //
+        // Same for a crypto-policy / wire-format / mode change on the SAME
+        // endpoint: the leg's codec and TX gating are fixed at build time,
+        // so e.g. CLEARTEXT -> REQUIRED would keep transmitting clear until
+        // restart. Rebuilding is cheap and keeps the key — the registry and
+        // election live on this manager, not on the leg.
         val stale =
             legs.filter { (channel, leg) ->
                 val cfg = desired[channel] ?: return@filter true
                 val endpoint = resolveEndpoint(cfg)
-                endpoint != null && endpoint != leg.endpoint
+                (endpoint != null && endpoint != leg.endpoint) || legConfigChanged(leg.config, cfg)
             }.keys
         stale.forEach { channel ->
             legs.remove(channel)?.let { runCatching { it.close() } }
@@ -955,7 +969,15 @@ class MeshVoiceManager(
             val cfg = desired[channel] ?: return@filter true
             if (cfg.patchGroup == null || cfg.patchPort == null) return@filter true
             val endpoint = MulticastEndpoint(cfg.patchGroup, cfg.patchPort)
-            endpoint != patchLeg.endpoint
+            // Re-applying a patch on the SAME group:port with a different
+            // wire format / crypto policy (e.g. VX_COMPAT -> OPENMANET_RTP)
+            // must rebuild the live leg, or the old codec keeps running.
+            // The patch leg is built with the channel's mode, so a mode
+            // change must rebuild it too (TX gating reads leg.config.mode).
+            endpoint != patchLeg.endpoint ||
+                cfg.patchWireFormat != patchLeg.config.wireFormat ||
+                cfg.patchCryptoPolicy != patchLeg.config.cryptoPolicy ||
+                cfg.mode != patchLeg.config.mode
         }.keys
         stalePatch.forEach { channel ->
             patchLegs.remove(channel)?.let { runCatching { it.close() } }
@@ -1021,6 +1043,26 @@ class MeshVoiceManager(
             rendezvousLeg = null
         }
     }
+
+    // A live leg's codec + TX gating were built from its config; any of
+    // these changing means the leg must be rebuilt (see reconcileLegs).
+    private fun legConfigChanged(
+        live: ChannelMulticastConfig,
+        wanted: ChannelMulticastConfig,
+    ): Boolean =
+        live.cryptoPolicy != wanted.cryptoPolicy ||
+            live.wireFormat != wanted.wireFormat ||
+            live.mode != wanted.mode
+
+    // Can this leg put cleartext voice on the air right now? An unkeyed
+    // REQUIRED leg is silent (encodeTx returns null), not clear — that
+    // state is surfaced as KEY NEEDED, never as the red CLEAR badge.
+    private fun sendsCleartext(leg: MeshLeg): Boolean =
+        when (leg.config.cryptoPolicy) {
+            CryptoPolicy.CLEARTEXT -> true
+            CryptoPolicy.PREFERRED -> !leg.encryptedNow
+            CryptoPolicy.REQUIRED -> false
+        }
 
     private fun resolveEndpoint(cfg: ChannelMulticastConfig): MulticastEndpoint? {
         if (cfg.pinnedGroup != null && cfg.pinnedPort != null) {
@@ -1389,8 +1431,11 @@ class MeshVoiceManager(
     }
 
     private fun broadcastBeacons() {
+        // Device-local interop never leaves the device: no patch endpoint in
+        // the beacon (wire fields kept, always ""/0 — older receivers parse
+        // them), and an interop-primary leg is not advertised at all.
         val channelInfos =
-            legs.map { (name, leg) ->
+            legs.filter { (_, leg) -> !leg.config.wireFormat.isInterop }.map { (name, leg) ->
                 val config = configForChannel(name)
                 ControlPacket.Message.PeerBeacon.Channel(
                     name = name,
@@ -1400,8 +1445,8 @@ class MeshVoiceManager(
                     keyFp = currentKeys[name]?.let { ourKeyFingerprint(name, it) } ?: 0,
                     cryptoPolicy = config.cryptoPolicy.ordinal,
                     wireFormat = config.wireFormat.ordinal,
-                    patchGroup = config.patchGroup ?: "",
-                    patchPort = config.patchPort ?: 0,
+                    patchGroup = "",
+                    patchPort = 0,
                 )
             }
         val beacon =
@@ -1656,7 +1701,8 @@ class MeshVoiceManager(
     }
 
     private fun MeshLeg.safeSendControl(msg: ControlPacket.Message) {
-        if (config.wireFormat != com.atakmap.android.xv.transport.multicast.WireFormat.VX_COMPAT) {
+        // Interop wires (raw Opus / OpenMANET RTP) have no XVMC control plane.
+        if (!config.wireFormat.isInterop) {
             sendControl(msg)
         }
     }
