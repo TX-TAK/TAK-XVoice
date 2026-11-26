@@ -118,7 +118,7 @@ class AinaSppReaderGenerationTest {
             AinaSppReader(
                 context = context,
                 onEvent = { _, _ -> },
-                onConnectionState = { up -> if (up) throw IllegalStateException("plugin bug") },
+                onConnectionState = { up -> check(!up) { "plugin bug" } },
                 socketFactory = AinaSppReader.SocketFactory { _, _, _ -> sock },
             )
         reader.connect(device())
