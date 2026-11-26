@@ -1,6 +1,7 @@
 package com.atakmap.android.xv.ui
 
 import com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
+import com.atakmap.android.xv.transport.multicast.CryptoPolicy
 import com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
 import com.atakmap.android.xv.transport.multicast.MulticastMode
 import com.atakmap.android.xv.transport.multicast.WireFormat
@@ -57,12 +58,14 @@ object MeshChannelRows {
                     .thenBy(String.CASE_INSENSITIVE_ORDER) { it.name },
             )
 
-    // The interop wire format a channel carries, if any: an interop primary
-    // or a configured patch leg.
+    // The interop / clear wire format a channel carries, if any: an interop
+    // primary, or a patch leg that is interop or cleartext. An encrypted
+    // XV-native patch is just another encrypted leg: no badge.
     private fun interopFormat(c: ChannelMulticastConfig): WireFormat? =
         when {
             c.wireFormat.isInterop -> c.wireFormat
-            c.patchGroup != null -> c.patchWireFormat
+            c.patchGroup != null &&
+                (c.patchWireFormat.isInterop || c.patchCryptoPolicy == CryptoPolicy.CLEARTEXT) -> c.patchWireFormat
             else -> null
         }
 

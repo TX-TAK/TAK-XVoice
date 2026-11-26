@@ -211,9 +211,11 @@ class VoicePlant(
         )
 
         // Raw PTT input edge (before priming / TPT). Default no-op.
+        // [input] keys the reader (see IXvVoiceListener.onPttInput).
         fun onPttInput(
             down: Boolean,
             slot: Int,
+            input: String,
         ) = Unit
 
         fun onAinaConnectionChanged(connected: Boolean)
@@ -947,7 +949,7 @@ class VoicePlant(
             return
         }
         try {
-            callbacks.onPttInput(true, slot)
+            callbacks.onPttInput(true, slot, inputKey(source, owner))
         } catch (t: Throwable) {
             Log.w(TAG, "onPttInput(down) threw", t)
         }
@@ -1092,7 +1094,7 @@ class VoicePlant(
         owner: Any = source,
     ) {
         try {
-            callbacks.onPttInput(false, slot)
+            callbacks.onPttInput(false, slot, inputKey(source, owner))
         } catch (t: Throwable) {
             Log.w(TAG, "onPttInput(up) threw", t)
         }
@@ -1793,7 +1795,10 @@ class VoicePlant(
         // (or share a source), and a re-attach of a sleeping puck must
         // not cut the speaker-mic's live burst.
         try {
-            externalPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
+            externalPttOwner?.let {
+                pttDispatcher.forgetOwner(it, retire = true)
+                releaseInputEdges(ownerReleaseKey(it))
+            }
             externalPttOwner = null
         } catch (t: Throwable) {
             Log.w(TAG, "forgetOwner on external-button disconnect threw", t)
@@ -1867,7 +1872,10 @@ class VoicePlant(
         // so an external button held on the same reader class keeps its
         // burst.
         try {
-            primaryPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
+            primaryPttOwner?.let {
+                pttDispatcher.forgetOwner(it, retire = true)
+                releaseInputEdges(ownerReleaseKey(it))
+            }
             primaryPttOwner = null
         } catch (t: Throwable) {
             Log.w(TAG, "forgetOwner on primary reader teardown threw", t)
@@ -1930,6 +1938,7 @@ class VoicePlant(
                 "PTT source $source ($owner) transport dropped — releasing its held keys",
             )
             pttDispatcher.forgetOwner(owner)
+            releaseInputEdges(ownerReleaseKey(owner))
         } catch (t: Throwable) {
             Log.w(TAG, "forgetOwner on reader disconnect threw", t)
         }
@@ -1955,12 +1964,32 @@ class VoicePlant(
                 TAG,
                 "BluetoothAdapter STATE_TURNING_OFF — cascading PTT release across all BT sources",
             )
-            pttDispatcher.forgetSource(PttSource.AINA_V1)
-            pttDispatcher.forgetSource(PttSource.AINA_V2)
-            pttDispatcher.forgetSource(PttSource.PRYME_BLE)
-            pttDispatcher.forgetSource(PttSource.INRICO_BT02)
+            for (s in listOf(PttSource.AINA_V1, PttSource.AINA_V2, PttSource.PRYME_BLE, PttSource.INRICO_BT02)) {
+                pttDispatcher.forgetSource(s)
+                releaseInputEdges(s.name)
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "releaseAllBtSourcedPtt threw", t)
+        }
+    }
+
+    // Input key for the raw PTT edge: per reader instance where there is
+    // one (matching the dispatcher's per-owner held state), else the
+    // source alone (on-screen / default).
+    private fun inputKey(
+        source: PttSource,
+        owner: Any,
+    ): String = if (owner === source) source.name else "${source.name}@${System.identityHashCode(owner)}"
+
+    private fun ownerReleaseKey(owner: Any): String = "*@${System.identityHashCode(owner)}"
+
+    // Tell the plugin a reader's keys are gone (teardown / transport
+    // drop / BT off) so its swap gate never waits on a lost up edge.
+    private fun releaseInputEdges(input: String) {
+        try {
+            callbacks.onPttInput(false, -1, input)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onPttInput(release $input) threw", t)
         }
     }
 

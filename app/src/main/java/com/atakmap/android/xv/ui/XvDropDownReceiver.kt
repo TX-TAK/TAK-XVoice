@@ -669,6 +669,11 @@ class XvDropDownReceiver(
     // mapping as the panel and the speaker-mic.
     private var mapHud: XvMapHud? = null
 
+    /** ATAK paused / stopped: release any held map PTT. */
+    fun onHostPaused() {
+        mapHud?.releaseForLifecycle("host paused")
+    }
+
     fun attachMapHud() {
         if (mapHud != null) return
         mapHud =
@@ -2827,7 +2832,7 @@ class XvDropDownReceiver(
                 meshToast(if (n > 0) "Forgot all channels." else "Cleared the channel list.")
                 refreshMeshSection(section)
             }.setNegativeButton("Cancel", null)
-            .showXv(pluginContext)
+            .showXv(pluginContext, destructive = true)
     }
 
     // Panic wipe, gated behind a *double* slide-to-confirm so it can't
@@ -3448,6 +3453,17 @@ class XvDropDownReceiver(
             seg.setOnClickListener {
                 if (!on) setMeshChannelMode(section, row.name, mode)
             }
+            // TalkBack: these TextViews act as buttons.
+            seg.accessibilityDelegate =
+                object : View.AccessibilityDelegate() {
+                    override fun onInitializeAccessibilityNodeInfo(
+                        host: View,
+                        info: android.view.accessibility.AccessibilityNodeInfo,
+                    ) {
+                        super.onInitializeAccessibilityNodeInfo(host, info)
+                        info.className = Button::class.java.name
+                    }
+                }
         }
         card.setOnClickListener {
             if (row.serverChannel) {

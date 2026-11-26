@@ -152,7 +152,7 @@ class MapHudPolicyTest {
 
     @Test
     fun `too long for two lines falls back to scrolling`() {
-        assertNull(MapHudPolicy.layoutLabel("NORTH COUNTY FIRE RESCUE", maxWidth = 50f, measure = measure))
+        assertNull(MapHudPolicy.layoutLabel("ALPHA BRAVO CHARLIE DELTA", maxWidth = 50f, measure = measure))
         assertNull(MapHudPolicy.layoutLabel("SUPERCALIFRAGILISTIC", maxWidth = 50f, measure = measure))
     }
 
@@ -173,5 +173,18 @@ class MapHudPolicyTest {
     @Test
     fun `scroll window wider than the name shows it whole`() {
         assertEquals("ABC", MapHudPolicy.scrollWindow("ABC", 5, 7L))
+    }
+
+    @Test
+    fun `labelName shows a dash for a missing or blank channel`() {
+        assertEquals("—", MapHudPolicy.labelName(null))
+        assertEquals("—", MapHudPolicy.labelName("   "))
+        assertEquals("ALPHA", MapHudPolicy.labelName(" alpha "))
+    }
+
+    @Test
+    fun `fitChars falls back to one character when nothing fits`() {
+        assertEquals(1, MapHudPolicy.fitChars("ALPHA", maxWidth = 1f) { it.length * 10f })
+        assertEquals(3, MapHudPolicy.fitChars("ALPHA", maxWidth = 30f) { it.length * 10f })
     }
 }

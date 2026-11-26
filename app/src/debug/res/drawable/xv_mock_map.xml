@@ -1,6 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- UX mockup drawable (debug source set only; never ships in release/TPP). -->
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <gradient android:type="radial" android:gradientRadius="900dp"
-        android:startColor="#3A4A3A" android:endColor="#1C241C"/>
-</shape>

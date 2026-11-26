@@ -1083,8 +1083,9 @@ class XvVoiceService : Service() {
             override fun onPttInput(
                 down: Boolean,
                 slot: Int,
+                input: String,
             ) {
-                fanOut { it.onPttInput(down, slot) }
+                fanOut { it.onPttInput(down, slot, input) }
             }
 
             override fun onPttBlockedByCellularCall(reason: String) {

@@ -74,11 +74,28 @@ class XvVoiceClient(
     // a fresh process on the next call, but our cached references would
     // still point at the dead binder until then. Clearing eagerly on
     // binderDied lets pendingActions queue up cleanly for the new bind.
+    /**
+     * Runs when the service link drops (disconnect or binder death) and
+     * again on every (re)bind: the service's held-PTT state is gone
+     * either way, so plugin-side mirrors of it must reset.
+     */
+    @Volatile
+    var onLinkReset: (() -> Unit)? = null
+
+    private fun fireLinkReset() {
+        try {
+            onLinkReset?.invoke()
+        } catch (t: Throwable) {
+            Log.w(TAG, "onLinkReset threw", t)
+        }
+    }
+
     private val deathRecipient =
         IBinder.DeathRecipient {
             Log.w(TAG, "voice plant binder died — clearing reference")
             serviceBinder = null
             voice = null
+            fireLinkReset()
         }
 
     private val connection =
@@ -91,6 +108,7 @@ class XvVoiceClient(
                 voice = v
                 serviceBinder = service
                 Log.i(TAG, "onServiceConnected — voice plant bound")
+                fireLinkReset()
                 if (service != null) {
                     try {
                         service.linkToDeath(deathRecipient, 0)
@@ -171,6 +189,7 @@ class XvVoiceClient(
 
             override fun onServiceDisconnected(name: ComponentName?) {
                 Log.w(TAG, "onServiceDisconnected — voice plant lost")
+                fireLinkReset()
                 val b = serviceBinder
                 serviceBinder = null
                 voice = null

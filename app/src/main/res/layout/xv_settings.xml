@@ -99,7 +99,7 @@
                     android:focusable="true"
                     android:minHeight="48dp"
                     android:text="Bluetooth is off — tap to turn it on"
-                    android:textColor="@color/xv_warn"
+                    android:textColor="@color/xv_net"
                     android:textSize="13sp"
                     android:visibility="gone" />
 
@@ -606,7 +606,7 @@
             </LinearLayout>
 
             <!-- ============================================================
-                 Mesh (approved mockup xv_mock_mesh_settings / _add):
+                 Mesh (approved mesh settings mockup):
                    1. One master switch + live status.
                    2. Channels as a single-column list (cards built in
                       refreshMeshSection): name, badges, and Off / Backup /

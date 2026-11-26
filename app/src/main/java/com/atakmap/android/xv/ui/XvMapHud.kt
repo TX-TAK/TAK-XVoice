@@ -63,6 +63,13 @@ class XvMapHud(
     private val renderedKey = mutableMapOf<Int, String>()
     private val iconUris = mutableMapOf<String, String>()
 
+    // PNG encode + file write run here, off the main (touch) thread. One
+    // thread, so the attach-time prune always runs before any write.
+    private val io = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private val pendingIcons = mutableSetOf<String>()
+
+    private fun iconDir(): File = File(mapView.context.cacheDir, "xv_map_ptt")
+
     // Last drawn icon size (px), for slide-off detection.
     @Volatile private var iconSizePx: Pair<Int, Int> = 0 to 0
 
@@ -82,6 +89,19 @@ class XvMapHud(
 
     // Advances once per TICK_MS; drives long-name scrolling.
     private var scrollTick = 0L
+
+    // ATAK can take the touch stream mid-press (a dialog, an incoming
+    // call, going to the background) and the hex then never sees its
+    // unpress: release on window-focus loss.
+    private val focusListener =
+        android.view.ViewTreeObserver.OnWindowFocusChangeListener { focused ->
+            if (!focused) main.post { releaseHeld("window focus lost") }
+        }
+
+    /** Host paused / stopped: nothing can be held. */
+    fun releaseForLifecycle(why: String) {
+        main.post { releaseHeld(why) }
+    }
 
     private val ticker =
         object : Runnable {
@@ -121,6 +141,16 @@ class XvMapHud(
                 holder.addWidget(w)
             }
             attached = true
+            // Icons from earlier sessions (other sizes, labels, channel
+            // names) are never reused: prune them before drawing new ones.
+            io.execute {
+                try {
+                    iconDir().listFiles()?.forEach { it.delete() }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "map PTT icon prune failed", t)
+                }
+            }
+            mapView.viewTreeObserver.addOnWindowFocusChangeListener(focusListener)
             refresh()
             main.postDelayed(ticker, TICK_MS)
         }
@@ -130,10 +160,18 @@ class XvMapHud(
         main.post {
             attached = false
             main.removeCallbacks(ticker)
+            try {
+                mapView.viewTreeObserver.removeOnWindowFocusChangeListener(focusListener)
+            } catch (t: Throwable) {
+                Log.w(TAG, "focus listener removal threw", t)
+            }
             releaseHeld("detach")
             dock?.removeWidget(holder)
             dock = null
             dockedSide = null
+            // The receiver drops this instance after detach; a later
+            // attach builds a new one.
+            io.shutdown()
         }
     }
 
@@ -240,7 +278,12 @@ class XvMapHud(
         val bmpW = (hexWidthPx + 2 * MARGIN_DP * density).toInt()
         val bmpH = (hexWidthPx * MapHudPolicy.HEX_ASPECT + 2 * MARGIN_DP * density).toInt()
         iconSizePx = bmpW to bmpH
-        val uri = iconUri(b.copy(label = frame)) ?: return
+        val uri = iconUri(b.copy(label = frame))
+        if (uri == null) {
+            // Still being written: draw on the next refresh.
+            renderedKey.remove(b.slot)
+            return
+        }
         val icon =
             Icon
                 .Builder()
@@ -273,17 +316,38 @@ class XvMapHud(
         // own cache dir — same process/UID as the map renderer, readable
         // by it — and hand it a file:// URI. One file per slot+look+label,
         // so a changed state is a new URI (no stale cached texture).
-        return iconUris[key] ?: writeIconFile(b, drawHex(b))?.also { iconUris[key] = it }
+        val cached = iconUris[key]
+        if (cached == null && key !in pendingIcons) startIconWrite(key, b)
+        return cached
+    }
+
+    // Draw here (cheap, needs the current size); encode + write on io,
+    // then refresh so the widget picks the file up.
+    private fun startIconWrite(
+        key: String,
+        b: MapHudPolicy.Button,
+    ) {
+        pendingIcons += key
+        val bmp = drawHex(b)
+        val safe = "${b.slot}_${b.look}_${b.label}_${hexWidthPx.toInt()}".replace(Regex("[^A-Za-z0-9_]"), "_")
+        io.execute {
+            val uri = writeIconFile(safe, bmp)
+            bmp.recycle()
+            main.post {
+                pendingIcons -= key
+                if (uri != null) iconUris[key] = uri
+                refresh()
+            }
+        }
     }
 
     private fun writeIconFile(
-        b: MapHudPolicy.Button,
+        safeName: String,
         bmp: Bitmap,
     ): String? =
         try {
-            val dir = File(mapView.context.cacheDir, "xv_map_ptt").apply { mkdirs() }
-            val safe = "${b.slot}_${b.look}_${b.label}_${hexWidthPx.toInt()}".replace(Regex("[^A-Za-z0-9_]"), "_")
-            val f = File(dir, "ptt_$safe.png")
+            val dir = iconDir().apply { mkdirs() }
+            val f = File(dir, "ptt_$safeName.png")
             if (!f.exists()) {
                 FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
             }

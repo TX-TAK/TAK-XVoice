@@ -111,7 +111,7 @@ Feedback and refusals:
 ### Map PTT buttons
 
 - Hex buttons are docked on the map edge: right by default, left when Left-handed is on. ATAK keeps them clear of its own widgets.
-- They appear while the XV panel is closed and hide while it's open. Hiding releases a held button.
+- They appear while the XV panel is closed and hide while it's open. Hiding releases a held button, and so does anything that takes the touch away from the map (a dialog, an incoming call, ATAK going to the background).
 - Each shows the slot number and the channel name, which wraps to two lines and slowly scrolls only if it's longer still.
 - Looks:
   - Honey outline: idle.
@@ -322,4 +322,5 @@ Other screens:
 8. **Hardware PTT during a swap gets only a deny tone.** On-screen and map PTT add a toast; a speaker-mic can't show one. The window is about 1 s.
 9. **No way to place a direct call.** Receiving works (5a), but nothing in the UI starts an outgoing call: the dialling code in the plugin has no caller. Needs an entry point, e.g. a member-row action or an ATAK contact action.
 10. **Texas Red text contrast.** Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.
-9. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
+11. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
+12. **Map PTT buttons aren't reachable with TalkBack.** They're ATAK map widgets, which aren't in the Android accessibility tree. TalkBack users key from the panel PTT or a hardware button.

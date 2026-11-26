@@ -837,6 +837,8 @@ class XvMapComponent : AbstractMapComponent() {
         val client =
             com.atakmap.android.xv.service
                 .XvVoiceClient(atakContext)
+        // The service's held-PTT state doesn't survive a link drop.
+        client.onLinkReset = { heldPttInputs.clear() }
         client.start()
         voiceClient = client
 
@@ -881,7 +883,7 @@ class XvMapComponent : AbstractMapComponent() {
                 ) {
                     // A burst ending also clears that slot's held input, so a
                     // lost up-edge can't block channel swap indefinitely.
-                    if (!transmitting) pttInputsHeld.remove(slot)
+                    if (!transmitting) heldPttInputs.onBurstEnded(slot)
                     if (transmitting) {
                         beginMumbleVoiceBurst()
                         // Lock in the UI's "transmitting" state on whichever
@@ -1054,10 +1056,11 @@ class XvMapComponent : AbstractMapComponent() {
                 override fun onPttInput(
                     down: Boolean,
                     slot: Int,
+                    input: String?,
                 ) {
                     // Any PTT input (speaker-mic, button, Samsung key,
                     // on-screen) held or priming: the swap gate counts it.
-                    if (down) pttInputsHeld.add(slot) else pttInputsHeld.remove(slot)
+                    heldPttInputs.onInput(down, slot, input ?: "?")
                 }
 
                 override fun onPttBlockedByCellularCall(reason: String?) {
@@ -1699,6 +1702,24 @@ class XvMapComponent : AbstractMapComponent() {
                 Log.e(TAG, "PermissionRequestActivity failed via both contexts", t2)
             }
         }
+    }
+
+    // ATAK going to the background takes the touch stream: a map PTT
+    // held at that moment would never see its release.
+    override fun onPause(
+        context: Context,
+        view: MapView,
+    ) {
+        super.onPause(context, view)
+        dropDown?.onHostPaused()
+    }
+
+    override fun onStop(
+        context: Context,
+        view: MapView,
+    ) {
+        super.onStop(context, view)
+        dropDown?.onHostPaused()
     }
 
     override fun onDestroyImpl(
@@ -3143,9 +3164,14 @@ class XvMapComponent : AbstractMapComponent() {
             }
 
             override fun saveChannelConfig(config: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig): String? {
-                val err = config.validate()
+                // First save of a channel known only from beacons (e.g. the
+                // Off/Backup/Both segments materializing defaultFor):
+                // carry the advertised endpoint, or the leg can't resolve.
+                val toSave =
+                    if (settings.channelMulticastConfigFor(config.channelName) == null) withDiscoveredPin(config) else config
+                val err = toSave.validate()
                 if (err != null) return err
-                settings.persistChannelMulticastConfig(config)
+                settings.persistChannelMulticastConfig(toSave)
                 return null
             }
 
@@ -6049,8 +6075,7 @@ class XvMapComponent : AbstractMapComponent() {
         selfSuppressedBySlot.remove(slot)
         // Mid-swap the gate stays closed (closeCanSpeakForSwap); the swap
         // outcome reopens it.
-        if (mumbleTransport()?.isSwapInFlight() != true) {
-            voiceClient?.ifBound { it.setCanSpeakOnSlot(slot, true) }
+        if (mumbleTransport()?.isSwapInFlight() != true && swapSpeakGate.pushIfOpen(slot, true)) {
             if (slot == 0) pushSlot1CanSpeak()
         }
         // Push the UI immediately — without this, the
@@ -6067,9 +6092,9 @@ class XvMapComponent : AbstractMapComponent() {
     ) {
         Log.i(TAG, "self suppress on slot=$slot → $suppressed")
         selfSuppressedBySlot[slot] = suppressed
-        if (slot == 0) {
-            voiceClient?.ifBound { it.setCanSpeakOnSlot(0, !suppressed) }
-        }
+        // Recorded either way; mid-swap the gate stays shut and the
+        // swap's reopen applies the new verdict.
+        if (slot == 0) swapSpeakGate.pushIfOpen(0, !suppressed)
         // Slot 1 follows channel 2 when it's on, channel 1 when off.
         pushSlot1CanSpeak()
     }
@@ -6222,13 +6247,16 @@ class XvMapComponent : AbstractMapComponent() {
             toast("Not connected — can't swap channels")
             return
         }
+        // Close BEFORE starting: fast acks can deliver the outcome (and
+        // its reopen) before swapChannels returns.
+        closeCanSpeakForSwap()
         val decision = t.swapChannels(transmitting = keyedForSwap())
         if (decision is com.atakmap.android.xv.transport.ChannelSwap.Decision.Refuse) {
             Log.i(TAG, "swap refused: ${decision.reason}")
+            reopenCanSpeakAfterSwap()
             toast(com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(decision.reason))
         } else {
             Log.i(TAG, "swap started: $decision")
-            closeCanSpeakForSwap()
         }
     }
 
@@ -6359,30 +6387,40 @@ class XvMapComponent : AbstractMapComponent() {
      * the live mesh leg. Also the body behind the [Controller.selectMeshChannel]
      * override.
      */
-    private fun selectMeshChannelInternal(name: String) {
-        // A channel known only from peer beacons (fully offline: no server
-        // identity to derive from) must be pinned to the ADVERTISED endpoint
-        // or the leg can never resolve one. For channels this device can
-        // derive itself, the pin and the derivation agree — the advertiser
-        // derived it the same way.
+    // [config] with the endpoint a peer beacon advertises for its channel,
+    // when it has no pin of its own; otherwise [config] unchanged (same
+    // instance). A beacon-only channel has no server identity to derive
+    // from, so without this pin its leg lands on the wrong group.
+    private fun withDiscoveredPin(
+        config: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig,
+    ): com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig {
+        if (!config.pinnedGroup.isNullOrBlank()) return config
         val canonical =
             com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
-                .canonicalChannelName(name)
+                .canonicalChannelName(config.channelName)
         val discovered =
             meshVoiceManager
                 ?.discoveredChannels()
                 ?.firstOrNull {
                     com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
                         .canonicalChannelName(it.name) == canonical
-                }
-        if (discovered != null && settings.channelMulticastConfigFor(name) == null) {
-            val pinned =
-                com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
-                    .defaultFor(name)
-                    .copy(pinnedGroup = discovered.group, pinnedPort = discovered.port)
-            if (pinned.validate() == null) {
+                } ?: return config
+        return config.copy(pinnedGroup = discovered.group, pinnedPort = discovered.port)
+    }
+
+    private fun selectMeshChannelInternal(name: String) {
+        // A channel known only from peer beacons (fully offline: no server
+        // identity to derive from) must be pinned to the ADVERTISED endpoint
+        // or the leg can never resolve one. For channels this device can
+        // derive itself, the pin and the derivation agree — the advertiser
+        // derived it the same way.
+        val stored = settings.channelMulticastConfigFor(name)
+        if (stored == null || stored.pinnedGroup.isNullOrBlank()) {
+            val base = stored ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig.defaultFor(name)
+            val pinned = withDiscoveredPin(base)
+            if (pinned !== base && pinned.validate() == null) {
                 settings.persistChannelMulticastConfig(pinned)
-                Log.i(TAG, "selectMeshChannelInternal: pinned discovered endpoint for '$canonical'")
+                Log.i(TAG, "selectMeshChannelInternal: pinned discovered endpoint for '${base.channelName}'")
             }
         }
         // Persist as the primary so a later Mumble reconnect lands on the
@@ -6605,9 +6643,12 @@ class XvMapComponent : AbstractMapComponent() {
         voiceClient?.ifBound { it.pttUp(slot) }
     }
 
-    // PTT inputs currently held, per slot, as reported by the service's
-    // raw input edge (covers hardware PTT while it is still priming).
-    private val pttInputsHeld: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    // PTT inputs currently held, per reader + slot, as reported by the
+    // service's raw input edge (covers hardware PTT while still priming).
+    private val heldPttInputs = HeldPttInputs()
+
+    private val swapSpeakGate =
+        SwapSpeakGate { slot, canSpeak -> voiceClient?.ifBound { it.setCanSpeakOnSlot(slot, canSpeak) } }
 
     // Whether a press on [slot] can key right now (same rules as the
     // service gate): channel 2 configured needs channel 2 live and not
@@ -6625,30 +6666,25 @@ class XvMapComponent : AbstractMapComponent() {
 
     // Transmitting for the swap gate: on the air, an on-screen PTT held,
     // or any service-owned PTT input held / priming.
-    private fun keyedForSwap(): Boolean = txActiveSlot >= 0 || onScreenPttHeld || pttInputsHeld.isNotEmpty()
+    private fun keyedForSwap(): Boolean = txActiveSlot >= 0 || onScreenPttHeld || heldPttInputs.anyHeld()
 
     // While a swap (or its rollback) is in flight both slots are moving:
     // close the service's can-speak gate on both, so a hardware PTT
     // pressed mid-swap gets the normal deny tone instead of keying a slot
     // that is changing channel. reopenCanSpeakAfterSwap restores it.
-    private fun closeCanSpeakForSwap() {
-        voiceClient?.ifBound {
-            it.setCanSpeakOnSlot(0, false)
-            it.setCanSpeakOnSlot(1, false)
-        }
-    }
+    private fun closeCanSpeakForSwap() = swapSpeakGate.close()
 
     private fun reopenCanSpeakAfterSwap() {
-        voiceClient?.ifBound { it.setCanSpeakOnSlot(0, selfSuppressedBySlot[0] != true) }
-        pushSlot1CanSpeak()
+        val slot1 = slot1CanSpeak()
+        lastPushedSlot1CanSpeak = slot1
+        swapSpeakGate.reopen(slot0 = selfSuppressedBySlot[0] != true, slot1 = slot1)
     }
 
     // Push slot 1's can-speak to the service. With channel 2 off it
     // mirrors channel 1 so PTT2 keys channel 1 (PttSlotGate).
     private fun pushSlot1CanSpeak() {
         val canSpeak = slot1CanSpeak()
-        lastPushedSlot1CanSpeak = canSpeak
-        voiceClient?.ifBound { it.setCanSpeakOnSlot(1, canSpeak) }
+        if (swapSpeakGate.pushIfOpen(1, canSpeak)) lastPushedSlot1CanSpeak = canSpeak
     }
 
     private fun slot1CanSpeak(): Boolean =
@@ -6666,7 +6702,7 @@ class XvMapComponent : AbstractMapComponent() {
     private var lastPushedSlot1CanSpeak: Boolean? = null
 
     private fun refreshSlot1GateIfChanged() {
-        if (mumbleTransport()?.isSwapInFlight() == true) return
+        if (swapSpeakGate.closed || mumbleTransport()?.isSwapInFlight() == true) return
         if (slot1CanSpeak() != lastPushedSlot1CanSpeak) pushSlot1CanSpeak()
     }
 

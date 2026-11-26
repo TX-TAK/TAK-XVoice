@@ -94,6 +94,9 @@ interface IXvVoiceListener {
     // BLE button, Samsung key, on-screen), before mic priming and the
     // talk-permit tone. onPttStateChanged only fires once audio is on the
     // air; the plugin uses this edge so a channel swap can't start into a
-    // press that is still priming. Appended last (transaction order).
-    void onPttInput(boolean down, int slot);
+    // press that is still priming. [input] identifies the reader:
+    // "<SOURCE>@<reader id>", a bare "<SOURCE>" on an up edge releases every
+    // reader of that source, and "*@<reader id>" every key of that reader;
+    // slot -1 on an up edge = all slots. Appended last (transaction order).
+    void onPttInput(boolean down, int slot, String input);
 }
