@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Brand kit line icon (icons/core): 24 grid, 1.75 stroke, round. Tinted via android:tint / drawableTint. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="18dp" android:height="18dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="1.75"
+        android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M9,7 L15,7 A2,2 0 0 1 17,9 L17,19 A2,2 0 0 1 15,21 L9,21 A2,2 0 0 1 7,19 L7,9 A2,2 0 0 1 9,7 Z M9.5,7 L9.5,2.5 M10,11 L14,11 M10,13.5 L14,13.5 M10.8,17.5 A1.2,1.2 0 1 0 13.2,17.5 A1.2,1.2 0 1 0 10.8,17.5" />
+</vector>

@@ -1,0 +1,300 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX MOCKUP — main operational panel, proposed v2 (compact, Texas TAK brand).
+  Preview-only (debug source set). Not inflated by any code.
+
+  Design rules this mock encodes:
+    - Channel 1 is never blank while XV is in use; channel 2 is optional.
+    - Speaker-mic PTT1 always keys channel 1, PTT2 always keys channel 2.
+      With no channel 2, both buttons key channel 1. The mapping is
+      fixed (not configurable); to "invert" buttons the operator swaps
+      channels in the channel list, not here.
+    - No Swap or Members controls on this screen.
+
+  Brand (Texas TAK kit), kept quiet on purpose:
+    - Simplified mark (hex + signal waves + bee) and a tracked uppercase
+      wordmark in the title. Michroma is the brand display face; this
+      mock approximates it with tracked sans-serif until fonts are bundled.
+    - Hex badges for channel numbers (the kit's map-badge shape).
+    - Signal waveform glyph marks voice activity.
+    - Color semantics: Honey = voice activity, Bluebonnet = system /
+      network, Texas Red = you are transmitting.
+  State shown: connected; Bravo-2 talking on channel 1; channel 2 idle.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/xv_brand_hive_black"
+    android:orientation="vertical"
+    android:padding="10dp">
+
+    <!-- Title bar: brand mark + wordmark + settings -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <ImageView
+            android:layout_width="34dp"
+            android:layout_height="24dp"
+            android:layout_marginEnd="10dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/xv_mock_brand_mark" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:fontFamily="sans-serif-medium"
+            android:letterSpacing="0.3"
+            android:text="XVOICE"
+            android:textColor="@color/xv_brand_wax_white"
+            android:textSize="15sp" />
+
+        <ImageButton
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/xv_mock_button_bg"
+            android:contentDescription="Settings"
+            android:src="@drawable/ic_xv_settings"
+            android:tint="@color/xv_brand_signal_grey" />
+    </LinearLayout>
+
+    <!-- One status line: connection · server · device -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="2dp"
+        android:paddingEnd="2dp">
+
+        <View
+            android:layout_width="8dp"
+            android:layout_height="8dp"
+            android:layout_marginEnd="6dp"
+            android:background="@drawable/xv_mock_dot_ok" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:singleLine="true"
+            android:text="tak.example"
+            android:textColor="@color/xv_brand_signal_grey"
+            android:textSize="11sp" />
+
+        <ImageView
+            android:layout_width="14dp"
+            android:layout_height="14dp"
+            android:layout_marginEnd="4dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/xv_mock_ic_radio"
+            android:tint="@color/xv_brand_signal_grey" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:singleLine="true"
+            android:text="AINA V2"
+            android:textColor="@color/xv_brand_signal_grey"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- Channel 1 row — receiving -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="8dp"
+        android:background="@drawable/xv_mock_card_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:layout_width="24dp"
+            android:layout_height="27dp"
+            android:background="@drawable/xv_mock_hex_honey"
+            android:gravity="center"
+            android:text="1"
+            android:textColor="@color/xv_brand_hive_black"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <!-- Tap name area → channel list -->
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:fontFamily="monospace"
+                    android:singleLine="true"
+                    android:text="ALPHA ▾"
+                    android:textColor="@color/xv_brand_wax_white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="6dp"
+                    android:text="👥 4"
+                    android:textColor="@color/xv_brand_signal_grey"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:drawableStart="@drawable/xv_mock_ic_signal"
+                android:drawablePadding="4dp"
+                android:drawableTint="@color/xv_brand_honey"
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:gravity="center_vertical"
+                android:singleLine="true"
+                android:text="Bravo-2"
+                android:textColor="@color/xv_brand_honey"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <Button
+            android:layout_width="104dp"
+            android:layout_height="52dp"
+            android:background="@drawable/xv_mock_button_bg"
+            android:letterSpacing="0.2"
+            android:text="PTT"
+            android:textColor="@color/xv_brand_wax_white"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Channel 2 row — idle -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="64dp"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/xv_mock_card_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:layout_width="24dp"
+            android:layout_height="27dp"
+            android:background="@drawable/xv_mock_hex_honey"
+            android:gravity="center"
+            android:text="2"
+            android:textColor="@color/xv_brand_hive_black"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="10dp"
+            android:layout_weight="1"
+            android:background="?android:attr/selectableItemBackground"
+            android:gravity="center_vertical"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:fontFamily="monospace"
+                    android:singleLine="true"
+                    android:text="COMMAND ▾"
+                    android:textColor="@color/xv_brand_wax_white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="4dp"
+                    android:layout_marginEnd="6dp"
+                    android:text="👥 7"
+                    android:textColor="@color/xv_brand_signal_grey"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:ellipsize="end"
+                android:singleLine="true"
+                android:text="quiet · Charlie-1, 2 min ago"
+                android:textColor="@color/xv_brand_signal_grey"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Shown in its TRANSMITTING state for reference -->
+        <Button
+            android:layout_width="104dp"
+            android:layout_height="52dp"
+            android:background="@drawable/xv_mock_button_tx"
+            android:letterSpacing="0.2"
+            android:text="TX"
+            android:textColor="@color/xv_brand_wax_white"
+            android:textSize="15sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Variant (shown instead of the row above when channel 2 is off). -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="40dp"
+        android:layout_marginTop="6dp"
+        android:background="@drawable/xv_mock_pill_off"
+        android:gravity="center"
+        android:text="+ Add channel 2   ·   (both PTT buttons key 1)"
+        android:textColor="@color/xv_brand_signal_grey"
+        android:textSize="12sp" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:drawableStart="@drawable/xv_mock_ic_mesh"
+        android:drawablePadding="6dp"
+        android:drawableTint="@color/xv_brand_bluebonnet"
+        android:fontFamily="monospace"
+        android:gravity="center_vertical"
+        android:paddingStart="2dp"
+        android:text="MESH READY · failover armed"
+        android:textColor="@color/xv_brand_bluebonnet"
+        android:textSize="11sp" />
+</LinearLayout>

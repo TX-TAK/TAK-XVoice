@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX MOCKUP - Join shared channel (receiver), proposed. Preview-only.
+
+  Shown after a Quick Share file is opened or a QR is scanned: sender,
+  protection, expiry, and the four spoken words to unlock it. (After an
+  NFC tap the words field is absent; the tap was the handshake.)
+  Join on 1 or 2 directly; channel 1 can't be left blank, so "Join on
+  1" moves the current channel 1 off.
+  The bottom card replaces the bare "KEY NEEDED" status. The free-tailed
+  bat (brand kit, Texas wildlife) appears only in this waiting state,
+  never on the PTT panel.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/xv_brand_hive_black">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="Join channel"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:padding="14dp"
+            android:layout_marginTop="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="34dp"
+                    android:layout_height="38dp"
+                    android:background="@drawable/xv_mock_hex_honey"
+                    android:gravity="center"
+                    android:text="A"
+                    android:textColor="@color/xv_brand_hive_black"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical"
+                    android:layout_marginStart="12dp">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="ALPHA"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
+                        android:fontFamily="monospace" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="from Bravo-2 · via Quick Share"
+                        android:textColor="@color/xv_brand_signal_grey"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical"
+                android:layout_marginTop="10dp">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ENCRYPTED"
+                    android:textColor="@color/xv_brand_bluebonnet"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="0dp"
+                    android:background="@drawable/xv_mock_chip_ok"
+                    android:paddingStart="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="2dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="EXPIRES IN 23 H"
+                    android:textColor="@color/xv_brand_honey"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/xv_mock_chip"
+                    android:paddingStart="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="2dp" />
+            </LinearLayout>
+
+            <EditText
+                android:layout_width="match_parent"
+                android:layout_height="44dp"
+                android:layout_marginTop="10dp"
+                android:background="@drawable/xv_mock_field_bg"
+                android:fontFamily="monospace"
+                android:hint="4 words from the sender"
+                android:importantForAutofill="no"
+                android:inputType="textNoSuggestions"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textColorHint="@color/xv_brand_signal_grey"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginTop="12dp">
+
+            <Button
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:background="@drawable/xv_mock_pill_on"
+                android:text="Join on 1"
+                android:textAllCaps="false"
+                android:textColor="@color/xv_brand_hive_black"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_weight="1" />
+
+            <Button
+                android:layout_width="0dp"
+                android:layout_height="52dp"
+                android:background="@drawable/xv_mock_button_bg"
+                android:text="Join on 2"
+                android:textAllCaps="false"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                android:paddingStart="14dp"
+                android:paddingEnd="14dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Not now"
+            android:textColor="@color/xv_brand_signal_grey"
+            android:textSize="14sp"
+            android:gravity="center"
+            android:layout_marginTop="10dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="WAITING STATE (AFTER JOIN, BEFORE KEY)"
+            android:textColor="@color/xv_brand_signal_grey"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.25"
+            android:layout_marginTop="16dp"
+            android:paddingBottom="6dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:padding="14dp">
+
+            <ImageView
+                android:layout_width="160dp"
+                android:layout_height="112dp"
+                android:layout_gravity="center_horizontal"
+                android:importantForAccessibility="no"
+                android:src="@drawable/xv_mock_bat" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Waiting for the channel key"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                android:gravity="center"
+                android:layout_marginTop="6dp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="A teammate on ALPHA hands it over automatically. If no one is nearby, ask for a guest pass."
+                android:textColor="@color/xv_brand_signal_grey"
+                android:textSize="12sp"
+                android:gravity="center"
+                android:layout_marginTop="4dp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>

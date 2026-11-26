@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UX mockup drawable (debug source set only; never ships in release/TPP). Brand-kit colors. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@android:color/transparent"/>
+    <stroke android:width="1.5dp" android:color="@color/xv_brand_signal_grey"/>
+    <corners android:radius="16dp"/>
+</shape>

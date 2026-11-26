@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UX mockup drawable (debug source set only). -->
+<!-- Two phones held back to back, brand signal waveform between them. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="200dp" android:height="120dp"
+    android:viewportWidth="200" android:viewportHeight="120">
+    <path android:strokeColor="#F4F1EA" android:strokeWidth="2.5" android:strokeLineJoin="round"
+        android:pathData="M38,14 L72,14 A8,8 0 0 1 80,22 L80,98 A8,8 0 0 1 72,106 L38,106 A8,8 0 0 1 30,98 L30,22 A8,8 0 0 1 38,14 Z M48,96 L62,96" />
+    <path android:strokeColor="#F4F1EA" android:strokeWidth="2.5" android:strokeLineJoin="round"
+        android:pathData="M128,14 L162,14 A8,8 0 0 1 170,22 L170,98 A8,8 0 0 1 162,106 L128,106 A8,8 0 0 1 120,98 L120,22 A8,8 0 0 1 128,14 Z M138,96 L152,96" />
+    <path android:strokeColor="#E8A33D" android:strokeWidth="2.5" android:strokeLineCap="round" android:strokeLineJoin="round"
+        android:pathData="M82,60 L88,60 L90,54 L93,68 L96,46 L100,74 L104,46 L107,68 L110,54 L112,60 L118,60" />
+    <path android:fillColor="#E8A33D"
+        android:pathData="M55,46 L61.1,49.5 L61.1,56.5 L55,60 L48.9,56.5 L48.9,49.5 Z" />
+    <path android:strokeColor="#8A96A3" android:strokeWidth="2"
+        android:pathData="M145,46 L151.1,49.5 L151.1,56.5 L145,60 L138.9,56.5 L138.9,49.5 Z" />
+</vector>

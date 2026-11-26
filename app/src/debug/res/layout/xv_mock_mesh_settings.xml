@@ -1,0 +1,482 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  UX MOCKUP — Settings › Mesh, proposed. Preview-only (debug source set).
+
+  Three sections instead of one long scroll:
+    1. One master switch + live status. "Mission auto-channels" moves to
+       Settings › Server (it picks WHICH channel, it is not mesh).
+    2. Channels as a single-column list (no 3-column chip grid, so long
+       names never wrap). Each channel: Off / Backup / Both, replacing
+       "Use global / Always on / Always off". Badges say encrypted vs
+       clear vs OpenMANET at a glance. Tap a row for details; editing
+       never silently regenerates the key.
+    3. Security & recovery collapsed into one row (rotate key, guests,
+       forget, wipe), out of the everyday path.
+  Sharing moved to the channel list ("Share" on a channel), not here.
+-->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/xv_brand_hive_black">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="12dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="◀"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textSize="16sp"
+                android:paddingEnd="12dp" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="Mesh"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textSize="20sp"
+                android:textStyle="bold"
+                android:layout_weight="1" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:layout_marginTop="8dp"
+            android:padding="12dp">
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Mesh voice"
+                    android:textColor="@color/xv_brand_wax_white"
+                    android:textSize="16sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Keeps voice working when the server is down. Wi-Fi / mesh networks only."
+                    android:textColor="@color/xv_brand_signal_grey"
+                    android:textSize="12sp"
+                    android:layout_marginTop="2dp" />
+            </LinearLayout>
+
+            <Switch
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checked="true"
+                android:thumbTint="@color/xv_brand_honey"
+                android:trackTint="@color/xv_brand_honey" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="● MESH READY · 2 channels · encrypted"
+            android:textColor="@color/xv_brand_bluebonnet"
+            android:textSize="12sp"
+            android:fontFamily="monospace"
+            android:layout_marginTop="8dp"
+            android:paddingStart="4dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="CHANNELS"
+            android:textColor="@color/xv_brand_signal_grey"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.25"
+            android:layout_marginTop="16dp"
+            android:paddingBottom="6dp"
+            android:drawableStart="@drawable/xv_mock_ic_mesh"
+            android:drawablePadding="6dp"
+            android:drawableTint="@color/xv_brand_signal_grey"
+            android:gravity="center_vertical" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:padding="10dp"
+            android:layout_marginTop="6dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="ALPHA"
+                    android:textColor="@color/xv_brand_wax_white"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:layout_weight="1"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ENCRYPTED"
+                    android:textColor="@color/xv_brand_bluebonnet"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/xv_mock_chip_ok"
+                    android:paddingStart="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="2dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Server channel · backup leg auto-derived"
+                android:textColor="@color/xv_brand_signal_grey"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Off"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_off" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Backup"
+                        android:textColor="@color/xv_brand_hive_black"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_on"
+                        android:layout_marginStart="6dp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Both"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_off"
+                        android:layout_marginStart="6dp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:padding="10dp"
+            android:layout_marginTop="6dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="Falcon-73"
+                    android:textColor="@color/xv_brand_wax_white"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:layout_weight="1"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="ENCRYPTED"
+                    android:textColor="@color/xv_brand_bluebonnet"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/xv_mock_chip_ok"
+                    android:paddingStart="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="2dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Offline only · 3 peers · key from Bravo-2"
+                android:textColor="@color/xv_brand_signal_grey"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Off"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_off" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Backup"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_off"
+                        android:layout_marginStart="6dp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Both"
+                        android:textColor="@color/xv_brand_hive_black"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_on"
+                        android:layout_marginStart="6dp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:padding="10dp"
+            android:layout_marginTop="6dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:text="TG 1"
+                    android:textColor="@color/xv_brand_wax_white"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    android:fontFamily="monospace"
+                    android:layout_weight="1"
+                    android:singleLine="true"
+                    android:ellipsize="end" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="OPENMANET"
+                    android:textColor="@color/xv_brand_honey"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/xv_mock_chip"
+                    android:paddingStart="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="2dp" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="CLEAR"
+                    android:textColor="@color/xv_brand_texas_red"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:layout_marginStart="6dp"
+                    android:background="@drawable/xv_mock_chip_clear"
+                    android:paddingStart="6dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="6dp"
+                    android:paddingBottom="2dp" />
+            </LinearLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="OpenMANET talkgroup 1"
+                android:textColor="@color/xv_brand_signal_grey"
+                android:textSize="12sp"
+                android:layout_marginTop="2dp" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:layout_marginTop="8dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Off"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_off" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Backup"
+                        android:textColor="@color/xv_brand_wax_white"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_off"
+                        android:layout_marginStart="6dp" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:text="Both"
+                        android:textColor="@color/xv_brand_hive_black"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:gravity="center"
+                        android:layout_height="32dp"
+                        android:layout_weight="1"
+                        android:background="@drawable/xv_mock_pill_on"
+                        android:layout_marginStart="6dp" />
+                </LinearLayout>
+            </LinearLayout>
+        </LinearLayout>
+
+        <Button
+            android:layout_width="match_parent"
+            android:layout_height="44dp"
+            android:background="@drawable/xv_mock_pill_off"
+            android:text="+  Add channel"
+            android:textAllCaps="false"
+            android:textColor="@color/xv_brand_wax_white"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:layout_marginTop="10dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="SECURITY &amp; RECOVERY"
+            android:textColor="@color/xv_brand_signal_grey"
+            android:textSize="11sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.25"
+            android:layout_marginTop="16dp"
+            android:paddingBottom="6dp"
+            android:drawableStart="@drawable/xv_mock_ic_hive"
+            android:drawablePadding="6dp"
+            android:drawableTint="@color/xv_brand_signal_grey"
+            android:gravity="center_vertical" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/xv_mock_card_bg"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:text="Keys, guests, forget, wipe"
+                android:textColor="@color/xv_brand_wax_white"
+                android:textSize="14sp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="2 guests  ›"
+                android:textColor="@color/xv_brand_signal_grey"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+</ScrollView>
