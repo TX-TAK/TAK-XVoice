@@ -112,4 +112,9 @@ interface IXvVoiceListener {
     // reader of that source, and "*@<reader id>" every key of that reader;
     // slot -1 on an up edge = all slots. Appended after #146's methods.
     oneway void onPttInput(boolean down, int slot, String input);
+
+    // A transmission started on a different input than the selected
+    // speaker-mic — the phone's own mic (SCO down) or another Bluetooth
+    // device. [reason] is operator-facing text; the service throttles it.
+    oneway void onTxRouteWarning(String reason);
 }

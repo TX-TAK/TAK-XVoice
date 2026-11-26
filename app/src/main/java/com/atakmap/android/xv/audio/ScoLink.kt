@@ -58,6 +58,11 @@ class ScoLink(
     // or when the device name isn't cached; the toast omits the name
     // segment in that case.
     private val overrideDisplayName: () -> String? = { null },
+    // The ONE "somebody else's call is up" signal (VoicePlant's
+    // ExternalCallDetector, which also drives the PTT gate and the RX
+    // drop). Null = fall back to the plain audio-mode check, for tests
+    // and standalone use.
+    private val externalCallActive: (() -> Boolean)? = null,
 ) {
     // SUSPENDED is a transient broken state inserted between CONNECTED
     // and DISCONNECTED. It indicates the physical SCO link was torn
@@ -105,10 +110,17 @@ class ScoLink(
     private val deviceCallback =
         object : AudioDeviceCallback() {
             override fun onAudioDevicesRemoved(removedDevices: Array<out AudioDeviceInfo>) {
-                val scoGone = removedDevices.any { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
-                if (!scoGone) return
+                // Only the device we actually pinned matters: a second
+                // headset (or the car) dropping must not tear down the
+                // speaker-mic's live link.
+                val removed = removedDevices.map { Candidate(it.type, macOf(it)) }
+                if (!shouldTearDownOnRemoval(removed, activeCommMac)) return
                 if (state == State.DISCONNECTED) return
-                Log.w(TAG, "AudioDeviceCallback: BT_SCO removed while state=$state — forcing teardown")
+                Log.w(
+                    TAG,
+                    "AudioDeviceCallback: active BT_SCO ${com.atakmap.android.xv.aina.redactMac(activeCommMac)} " +
+                        "removed while state=$state — forcing teardown",
+                )
                 synchronized(this@ScoLink) {
                     if (state == State.DISCONNECTED) return@synchronized
                     cleanup()
@@ -460,6 +472,20 @@ class ScoLink(
     @Volatile
     private var savedMode: Int = AudioManager.MODE_NORMAL
 
+    // MAC of the device setCommunicationDevice() was pointed at for the
+    // current link (API 31+), or null (legacy SCO / no link). Readiness
+    // and device-removal handling are scoped to it.
+    @Volatile
+    private var activeCommMac: String? = null
+
+    // Rate-limits the "external call — not starting SCO" log: RX retries
+    // on later frames while a cellular call is up.
+    @Volatile
+    private var lastCallRefusalLogMs: Long = 0L
+
+    /** MAC of the device the live link is pinned to, or null. */
+    fun activeDeviceMac(): String? = if (state == State.CONNECTED) activeCommMac else null
+
     @Volatile
     private var pollRunnable: Runnable? = null
 
@@ -508,10 +534,13 @@ class ScoLink(
                 beginConnect()
                 return
             }
-        } else if (state == State.SUSPENDED) {
-            // Non-empty holder set entering on top of a SUSPENDED link
-            // (i.e. the surviving holders chose to retry). Restart the
-            // physical link.
+        } else if (state == State.SUSPENDED || state == State.DISCONNECTED) {
+            // Non-empty holder set entering on top of a SUSPENDED or
+            // DISCONNECTED link (surviving holders retrying, or a link
+            // that dropped while others still held it). Restart the
+            // physical link — otherwise the new holder waits on a link
+            // nobody is bringing up and ends up transmitting on the
+            // phone mic.
             beginConnect()
             return
         }
@@ -688,11 +717,34 @@ class ScoLink(
     private var watchdogRunnable: Runnable? = null
 
     private fun beginConnect() {
-        try {
-            savedMode = audioManager.mode
-        } catch (t: Throwable) {
-            Log.w(TAG, "read mode failed", t)
+        val currentMode =
+            try {
+                audioManager.mode
+            } catch (t: Throwable) {
+                Log.w(TAG, "read mode failed", t)
+                AudioManager.MODE_NORMAL
+            }
+        val externalCall =
+            try {
+                externalCallActive?.invoke() ?: isExternalCallMode(currentMode)
+            } catch (t: Throwable) {
+                Log.w(TAG, "external-call check threw — using the audio mode", t)
+                isExternalCallMode(currentMode)
+            }
+        if (externalCall) {
+            // A cellular call (or its ring) owns the audio path. Forcing
+            // MODE_IN_COMMUNICATION and re-pinning the comm device to the
+            // speaker-mic here would pull the call's audio away from the
+            // operator. The phone stays a phone: no SCO until it ends.
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (now - lastCallRefusalLogMs > CALL_REFUSAL_LOG_INTERVAL_MS) {
+                lastCallRefusalLogMs = now
+                Log.w(TAG, "not starting SCO — external call holds the audio path (mode=$currentMode)")
+            }
+            transitionTo(State.DISCONNECTED)
+            return
         }
+        savedMode = currentMode
         try {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             Log.i(TAG, "mode set to IN_COMMUNICATION (savedMode=$savedMode)")
@@ -711,6 +763,22 @@ class ScoLink(
     }
 
     private fun beginDisconnect() {
+        if (state == State.DISCONNECTED) {
+            // Nothing of ours to undo (never connected, refused during a
+            // cellular call, or already torn down). Running cleanup()
+            // here would restore a stale saved audio mode over whatever
+            // now owns it — e.g. a cellular call's MODE_IN_CALL.
+            Log.i(TAG, "beginDisconnect: already DISCONNECTED — nothing to undo")
+            return
+        }
+        if (state == State.SUSPENDED) {
+            // handleSystemSuspend() already cleaned up when the system
+            // took the link (typically for an incoming call). Cleaning up
+            // again would restore the saved mode mid-call.
+            Log.i(TAG, "beginDisconnect: SUSPENDED surface already cleaned up — marking DISCONNECTED")
+            transitionTo(State.DISCONNECTED)
+            return
+        }
         Log.i(TAG, "beginDisconnect (state=$state)")
         cleanup()
         transitionTo(State.DISCONNECTED)
@@ -753,6 +821,7 @@ class ScoLink(
             beginDisconnect()
             return
         }
+        activeCommMac = macOf(sco)
         scheduleReadinessCheck(attempt = 0)
     }
 
@@ -763,8 +832,7 @@ class ScoLink(
                 val ready =
                     try {
                         val current = audioManager.communicationDevice
-                        current?.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
-                            current?.type == AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+                        isPickedDeviceActive(current?.type, current?.let { macOf(it) }, activeCommMac)
                     } catch (_: Throwable) {
                         false
                     }
@@ -798,6 +866,7 @@ class ScoLink(
     private fun cleanup() {
         pollRunnable?.let { mainHandler.removeCallbacks(it) }
         pollRunnable = null
+        activeCommMac = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             try {
                 audioManager.clearCommunicationDevice()
@@ -978,6 +1047,47 @@ class ScoLink(
             return candidates.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO }
                 ?: candidates.firstOrNull { it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP }
         }
+
+        /**
+         * Readiness: the platform's current comm device is a BT voice
+         * endpoint AND, when we pinned a specific device ([pickedMac],
+         * API 31+), it is that device — not whichever headset the OS
+         * happened to route to. A blank MAC on either side (legacy SCO,
+         * devices that hide their address) falls back to the type check.
+         */
+        internal fun isPickedDeviceActive(
+            currentType: Int?,
+            currentMac: String?,
+            pickedMac: String?,
+        ): Boolean {
+            val isBt =
+                currentType == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                    currentType == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP
+            val macOk = pickedMac.isNullOrBlank() || currentMac.isNullOrBlank() || currentMac.equals(pickedMac, true)
+            return isBt && macOk
+        }
+
+        /**
+         * Tear the link down only when a removed device is a BT SCO
+         * endpoint matching the pinned [activeMac]. Without a pinned MAC
+         * (legacy path) any SCO removal counts, as before; a removed SCO
+         * device that hides its address is treated as a match to stay
+         * on the safe side.
+         */
+        internal fun shouldTearDownOnRemoval(
+            removed: List<Candidate>,
+            activeMac: String?,
+        ): Boolean =
+            removed.any {
+                it.type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO &&
+                    (activeMac.isNullOrBlank() || it.mac.isBlank() || it.mac.equals(activeMac, ignoreCase = true))
+            }
+
+        /** Audio modes owned by a cellular call (in progress or ringing). */
+        internal fun isExternalCallMode(mode: Int): Boolean =
+            mode == android.media.AudioManager.MODE_IN_CALL || mode == android.media.AudioManager.MODE_RINGTONE
+
+        private const val CALL_REFUSAL_LOG_INTERVAL_MS = 10_000L
 
         // 25 ms cadence so a Pixel 9 Pro + AINA V2 cold acquire (~200 ms
         // observed settle) lands within the first 8-9 polls instead of

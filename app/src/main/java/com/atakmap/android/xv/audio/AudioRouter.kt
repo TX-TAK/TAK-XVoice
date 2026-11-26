@@ -279,7 +279,7 @@ class AudioRouter(
                 Log.w(TAG, "reevaluateBtHintAvailability: getDevices threw", t)
                 return
             }
-        val present = outputs.any { it.isBluetooth() && it.address == hint }
+        val present = outputs.any { it.isBluetooth() && it.address.equals(hint, ignoreCase = true) }
         if (present) {
             // The device just came back (or was already there and this
             // is a spurious re-eval). Cancel any armed fallback timer
@@ -313,7 +313,7 @@ class AudioRouter(
                     try {
                         audioManager
                             .getDevices(AudioManager.GET_DEVICES_OUTPUTS)
-                            .none { it.isBluetooth() && it.address == currentHint }
+                            .none { it.isBluetooth() && it.address.equals(currentHint, ignoreCase = true) }
                     } catch (t: Throwable) {
                         Log.w(TAG, "speaker-fallback re-check threw", t)
                         false
@@ -387,7 +387,7 @@ class AudioRouter(
                         .ifBlank { mac },
                     type = dev.type,
                 )
-            }.distinctBy { it.address }
+            }.distinctBy { it.address.uppercase() }
 
     data class BtOutput(
         val address: String,
@@ -427,7 +427,7 @@ class AudioRouter(
         //    in prefs so when the device returns it auto-resumes.
         val overrideMac = preference.outputBtOverrideMac
         if (overrideMac != null) {
-            val pinned = outputs.firstOrNull { it.isBluetooth() && it.address == overrideMac }
+            val pinned = outputs.firstOrNull { it.isBluetooth() && it.address.equals(overrideMac, ignoreCase = true) }
             if (pinned != null) {
                 Log.i(TAG, "preferred: ${describe(pinned)} (BT override ${redactMac(overrideMac)})")
                 return pinned
@@ -444,14 +444,13 @@ class AudioRouter(
         val btOutputs = outputs.filter { it.isBluetooth() }
         if (btOutputs.isNotEmpty()) {
             val hint = preferredBtMacHint
-            val hinted = if (hint != null) btOutputs.firstOrNull { it.address == hint } else null
-            if (hinted != null) {
-                Log.i(TAG, "preferred: ${describe(hinted)} (BT, matches hint $hint)")
-                return hinted
-            }
-            val bt = btOutputs.first()
-            Log.i(TAG, "preferred: ${describe(bt)} (BT wins; hint=$hint not present)")
-            return bt
+            val picked =
+                pickBluetooth(btOutputs.map { DeviceCandidate(it.type, it.address ?: "", it) }, hint)
+                    ?.audioDevice as AudioDeviceInfo?
+                    ?: btOutputs.first()
+            val why = if (hint != null && picked.address.equals(hint, ignoreCase = true)) "matches hint" else "hint not present"
+            Log.i(TAG, "preferred: ${describe(picked)} (BT, $why; hint=$hint)")
+            return picked
         }
 
         // 2) Wired — operator physically plugged this in. Overrides any
@@ -733,7 +732,7 @@ class AudioRouter(
         ): DeviceCandidate? {
             // 0) Explicit BT override.
             if (overrideMac != null) {
-                val pinned = outputs.firstOrNull { it.isBluetooth() && it.address == overrideMac }
+                val pinned = outputs.firstOrNull { it.isBluetooth() && it.address.equals(overrideMac, ignoreCase = true) }
                 if (pinned != null) return pinned
                 // Fall through — preserved-but-absent override drops to
                 // the regular chain.
@@ -741,15 +740,7 @@ class AudioRouter(
 
             // 1) Bluetooth — hinted preference wins over first-found.
             val btOutputs = outputs.filter { it.isBluetooth() }
-            if (btOutputs.isNotEmpty()) {
-                val hinted =
-                    if (preferredBtHintMac != null) {
-                        btOutputs.firstOrNull { it.address == preferredBtHintMac }
-                    } else {
-                        null
-                    }
-                return hinted ?: btOutputs.first()
-            }
+            if (btOutputs.isNotEmpty()) return pickBluetooth(btOutputs, preferredBtHintMac)
 
             // 2) Wired.
             val wired = outputs.firstOrNull { it.isWired() }
@@ -762,6 +753,31 @@ class AudioRouter(
                 OutputRoute.EARPIECE -> earpiece ?: speaker
                 else -> speaker ?: earpiece
             }
+        }
+
+        /**
+         * BT output choice shared by [preferredDevice] and
+         * [pickPreferredDeviceFromCandidates]. The hinted speaker-mic
+         * wins (MAC compared case-insensitively — AudioDeviceInfo and
+         * BluetoothDevice disagree on case across OEMs). Without a hint
+         * match, prefer a device that also exposes a voice (SCO)
+         * endpoint over A2DP-only headphones, which have no microphone;
+         * the chosen device's first-listed entry is kept so its route
+         * type doesn't change. Falls back to the first BT output.
+         */
+        internal fun pickBluetooth(
+            btOutputs: List<DeviceCandidate>,
+            hintMac: String?,
+        ): DeviceCandidate? {
+            val hinted = hintMac?.let { h -> btOutputs.firstOrNull { it.address.equals(h, ignoreCase = true) } }
+            val voiceCapable =
+                btOutputs
+                    .filter { it.type == AudioDeviceInfo.TYPE_BLUETOOTH_SCO && it.address.isNotBlank() }
+                    .map { it.address.lowercase() }
+                    .toSet()
+            return hinted
+                ?: btOutputs.firstOrNull { it.address.lowercase() in voiceCapable }
+                ?: btOutputs.firstOrNull()
         }
 
         private fun DeviceCandidate.isBluetooth(): Boolean =

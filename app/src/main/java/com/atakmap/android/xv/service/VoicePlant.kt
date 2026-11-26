@@ -33,6 +33,8 @@ import com.atakmap.android.xv.audio.StatusTones
 import com.atakmap.android.xv.audio.TptPlayer
 import com.atakmap.android.xv.audio.TptTone
 import com.atakmap.android.xv.audio.TxController
+import com.atakmap.android.xv.audio.TxRouteCheck
+import com.atakmap.android.xv.audio.TxRouteWarning
 import com.atakmap.android.xv.audio.logPrefixForPttSource
 
 // All of XV's audio + AINA + PTT-state subsystem, instantiated in our
@@ -279,6 +281,11 @@ class VoicePlant(
         // A BLE PTT reader hit a non-bond problem the operator must fix
         // (buttons not recognised, scan permission missing).
         fun onPttInputProblem(reason: String)
+
+        // A transmission started on a different input than the selected
+        // speaker-mic (phone mic, or another BT device). Throttled per
+        // kind; [reason] is operator-facing text.
+        fun onTxRouteWarning(reason: String)
     }
 
     private val audioManager =
@@ -343,6 +350,9 @@ class VoicePlant(
                     .firstOrNull { it.address.equals(mac, ignoreCase = true) }
                     ?.displayName
             },
+            // Same call verdict as the PTT gate and RX drop: an answered
+            // VoLTE call (IN_COMMUNICATION) keeps SCO off too.
+            externalCallActive = { externalCallActive() },
         ).also { link ->
             // Wire ScoLink into AudioControllerImpl so focus-loss
             // teardown publishes SUSPENDED instead of the controller
@@ -462,6 +472,7 @@ class VoicePlant(
             sendTerminator = { slot -> callbacks.onTxTerminator(slot) },
             onPttStateChanged = { transmitting, slot ->
                 callbacks.onPttStateChanged(transmitting, slot)
+                if (transmitting) checkTxRoute()
                 // TX-state edge → end Telecom call when transmitting
                 // turns false. Covers latched mode (where pttUp is a
                 // no-op but stopInternal still fires this callback on
@@ -588,6 +599,13 @@ class VoicePlant(
     // stale previous reader of either slot. Teardown forgets only the
     // dropped reader's keys.
     @Volatile private var primaryPttOwner: PttInputOwner? = null
+
+    // Primary speaker-mic's button link is up (from its reader's onConn).
+    // With it up, the operator expects TX audio on the speaker-mic too.
+    @Volatile private var primaryReaderUp: Boolean = false
+
+    // Last time each TxRouteWarning kind was raised (throttle).
+    private val lastTxRouteWarningAtMs = java.util.concurrent.ConcurrentHashMap<TxRouteWarning, Long>()
 
     @Volatile private var externalPttOwner: PttInputOwner? = null
 
@@ -1649,6 +1667,7 @@ class VoicePlant(
                 Log.i(TAG, "AINA connection up=$up from retired $owner — ignored")
             } else {
                 Log.i(TAG, "AINA connection up=$up source=$source owner=$owner")
+                primaryReaderUp = up
                 callbacks.onAinaConnectionChanged(up)
             }
             if (!up && !owner.retired) {
@@ -2022,6 +2041,7 @@ class VoicePlant(
 
     private fun disconnectAinaReaderOnlyLocked() {
         primaryReaderKind = null
+        primaryReaderUp = false
         val hadReader = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
         // Retire the owner FIRST so the old reader cannot deliver presses,
         // PTTE / MFB or a redundant up=false while it is being torn down.
@@ -2134,6 +2154,30 @@ class VoicePlant(
      * TRANSMITTING, and the transmit burst never ended. This helper
      * closes that gap.
      */
+    // Called when a burst starts transmitting: warn when it is not going
+    // out on the speaker-mic the operator selected.
+    private fun checkTxRoute() {
+        val expectedMac = router.outputBtOverrideMac ?: router.preferredBtMacHint
+        val warning =
+            TxRouteCheck.evaluate(
+                speakerMicExpected = primaryReaderUp,
+                scoConnected = scoLink.state == ScoLink.State.CONNECTED,
+                activeMac = scoLink.activeDeviceMac(),
+                expectedMac = expectedMac,
+            )
+        val message = TxRouteCheck.message(warning) ?: return
+        Log.w(TAG, "TX route warning: $warning")
+        val now = nowMsProvider()
+        val last = lastTxRouteWarningAtMs[warning] ?: 0L
+        if (last > 0L && now - last < TX_ROUTE_WARNING_THROTTLE_MS) return
+        lastTxRouteWarningAtMs[warning] = now
+        try {
+            callbacks.onTxRouteWarning(message)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onTxRouteWarning dispatch threw", t)
+        }
+    }
+
     private fun releaseStuckPttOnTransportDrop(
         source: PttSource,
         owner: PttInputOwner,
@@ -2418,6 +2462,9 @@ class VoicePlant(
 
         // One operator notice per slot and kind per window.
         private const val INPUT_NOTICE_THROTTLE_MS: Long = 10 * 60_000L
+
+        // One TX-route warning per kind per window.
+        private const val TX_ROUTE_WARNING_THROTTLE_MS: Long = 60_000L
 
         private const val TAG = "XvVoicePlant"
 

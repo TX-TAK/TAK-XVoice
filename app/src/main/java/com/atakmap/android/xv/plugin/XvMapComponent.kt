@@ -1154,6 +1154,24 @@ class XvMapComponent : AbstractMapComponent() {
                     reportPttInputIssue(com.atakmap.android.xv.ui.PttInputHealth.Kind.NOT_RECOGNISED, msg)
                 }
 
+                override fun onTxRouteWarning(reason: String?) {
+                    // The burst that just started is not on the selected
+                    // speaker-mic. Toast for now; the UI can bind a
+                    // persistent indicator to this callback later.
+                    val msg = reason ?: "Transmitting on the phone mic"
+                    Log.w(TAG, "onTxRouteWarning: $msg")
+                    val target = MapView.getMapView() ?: return
+                    try {
+                        target.post {
+                            android.widget.Toast
+                                .makeText(target.context, msg, android.widget.Toast.LENGTH_SHORT)
+                                .show()
+                        }
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "tx-route toast threw", t)
+                    }
+                }
+
                 override fun onPrivateCallEnded() {
                     cancelPendingAnswerTimeout("call ended")
                     cancelPendingRingback("call ended")
