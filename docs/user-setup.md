@@ -18,8 +18,8 @@ gear** while leaving the rest of your phone alone:
 
 ## Bluetooth Speaker-Mic Picker & Fallback
 
-Open **XV Settings → Primary Speaker-Mic** to pick your preferred Bluetooth
-device:
+Open **XV Settings → Devices** and use the **Speaker-mic** card to pick your
+preferred Bluetooth device:
 
 - **Reachability-aware picker:** On plugin load, XV restores your
   last-connected speaker-mic if it is reachable; otherwise it automatically
@@ -29,10 +29,12 @@ device:
   unreachable for **15 seconds** during a session, XV falls back to the phone
   speaker while remembering your preferred MAC address — audio automatically
   returns to the speaker-mic as soon as it reconnects.
-- **Per-MAC button defaults & overrides:** Each supported device ships
-  pre-mapped (PTT → Channel 1, secondary → Channel 2, emergency button,
-  prev/next channel) so a fresh pairing works out of the box. Any custom button
-  overrides you make persist per Bluetooth MAC address.
+- **Fixed button map:** Every supported device keys the same way — PTT →
+  channel 1, secondary PTT → channel 2 (channel 1 when channel 2 is off),
+  emergency button → ATAK alert — so a fresh pairing works out of the box.
+  The mapping is shown read-only on the device's card and is not
+  remappable; to change which net a button keys, **Swap** channels 1 and 2
+  in the channel list.
 
 For device-specific pairing and button notes, see
 [Supported Hardware](hardware/README.md).

@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One row of the unified channel list.
+
+  Row anatomy:  [name + meta]  ............  [ 1 ] [ 2 ]
+    - Filled Honey pill = this channel is on that slot.
+    - Outline pill      = tap to put this channel on that slot. If the
+                          channel already holds the OTHER slot, the tap
+                          swaps the two slots (no reconnect).
+    - Tapping a filled [2] clears channel 2. A filled [1] can't be
+      cleared (channel 1 is never blank).
+    - No-access channels show grey, non-tappable pills.
+  Long-press the row for mesh options. Subchannel indent is applied in
+  code via paddingStart.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="56dp"
+    android:background="?android:attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="12dp"
+    android:paddingEnd="8dp"
+    tools:background="@color/xv_bg">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/xv_row_name"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:singleLine="true"
+            android:textColor="@color/xv_text"
+            android:textSize="16sp"
+            android:textStyle="bold"
+            tools:text="ALPHA" />
+
+        <TextView
+            android:id="@+id/xv_row_meta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:singleLine="true"
+            android:textColor="@color/xv_text_dim"
+            android:textSize="12sp"
+            tools:text="4 users · Bravo-2 talking" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/xv_row_pill_1"
+        android:layout_width="44dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/xv_pill_off"
+        android:contentDescription="@string/xv_cd_channel_1"
+        android:gravity="center"
+        android:text="1"
+        android:textColor="@color/xv_text"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/xv_row_pill_2"
+        android:layout_width="44dp"
+        android:layout_height="32dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/xv_pill_off"
+        android:contentDescription="@string/xv_cd_channel_2"
+        android:gravity="center"
+        android:text="2"
+        android:textColor="@color/xv_text"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+</LinearLayout>

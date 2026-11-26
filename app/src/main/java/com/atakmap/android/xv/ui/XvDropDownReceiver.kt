@@ -196,6 +196,9 @@ class XvDropDownReceiver(
         // greying out the control.
         fun swapUnavailableReason(): String? = "Not available"
 
+        // Users per server channel id, for the channel list's meta line.
+        fun channelUserCounts(): Map<Int, Int> = emptyMap()
+
         // ---- AINA speakermic picker (Settings → Preferences) ----
         // Bonded devices whose name looks like an AINA. Each entry's
         // generation is derived from BluetoothDevice.getType() so the UI
@@ -527,7 +530,7 @@ class XvDropDownReceiver(
         fun channelMembersForSlot(slot: Int): SlotMembers? = null
 
         // Pan + zoom the map to a peer's CoT marker. Operator action
-        // from the Recent Users picker — no-op + log if the marker
+        // from the channel members list — no-op + log if the marker
         // doesn't exist anymore (peer dropped offline, ATAK closed
         // their CoT layer between the picker open and the tap, etc).
         fun findOnMap(deviceUid: String) {}
@@ -584,8 +587,8 @@ class XvDropDownReceiver(
     )
 
     /** A channel a peer is on AND that we have PARTICIPATE permission
-     *  for. Long-press on a row offers "Move VS1 → [name]" / "Move
-     *  VS2 → [name]" for each entry. The same list applies to both
+     *  for. Long-press on a row offers "Channel 1 → [name]" /
+     *  "Channel 2 → [name]" for each entry. The same list applies to both
      *  slots in the offered actions; gating is local-ACL only — we
      *  can't verify the REMOTE peer's permissions. */
     data class JumpChannel(
@@ -681,13 +684,17 @@ class XvDropDownReceiver(
                 // mid-picker — common on a failover product), rebuild it so
                 // the operator isn't tapping a stale list. Cheap: only fires
                 // when the signature actually flips.
-                // In-call guard: showChannelPicker refuses to open during a
+                // In-call guard: showChannelList refuses to open during a
                 // call (toast + return), so a rebuild attempt would toast
                 // every tick for the whole call. Defer; the rebuild fires on
                 // the first tick after the call ends.
-                val slot = openPickerSlot
-                if (slot != null && !controller.isInCall() && channelPickerSignature() != openPickerSignature) {
-                    showChannelPicker(slot)
+                val root = channelListRoot
+                if (openPickerSlot != null &&
+                    root != null &&
+                    !controller.isInCall() &&
+                    channelPickerSignature() != openPickerSignature
+                ) {
+                    populateChannelList(root)
                 }
                 mainHandler.postDelayed(this, REFRESH_MS)
             }
@@ -700,6 +707,13 @@ class XvDropDownReceiver(
         var h = controller.availableChannels().joinToString(" ") { it.name }.hashCode()
         h = 31 * h + (controller.connectedTakHost()?.hashCode() ?: 0)
         h = 31 * h + controller.meshChannelCandidates().hashCode()
+        // Slot assignment + per-channel occupancy, so a swap landing or a
+        // join/leave repaints the open list.
+        h = 31 * h + (controller.currentChannelName()?.hashCode() ?: 0)
+        h = 31 * h + (controller.secondaryChannelName()?.hashCode() ?: 0)
+        h = 31 * h + controller.channelUserCounts().hashCode()
+        h = 31 * h + (controller.swapUnavailableReason()?.hashCode() ?: 0)
+        h = 31 * h + controller.availableChannels().joinToString { "${it.participation}" }.hashCode()
         return h
     }
 
@@ -729,6 +743,7 @@ class XvDropDownReceiver(
         stopRefreshLoop()
         mainView = null
         openPickerSlot = null
+        channelListRoot = null
     }
 
     override fun onReceive(
@@ -764,20 +779,15 @@ class XvDropDownReceiver(
     private fun inflateMain(): View {
         // Any path that builds the main view means no picker is on screen.
         openPickerSlot = null
+        channelListRoot = null
         val inflater = LayoutInflater.from(pluginContext)
         val v = inflater.inflate(R.layout.xv_main, null)
-        v.findViewById<Button>(R.id.xv_btn_settings).setOnClickListener { showSettings() }
-        v.findViewById<Button>(R.id.xv_btn_call).setOnClickListener { showChannelMembersPicker() }
-        // Per-PTT 👥 buttons: VS1 always exists, VS2 only when the
-        // secondary slot has been configured (its card visibility
-        // tracks the same condition; we wire the listener unconditionally
-        // and let the count badge update path no-op when slot=null).
-        v.findViewById<Button>(R.id.xv_btn_members_1).setOnClickListener {
-            showSlotMembersPicker(0)
-        }
-        v.findViewById<Button>(R.id.xv_btn_members_2).setOnClickListener {
-            showSlotMembersPicker(1)
-        }
+        v.findViewById<View>(R.id.xv_btn_settings).setOnClickListener { showSettings() }
+        // The small "👥 N" count on each row opens that channel's member
+        // list (tap a member → map, long-press → move a slot to their
+        // channel). There is deliberately no separate Members button.
+        v.findViewById<View>(R.id.xv_members_1).setOnClickListener { showSlotMembersPicker(0) }
+        v.findViewById<View>(R.id.xv_members_2).setOnClickListener { showSlotMembersPicker(1) }
         v.findViewById<Button>(R.id.xv_btn_end_call).setOnClickListener {
             controller.endCall()
             // Push an immediate refresh so the bar hides without
@@ -787,32 +797,21 @@ class XvDropDownReceiver(
             // teardown on a call that's already ending.
             refreshNow()
         }
-        v.findViewById<Button>(R.id.xv_btn_ptt).setOnTouchListener(pttListener(slot = 0, label = "VS1"))
-        v.findViewById<Button>(R.id.xv_btn_ptt2).setOnTouchListener(pttListener(slot = 1, label = "VS2"))
-        // Header bar above each PTT button is the channel picker entry
-        // point — keeps "what channel am I keying" and "key the channel"
-        // in one self-contained widget instead of two separate cards.
-        v.findViewById<View>(R.id.xv_ptt_header_1).setOnClickListener { showChannelPicker(slot = 0) }
-        v.findViewById<View>(R.id.xv_ptt_header_2).setOnClickListener { showChannelPicker(slot = 1) }
-        // "+ Add second channel" button appears in place of the VS2 card
-        // until a secondary is configured. Same picker, same flow.
-        v.findViewById<Button>(R.id.xv_btn_add_vs2).setOnClickListener { showChannelPicker(slot = 1) }
-        // Auto-size channel labels so long names shrink to fit instead
-        // of marquee-scrolling. Marquee was visually jittery and the
-        // operator complained that the tail of long names wasn't
-        // visible. Range 13–20sp matches the XML default at the upper
-        // end so short names look the same as before; long names step
-        // down per 1sp until they fit.
-        val autosizeMin = 13
-        val autosizeMax = 20
-        val autosizeStep = 1
+        // On-screen PTT: button 1 is fixed to channel 1 (slot 0), button 2
+        // to channel 2 (slot 1) — the same fixed mapping as the speaker-mic.
+        v.findViewById<Button>(R.id.xv_btn_ptt).setOnTouchListener(pttListener(slot = 0, label = "PTT1"))
+        v.findViewById<Button>(R.id.xv_btn_ptt2).setOnTouchListener(pttListener(slot = 1, label = "PTT2"))
+        // Tapping a row's name (or the add-channel-2 pill) opens the
+        // unified channel list, where both slots and Swap live.
+        v.findViewById<View>(R.id.xv_ptt_header_1).setOnClickListener { showChannelList() }
+        v.findViewById<View>(R.id.xv_ptt_header_2).setOnClickListener { showChannelList() }
+        v.findViewById<View>(R.id.xv_btn_add_vs2).setOnClickListener { showChannelList() }
+        // Long names shrink to fit instead of marquee-scrolling (marquee
+        // was jittery and hid the tail of long names).
         val unitSp = android.util.TypedValue.COMPLEX_UNIT_SP
-        v
-            .findViewById<TextView>(R.id.xv_ptt_channel_1)
-            .setAutoSizeTextTypeUniformWithConfiguration(autosizeMin, autosizeMax, autosizeStep, unitSp)
-        v
-            .findViewById<TextView>(R.id.xv_ptt_channel_2)
-            .setAutoSizeTextTypeUniformWithConfiguration(autosizeMin, autosizeMax, autosizeStep, unitSp)
+        for (id in intArrayOf(R.id.xv_ptt_channel_1, R.id.xv_ptt_channel_2)) {
+            v.findViewById<TextView>(id).setAutoSizeTextTypeUniformWithConfiguration(12, 16, 1, unitSp)
+        }
         mainView = v
         refreshMain()
         return v
@@ -917,7 +916,7 @@ class XvDropDownReceiver(
             meshStatusView.visibility = View.GONE
         } else {
             meshStatusView.visibility = View.VISIBLE
-            val meshColor = if (mesh.cleartext) R.color.xv_err else R.color.xv_accent
+            val meshColor = if (mesh.cleartext) R.color.xv_err else R.color.xv_net
             meshStatusView.text = mesh.label
             XvGlyphs.setLeadingIcon(
                 meshStatusView,
@@ -943,53 +942,19 @@ class XvDropDownReceiver(
             }
         }
 
-        // VS1 PTT card — channel name lives on the header above the
-        // PTT button. RX speaker indicator is appended when peers are
-        // active so the operator can tell from the same widget that
-        // someone's transmitting. When the server has us suppressed
-        // on this channel (OTS direction OUT), append a "(listen
-        // only)" badge and grey the PTT button so the operator knows
-        // before they press.
+        // Channel rows. One row per slot: hex badge · name + who's
+        // talking · PTT. Slot 0 always renders (channel 1 is never
+        // blank); slot 1 renders only when channel 2 is on, otherwise
+        // the "+ Add channel 2" pill takes its place.
         val primary = controller.currentChannelName()
-        val vs1Speakers = controller.activeSpeakers(0)
-        val vs1CanSpeak = primary != null && controller.canSpeakOnSlot(0)
-        val vs1ListenOnly = primary != null && !vs1CanSpeak
-        val vs1Label =
-            buildChannelRowText(
-                channel = primary,
-                speakers = vs1Speakers,
-                connected = connected,
-                idleText = "(tap to pick)",
-            )
-        v.findViewById<TextView>(R.id.xv_ptt_channel_1).text =
-            if (vs1ListenOnly) "🤐  $vs1Label" else vs1Label
-        val ptt1 = v.findViewById<Button>(R.id.xv_btn_ptt)
-        val vs1Transmitting = controller.isTransmittingOnSlot(0)
-        ptt1.text =
-            when {
-                vs1ListenOnly -> "LISTEN ONLY"
-                vs1Transmitting -> "● TRANSMITTING"
-                else -> "HOLD TO TX"
-            }
-        ptt1.alpha = if (vs1ListenOnly) 0.5f else 1.0f
-        // Background flips to the red "active" theme color while we're
-        // on the air. Press-state (xv_button_bg selector) already
-        // changes color on touch, but that's only while the finger is
-        // down — it goes back instantly on release while the actual TX
-        // burst continues through the cooldown. This makes the button
-        // stay red across the entire transmit window so the operator
-        // sees unambiguous "you are on the air" feedback.
-        ptt1.setBackgroundResource(
-            if (vs1Transmitting) R.drawable.xv_button_bg_transmitting else R.drawable.xv_button_bg,
+        renderSlotRow(
+            v,
+            slot = 0,
+            channel = primary,
+            live = primary != null,
+            connected = connected,
         )
-
-        // VS2 card visibility — only render when a secondary channel
-        // is configured. Until then, show a compact "+ Add VS2" button
-        // in the same vertical slot. This keeps the Surface Duo
-        // layout from running off-screen on the common (no-VS2) case.
         val secondaryName = controller.secondaryChannelName()
-        val secondaryLive = controller.secondaryRegistered()
-        val vs2Speakers = controller.activeSpeakers(1)
         val vs2Card = v.findViewById<View>(R.id.xv_ptt_card_2)
         val addVs2Btn = v.findViewById<View>(R.id.xv_btn_add_vs2)
         if (secondaryName.isNullOrBlank()) {
@@ -998,82 +963,115 @@ class XvDropDownReceiver(
         } else {
             vs2Card.visibility = View.VISIBLE
             addVs2Btn.visibility = View.GONE
-            val secondaryLabel = v.findViewById<TextView>(R.id.xv_ptt_channel_2)
-            val vs2CanSpeak = secondaryLive && controller.canSpeakOnSlot(1)
-            val vs2ListenOnly = secondaryLive && !vs2CanSpeak
-            val baseLabel =
-                if (secondaryLive) {
-                    buildChannelRowText(
-                        channel = secondaryName,
-                        speakers = vs2Speakers,
-                        connected = true,
-                        idleText = secondaryName,
-                    )
-                } else {
-                    "$secondaryName (joining…)"
-                }
-            secondaryLabel.text =
-                if (vs2ListenOnly) "🤐  $baseLabel" else baseLabel
-            secondaryLabel.setTextColor(
-                pluginContext.resources.getColor(
-                    if (secondaryLive) R.color.xv_text else R.color.xv_text_dim,
-                    null,
-                ),
+            renderSlotRow(
+                v,
+                slot = 1,
+                channel = secondaryName,
+                live = controller.secondaryRegistered(),
+                connected = connected,
             )
-            val ptt2 = v.findViewById<Button>(R.id.xv_btn_ptt2)
-            ptt2.isEnabled = secondaryLive
-            val vs2Transmitting = secondaryLive && controller.isTransmittingOnSlot(1)
-            ptt2.text =
+        }
+    }
+
+    // Per-slot view ids for the compact main panel.
+    private class SlotViews(
+        val badge: Int,
+        val name: Int,
+        val members: Int,
+        val activity: Int,
+        val ptt: Int,
+    )
+
+    private fun slotViews(slot: Int): SlotViews =
+        if (slot == 0) {
+            SlotViews(
+                R.id.xv_slot_badge_1,
+                R.id.xv_ptt_channel_1,
+                R.id.xv_members_1,
+                R.id.xv_ptt_activity_1,
+                R.id.xv_btn_ptt,
+            )
+        } else {
+            SlotViews(
+                R.id.xv_slot_badge_2,
+                R.id.xv_ptt_channel_2,
+                R.id.xv_members_2,
+                R.id.xv_ptt_activity_2,
+                R.id.xv_btn_ptt2,
+            )
+        }
+
+    // Render one channel row. [live] = the slot's session is joined and
+    // keyable (slot 1 waits for the secondary identity). Listen-only
+    // (server suppress) dims the PTT and labels it LISTEN so the operator
+    // knows before pressing. The PTT background stays Texas Red for the
+    // whole transmit window, not just while the finger is down.
+    private fun renderSlotRow(
+        v: View,
+        slot: Int,
+        channel: String?,
+        live: Boolean,
+        connected: Boolean,
+    ) {
+        val ids = slotViews(slot)
+        val res = pluginContext.resources
+        val canSpeak = live && controller.canSpeakOnSlot(slot)
+        val listenOnly = live && !canSpeak
+        val transmitting = live && controller.isTransmittingOnSlot(slot)
+        val speakers = if (live) controller.activeSpeakers(slot) else emptyList()
+
+        v.findViewById<TextView>(ids.badge).apply {
+            setBackgroundResource(if (live) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off)
+            setTextColor(res.getColor(if (live) R.color.xv_bg else R.color.xv_text_dim, null))
+        }
+
+        val display = channel?.let { MumbleTransport.lobbyLabel(it) }
+        v.findViewById<TextView>(ids.name).apply {
+            text = if (display != null) "$display  ▾" else "Pick a channel  ▾"
+            setTextColor(res.getColor(if (live) R.color.xv_text else R.color.xv_text_dim, null))
+        }
+
+        val memberCount = controller.channelMembersForSlot(slot)?.members?.size ?: 0
+        v.findViewById<TextView>(ids.members).apply {
+            visibility = if (live) View.VISIBLE else View.GONE
+            text = "👥 $memberCount"
+        }
+
+        val activity = v.findViewById<TextView>(ids.activity)
+        activity.text =
+            when {
+                speakers.isNotEmpty() -> speakers.joinToString(", ")
+                !connected && slot == 0 -> "not connected"
+                !live -> "joining…"
+                listenOnly -> "listen only"
+                else -> "quiet"
+            }
+        if (speakers.isNotEmpty()) {
+            activity.setTextColor(res.getColor(R.color.xv_voice, null))
+            activity.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+            XvGlyphs.setLeadingIcon(activity, R.drawable.ic_xv_signal, dpSize = 14, tintColorRes = R.color.xv_voice)
+        } else {
+            activity.setTextColor(res.getColor(R.color.xv_text_dim, null))
+            activity.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.NORMAL)
+            activity.setCompoundDrawablesRelative(null, null, null, null)
+        }
+
+        v.findViewById<Button>(ids.ptt).apply {
+            isEnabled = live || slot == 0
+            text =
                 when {
-                    vs2ListenOnly -> "LISTEN ONLY"
-                    vs2Transmitting -> "● TRANSMITTING"
-                    else -> "HOLD TO TX"
+                    listenOnly -> "LISTEN"
+                    transmitting -> "TX"
+                    else -> "PTT"
                 }
-            ptt2.alpha =
+            alpha =
                 when {
-                    !secondaryLive -> 0.4f
-                    vs2ListenOnly -> 0.5f
+                    !live && slot == 1 -> 0.4f
+                    listenOnly -> 0.5f
                     else -> 1.0f
                 }
-            ptt2.setBackgroundResource(
-                if (vs2Transmitting) R.drawable.xv_button_bg_transmitting else R.drawable.xv_button_bg,
-            )
+            setBackgroundResource(if (transmitting) R.drawable.xv_ptt_bg_tx else R.drawable.xv_ptt_bg)
         }
-
-        // Route / audio-state / TPT debug labels and the standalone
-        // speaker indicator have been removed from the operational view
-        // — they live in Settings. Active-speaker info still surfaces
-        // via buildChannelRowText on each PTT card's channel name.
-
-        // Per-PTT 👥 button count badges. Live count of who's on the
-        // slot's joined channel. Updated on every refreshMain (2s
-        // poll + immediate refreshes on TX state changes etc.) so
-        // joins/leaves show without any operator action. Shows 0
-        // when the slot isn't connected; the button stays clickable
-        // (operator gets the "empty" picker view).
-        val vs1MembersList = controller.channelMembersForSlot(0)?.members ?: emptyList()
-        val vs1Server = vs1MembersList.count {
-            it.connectionSource == ConnectionSource.SERVER ||
-                it.connectionSource == ConnectionSource.BOTH
-        }
-        val vs1Local = vs1MembersList.count {
-            it.connectionSource == ConnectionSource.LOCAL_MESH ||
-                it.connectionSource == ConnectionSource.BOTH
-        }
-        v.findViewById<Button>(R.id.xv_btn_members_1).text =
-            XvGlyphs.membersBadge(pluginContext, vs1Server, vs1Local)
-
-        val vs2MembersList = controller.channelMembersForSlot(1)?.members ?: emptyList()
-        val vs2Server = vs2MembersList.count {
-            it.connectionSource == ConnectionSource.SERVER ||
-                it.connectionSource == ConnectionSource.BOTH
-        }
-        val vs2Local = vs2MembersList.count {
-            it.connectionSource == ConnectionSource.LOCAL_MESH ||
-                it.connectionSource == ConnectionSource.BOTH
-        }
-        v.findViewById<Button>(R.id.xv_btn_members_2).text =
-            XvGlyphs.membersBadge(pluginContext, vs2Server, vs2Local)
     }
 
     private fun showSettings() {
@@ -1083,12 +1081,16 @@ class XvDropDownReceiver(
         showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
     }
 
-    // Channel picker overlay. Replaces the previous Settings → spinner
-    // workflow for the most-frequent operational change. Big touch
-    // targets (56dp), dark-on-dark styled, "● now" marker on the active
-    // channel, and a "(none)" sentinel for the secondary slot so the
-    // user can clear VS2 without leaving primary.
-    private fun showChannelPicker(slot: Int) {
+    // Unified channel list (replaces the two per-slot pickers). One
+    // searchable list with [1]/[2] pills per row, Swap in the assignment
+    // bar, subchannels indented, mesh options on long-press. The refresh
+    // loop repopulates the rows in place when the directory or the slot
+    // assignment changes (drop/reconnect, a swap landing), keeping the
+    // search text.
+    private var channelListRoot: View? = null
+    private var channelListQuery: String = ""
+
+    private fun showChannelList() {
         if (controller.isInCall()) {
             android.widget.Toast
                 .makeText(
@@ -1098,260 +1100,249 @@ class XvDropDownReceiver(
                 ).show()
             return
         }
-        val inflater = LayoutInflater.from(pluginContext)
-        val v = inflater.inflate(R.layout.xv_channel_picker, null)
-        v.findViewById<TextView>(R.id.xv_picker_title).text =
-            if (slot == 0) "Select primary channel (VS1)" else "Select secondary channel (VS2)"
-        v.findViewById<Button>(R.id.xv_picker_back).setOnClickListener {
+        val v = LayoutInflater.from(pluginContext).inflate(R.layout.xv_channel_list, null)
+        v.findViewById<Button>(R.id.xv_channels_back).setOnClickListener {
             mainHandler.post { inflateMainAndShow() }
         }
-
-        val list = v.findViewById<android.widget.ExpandableListView>(R.id.xv_picker_list)
-
-        val currentPrimary = controller.currentChannelName()
-        val currentSecondary = controller.secondaryChannelName()
-
-        val allChannels = controller.availableChannels().map { it.name }.toMutableSet()
-        val serverGroups = controller.availableChannels().groupBy { controller.connectedTakHost() ?: "Offline / ad-hoc" }.toMutableMap()
-
-        // Add offline/mesh candidates
-        if (controller.meshVoiceEnabled()) {
-            val serverCanon = allChannels.map { MulticastGroupDerivation.canonicalChannelName(it) }.toSet()
-            val offlineOnly = controller.meshChannelCandidates()
-                .filter { MulticastGroupDerivation.canonicalChannelName(it) !in serverCanon }
-            if (offlineOnly.isNotEmpty()) {
-                val existingOffline = serverGroups["Offline / ad-hoc"]?.map { it.name } ?: emptyList()
-                val newOffline = offlineOnly.filter { it !in existingOffline }
-                val offlineList = (serverGroups["Offline / ad-hoc"] ?: emptyList()).toMutableList()
-                newOffline.forEach {
-                    offlineList.add(
-                        com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo(
-                            -1,
-                            it,
-                            com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.PARTICIPATE
-                        )
-                    )
-                }
-                serverGroups["Offline / ad-hoc"] = offlineList
-            }
+        v.findViewById<Button>(R.id.xv_channels_swap).setOnClickListener {
+            controller.swapChannels()
+            // The swap lands asynchronously (two server acks); the
+            // refresh loop repaints when the assignment flips.
+            populateChannelList(v)
         }
+        val search = v.findViewById<android.widget.EditText>(R.id.xv_channels_search)
+        search.setText(channelListQuery)
+        search.addTextChangedListener(
+            object : android.text.TextWatcher {
+                override fun beforeTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    count: Int,
+                    after: Int,
+                ) {}
 
-        serverGroups.forEach { (group, channels) ->
-            val mutableChannels = channels.toMutableList()
-            mutableChannels.removeAll {
-                it.name.equals(currentPrimary, ignoreCase = true) ||
-                    it.name.equals(currentSecondary, ignoreCase = true)
-            }
-            serverGroups[group] = mutableChannels
-        }
-        val emptyGroups = serverGroups.filter { it.value.isEmpty() }.keys
-        emptyGroups.forEach { serverGroups.remove(it) }
+                override fun onTextChanged(
+                    s: CharSequence?,
+                    start: Int,
+                    before: Int,
+                    count: Int,
+                ) {}
 
-        val sortedGroupsList = serverGroups.entries.sortedWith(compareBy({ it.key == "Offline / ad-hoc" }, { it.key }))
-
-        val groupList = mutableListOf<String>()
-        val childMap = mutableMapOf<String, List<String>>()
-
-        val activeChannelsList = mutableListOf<String>()
-        if (currentPrimary != null) activeChannelsList.add(currentPrimary)
-        if (currentSecondary != null &&
-            !currentSecondary.equals(currentPrimary, ignoreCase = true)
-        ) {
-            activeChannelsList.add(currentSecondary)
-        }
-
-        if (activeChannelsList.isNotEmpty()) {
-            groupList.add("Active Channels")
-            childMap["Active Channels"] = activeChannelsList
-        }
-
-        sortedGroupsList.forEach { entry ->
-            groupList.add(entry.key)
-            // Lobby pinned to the top of every group, then case-insensitive
-            // alphabetical — the always-present pre-tactical channel must be
-            // the first pick, matching meshChannelCandidates' ordering.
-            childMap[entry.key] =
-                entry.value.map { it.name }.sortedWith(
-                    compareByDescending<String> {
-                        MulticastGroupDerivation.canonicalChannelName(it) == MulticastGroupDerivation.LOBBY_CANONICAL
-                    }.thenBy(String.CASE_INSENSITIVE_ORDER) { it },
-                )
-        }
-
-        val current = if (slot == 0) controller.currentChannelName() else controller.secondaryChannelName()
-        val otherSlotChannel = if (slot == 0) controller.secondaryChannelName() else controller.currentChannelName()
-        val otherSlotLabel = if (slot == 0) "VS2" else "VS1"
-        val currentSuppressed = !controller.canSpeakOnSlot(slot)
-
-        val adapter = object : android.widget.BaseExpandableListAdapter() {
-            override fun getGroupCount(): Int = groupList.size
-            override fun getChildrenCount(groupPosition: Int): Int = childMap[groupList[groupPosition]]?.size ?: 0
-            override fun getGroup(groupPosition: Int): Any = groupList[groupPosition]
-            override fun getChild(groupPosition: Int, childPosition: Int): Any = childMap[groupList[groupPosition]]!![childPosition]
-            override fun getGroupId(groupPosition: Int): Long = groupPosition.toLong()
-            override fun getChildId(groupPosition: Int, childPosition: Int): Long = childPosition.toLong()
-            override fun hasStableIds(): Boolean = false
-
-            override fun getGroupView(
-                groupPosition: Int,
-                isExpanded: Boolean,
-                convertView: View?,
-                parent: android.view.ViewGroup?,
-            ): View {
-                val groupName = getGroup(groupPosition) as String
-                val gv =
-                    convertView ?: android.view.LayoutInflater.from(pluginContext).inflate(R.layout.xv_share_picker_group, parent, false)
-                gv.findViewById<TextView>(R.id.xv_group_name).text = groupName
-                gv.findViewById<TextView>(R.id.xv_group_indicator).text = if (isExpanded) "▼" else "▶"
-                return gv
-            }
-
-            override fun getChildView(
-                groupPosition: Int,
-                childPosition: Int,
-                isLastChild: Boolean,
-                convertView: View?,
-                parent: android.view.ViewGroup?,
-            ): View {
-                val chName = getChild(groupPosition, childPosition) as String
-                val isCurrent = chName.equals(current, ignoreCase = true)
-                val isOnOtherSlot = !otherSlotChannel.isNullOrBlank() && chName.equals(otherSlotChannel, ignoreCase = true)
-
-                var chParticipation = com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.PARTICIPATE
-                for (ch in controller.availableChannels()) {
-                    if (ch.name == chName) {
-                        chParticipation = ch.participation
-                        break
-                    }
+                override fun afterTextChanged(s: android.text.Editable?) {
+                    channelListQuery = s?.toString().orEmpty()
+                    populateChannelList(v)
                 }
-
-                val effectiveTier = when {
-                    isOnOtherSlot -> com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.UNAUTHORIZED
-                    isCurrent &&
-                        currentSuppressed &&
-                        chParticipation == com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.PARTICIPATE ->
-                        com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.LISTEN
-                    else -> chParticipation
-                }
-                // Display the lobby as "Lobby" while chName (raw) still
-                // drives selection/config/forget below.
-                val chDisplay = MumbleTransport.lobbyLabel(chName)
-                val labelOverride = if (isOnOtherSlot) "$chDisplay   (in use by $otherSlotLabel)" else chDisplay
-
-                val container = android.widget.LinearLayout(pluginContext).apply {
-                    orientation = android.widget.LinearLayout.HORIZONTAL
-                    layoutParams = android.widget.AbsListView.LayoutParams(
-                        android.widget.AbsListView.LayoutParams.MATCH_PARENT,
-                        android.widget.AbsListView.LayoutParams.WRAP_CONTENT
-                    )
-                    gravity = android.view.Gravity.CENTER_VERTICAL
-                }
-
-                val buildParticipation = when (effectiveTier) {
-                    com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.PARTICIPATE ->
-                        Participation.PARTICIPATE
-                    com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.LISTEN ->
-                        Participation.LISTEN
-                    com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.UNAUTHORIZED ->
-                        Participation.UNAUTHORIZED
-                    else -> Participation.UNKNOWN
-                }
-
-                val btn = buildChannelButton(
-                    label = labelOverride,
-                    isCurrent = isCurrent,
-                    participation = buildParticipation,
-                ) {
-                    if (buildParticipation != Participation.UNAUTHORIZED) {
-                        if (slot == 0) controller.setPrimaryChannel(chName) else controller.setSecondaryChannel(chName)
-                        mainHandler.post { inflateMainAndShow() }
-                    }
-                }
-                val btnParams = android.widget.LinearLayout.LayoutParams(0, android.widget.LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-                btn.layoutParams = btnParams
-                container.addView(btn)
-
-                val gear = android.widget.ImageButton(pluginContext).apply {
-                    setImageResource(android.R.drawable.ic_menu_manage)
-                    setBackgroundResource(android.R.color.transparent)
-                    val dp = (12 * pluginContext.resources.displayMetrics.density).toInt()
-                    setPadding(dp, dp, dp, dp)
-                    val p = android.widget.LinearLayout.LayoutParams(
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
-                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
-                    )
-                    p.gravity = android.view.Gravity.CENTER_VERTICAL
-                    layoutParams = p
-                    setOnClickListener {
-                        promptConfigureChannel(v, chName) {
-                            // nothing to do on UI refresh inside picker
-                        }
-                    }
-                }
-                container.addView(gear)
-
-                if (groupList[groupPosition] == "Offline / ad-hoc") {
-                    container.setOnLongClickListener {
-                        confirmForgetOfflineChannel(chName, slot)
-                        true
-                    }
-                }
-
-                return container
-            }
-
-            override fun isChildSelectable(groupPosition: Int, childPosition: Int): Boolean = true
-        }
-
-        if (slot == 1) {
-            val header = android.widget.LinearLayout(pluginContext).apply {
-                orientation = android.widget.LinearLayout.VERTICAL
-                addView(
-                    buildChannelButton(
-                        label = "(none)",
-                        isCurrent = current.isNullOrBlank(),
-                        participation = Participation.PARTICIPATE
-                    ) {
-                        controller.setSecondaryChannel("")
-                        mainHandler.post { inflateMainAndShow() }
-                    }
-                )
-                // Interim home for channel swap until the unified channel
-                // list lands (Swap moves to its header). Refusals (keyed,
-                // in a call, no channel 2) toast from the controller.
-                val swapReason = controller.swapUnavailableReason()
-                addView(
-                    buildChannelButton(
-                        label = if (swapReason == null) "Swap 1 ↔ 2" else "Swap 1 ↔ 2  ($swapReason)",
-                        isCurrent = false,
-                        participation = Participation.PARTICIPATE
-                    ) {
-                        controller.swapChannels()
-                        mainHandler.post { inflateMainAndShow() }
-                    }
-                )
-            }
-            list.addHeaderView(header)
-        }
-
-        list.setAdapter(adapter)
-
-        val connectedServer = controller.connectedTakHost()
-        groupList.forEachIndexed { index, groupName ->
-            if (groupName == connectedServer || groupList.size == 1) {
-                list.expandGroup(index)
-            }
-        }
-
-        openPickerSlot = slot
-        openPickerSignature = channelPickerSignature()
+            },
+        )
+        channelListRoot = v
+        openPickerSlot = CHANNEL_LIST_OPEN
+        populateChannelList(v)
         showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
     }
 
-    private fun confirmForgetOfflineChannel(
-        name: String,
+    private fun channelListInput(): List<ChannelListPolicy.Channel> {
+        val server =
+            controller.availableChannels().map {
+                ChannelListPolicy.Channel(
+                    id = it.id,
+                    name = it.name,
+                    parentId = it.parentId,
+                    access =
+                    when (it.participation) {
+                        com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.LISTEN ->
+                            ChannelListPolicy.Access.LISTEN
+                        com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation.UNAUTHORIZED ->
+                            ChannelListPolicy.Access.NONE
+                        else -> ChannelListPolicy.Access.FULL
+                    },
+                )
+            }
+        if (!controller.meshVoiceEnabled()) return server
+        // Offline / mesh-only channels (ad-hoc, comms-plan imports, or the
+        // whole directory while the server is unreachable).
+        val serverCanon = server.map { MulticastGroupDerivation.canonicalChannelName(it.name) }.toSet()
+        val offline =
+            controller
+                .meshChannelCandidates()
+                .filter { MulticastGroupDerivation.canonicalChannelName(it) !in serverCanon }
+                .map { ChannelListPolicy.Channel(-1, it, -1, ChannelListPolicy.Access.FULL, offline = true) }
+        return server + offline
+    }
+
+    private fun populateChannelList(v: View) {
+        val ch1 = controller.currentChannelName()
+        val ch2 = controller.secondaryChannelName()?.takeIf { it.isNotBlank() }
+        val res = pluginContext.resources
+
+        // Assignment bar.
+        v.findViewById<TextView>(R.id.xv_channels_slot_1).text = ch1?.let { MumbleTransport.lobbyLabel(it) } ?: "—"
+        v.findViewById<TextView>(R.id.xv_channels_slot_2).apply {
+            text = ch2?.let { MumbleTransport.lobbyLabel(it) } ?: "off"
+            setTextColor(res.getColor(if (ch2 != null) R.color.xv_text else R.color.xv_text_dim, null))
+        }
+        v.findViewById<TextView>(R.id.xv_channels_slot_2_badge).setBackgroundResource(
+            if (ch2 != null) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off,
+        )
+        val swapReason = controller.swapUnavailableReason()
+        v.findViewById<Button>(R.id.xv_channels_swap).apply {
+            // Tappable even when unavailable: the tap toasts the reason
+            // (keyed, in a call, no channel 2, …) instead of failing silently.
+            alpha = if (swapReason == null) 1.0f else 0.45f
+            setBackgroundResource(if (swapReason == null) R.drawable.xv_pill_off else R.drawable.xv_pill_disabled)
+        }
+
+        val rowsHost = v.findViewById<android.widget.LinearLayout>(R.id.xv_channels_rows)
+        rowsHost.removeAllViews()
+        val inflater = LayoutInflater.from(pluginContext)
+        val density = res.displayMetrics.density
+        val counts = controller.channelUserCounts()
+        val speakers1 = controller.activeSpeakers(0)
+        val speakers2 = if (ch2 != null) controller.activeSpeakers(1) else emptyList()
+        val rows = ChannelListPolicy.filter(ChannelListPolicy.order(channelListInput()), channelListQuery)
+        var offlineHeaderShown = false
+        var serverHeaderShown = false
+        for (row in rows) {
+            val ch = row.channel
+            if (!ch.offline && !serverHeaderShown) {
+                serverHeaderShown = true
+                rowsHost.addView(sectionHeader("SERVER · ${controller.connectedTakHost() ?: "not connected"}"))
+            }
+            if (ch.offline && !offlineHeaderShown) {
+                offlineHeaderShown = true
+                rowsHost.addView(sectionHeader("OFFLINE · MESH"))
+            }
+            val rv = inflater.inflate(R.layout.xv_channel_row, rowsHost, false)
+            rv.setPaddingRelative(
+                ((12 + 20 * row.depth) * density).toInt(),
+                rv.paddingTop,
+                rv.paddingEnd,
+                rv.paddingBottom,
+            )
+            val display = MumbleTransport.lobbyLabel(ch.name)
+            rv.findViewById<TextView>(R.id.xv_row_name).apply {
+                text = display
+                setTextColor(res.getColor(if (ch.access == ChannelListPolicy.Access.NONE) R.color.xv_text_dim else R.color.xv_text, null))
+            }
+            val talking =
+                when {
+                    ch1 != null && display.equals(MumbleTransport.lobbyLabel(ch1), ignoreCase = true) -> speakers1
+                    ch2 != null && display.equals(MumbleTransport.lobbyLabel(ch2), ignoreCase = true) -> speakers2
+                    else -> emptyList()
+                }
+            rv.findViewById<TextView>(R.id.xv_row_meta).text = channelRowMeta(ch, counts[ch.id] ?: 0, talking)
+            for (slot in 0..1) {
+                val pill = rv.findViewById<TextView>(if (slot == 0) R.id.xv_row_pill_1 else R.id.xv_row_pill_2)
+                val state = ChannelListPolicy.pillState(slot, ch, ch1, ch2)
+                pill.setBackgroundResource(
+                    when (state) {
+                        ChannelListPolicy.Pill.ON -> R.drawable.xv_pill_on
+                        ChannelListPolicy.Pill.OFF -> R.drawable.xv_pill_off
+                        ChannelListPolicy.Pill.DISABLED -> R.drawable.xv_pill_disabled
+                    },
+                )
+                pill.setTextColor(
+                    res.getColor(
+                        when (state) {
+                            ChannelListPolicy.Pill.ON -> R.color.xv_bg
+                            ChannelListPolicy.Pill.OFF -> R.color.xv_text
+                            ChannelListPolicy.Pill.DISABLED -> R.color.xv_text_dim
+                        },
+                        null,
+                    ),
+                )
+                pill.setOnClickListener { onChannelPillTap(v, slot, ch, ch1, ch2) }
+            }
+            rv.setOnLongClickListener {
+                showChannelOptions(v, ch)
+                true
+            }
+            rowsHost.addView(rv)
+        }
+        if (rows.isEmpty()) {
+            rowsHost.addView(
+                sectionHeader(if (channelListQuery.isBlank()) "No channels yet — connect to a server" else "No match"),
+            )
+        }
+        openPickerSignature = channelPickerSignature()
+    }
+
+    private fun channelRowMeta(
+        ch: ChannelListPolicy.Channel,
+        users: Int,
+        talking: List<String>,
+    ): String {
+        val parts = mutableListOf<String>()
+        if (ch.offline) {
+            parts += "local multicast"
+        } else {
+            parts +=
+                when (users) {
+                    0 -> "empty"
+                    1 -> "1 user"
+                    else -> "$users users"
+                }
+        }
+        if (talking.isNotEmpty()) parts += "${talking.joinToString(", ")} talking"
+        when (ch.access) {
+            ChannelListPolicy.Access.LISTEN -> parts += "listen only"
+            ChannelListPolicy.Access.NONE -> return "no access"
+            ChannelListPolicy.Access.FULL -> {}
+        }
+        return parts.joinToString(" · ")
+    }
+
+    private fun sectionHeader(text: String): TextView =
+        TextView(pluginContext).apply {
+            this.text = text
+            setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
+            textSize = 11f
+            typeface = android.graphics.Typeface.MONOSPACE
+            letterSpacing = 0.1f
+            val d = pluginContext.resources.displayMetrics.density
+            setPadding((12 * d).toInt(), (14 * d).toInt(), (12 * d).toInt(), (4 * d).toInt())
+        }
+
+    private fun onChannelPillTap(
+        v: View,
         slot: Int,
+        ch: ChannelListPolicy.Channel,
+        ch1: String?,
+        ch2: String?,
     ) {
+        when (val action = ChannelListPolicy.onPillTap(slot, ch, ch1, ch2)) {
+            is ChannelListPolicy.Action.SetPrimary -> controller.setPrimaryChannel(action.name)
+            is ChannelListPolicy.Action.SetSecondary -> controller.setSecondaryChannel(action.name)
+            ChannelListPolicy.Action.ClearSecondary -> controller.setSecondaryChannel("")
+            ChannelListPolicy.Action.Swap -> controller.swapChannels()
+            is ChannelListPolicy.Action.Explain ->
+                android.widget.Toast.makeText(pluginContext, action.message, android.widget.Toast.LENGTH_SHORT).show()
+        }
+        // Server-confirmed moves arrive asynchronously; repaint now for
+        // the pills that changed locally and let the refresh loop pick up
+        // the confirmed state.
+        mainHandler.postDelayed({ if (channelListRoot === v) populateChannelList(v) }, 400L)
+    }
+
+    // Long-press menu: mesh options for any channel; Forget for
+    // offline/mesh-only channels (a server channel would just reappear).
+    private fun showChannelOptions(
+        v: View,
+        ch: ChannelListPolicy.Channel,
+    ) {
+        val actions = mutableListOf<Pair<String, () -> Unit>>()
+        actions += "Mesh options…" to { promptConfigureChannel(v, ch.name) { populateChannelList(v) } }
+        if (ch.offline) {
+            actions += "Forget channel" to { confirmForgetOfflineChannel(ch.name) }
+        }
+        android.app.AlertDialog
+            .Builder(mapViewContext())
+            .setTitle(MumbleTransport.lobbyLabel(ch.name))
+            .setItems(actions.map { it.first }.toTypedArray()) { _, which -> actions[which].second() }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun confirmForgetOfflineChannel(name: String) {
         android.app.AlertDialog
             .Builder(mapView.context)
             .setTitle("Forget “$name”?")
@@ -1359,7 +1350,7 @@ class XvDropDownReceiver(
             .setPositiveButton("Forget") { _, _ ->
                 controller.forgetMeshChannel(name)
                 meshToast("Forgot “$name”.")
-                mainHandler.post { showChannelPicker(slot) }
+                channelListRoot?.let { root -> mainHandler.post { populateChannelList(root) } }
             }.setNegativeButton("Cancel", null)
             .show()
     }
@@ -1533,27 +1524,12 @@ class XvDropDownReceiver(
             .show()
     }
 
-    // Channel Members picker — historical doc block from when this was
-    // the "Recent Users (last 15 min)" picker; the data semantics moved
-    // to "everyone on my channel right now" (replaces presence-cache
-    // lookup with the live Mumble roster). Empty-state distinguishes
-    // "no peers in window" (cold start, no XV traffic) from "no map"
-    // (shouldn't normally happen) so the operator has a clear next
-    // action.
-    //
-    // Title-bar 🕒 Recent entry — two-column dialog showing who's on
-    // the VS1 channel and who's on the VS2 channel. Either column is
-    // hidden when its slot isn't connected so the live one expands.
-    private fun showChannelMembersPicker() {
-        val byslot = controller.channelMembersBySlot()
-        showChannelMembersDialog(
-            vs1 = byslot[0],
-            vs2 = byslot[1],
-        )
-    }
-
-    /** Per-PTT 👥 entry — same two-column layout but the opposite slot's
-     *  column is hidden, so the live slot takes the full width. */
+    // Channel Members — everyone on a slot's channel right now (live
+    // Mumble roster + mesh peers). Opened from the small "👥 N" count on
+    // each main-panel row. Empty-state distinguishes "no peers" from "no
+    // map" so the operator has a clear next action.
+    /** Per-row 👥 entry — the two-column layout with the opposite slot's
+     *  column hidden, so the tapped slot takes the full width. */
     private fun showSlotMembersPicker(slot: Int) {
         val sm = controller.channelMembersForSlot(slot)
         if (slot == 0) {
@@ -1577,24 +1553,24 @@ class XvDropDownReceiver(
         // knows which slot they tapped on.
         v.findViewById<TextView>(R.id.xv_picker_title).text =
             when {
-                vs1 != null && vs2 != null -> "Channel Members"
-                vs1 != null -> "VS1 Channel Members"
-                vs2 != null -> "VS2 Channel Members"
-                else -> "Channel Members"
+                vs1 != null && vs2 != null -> "Channel members"
+                vs1 != null -> "Channel 1 members"
+                vs2 != null -> "Channel 2 members"
+                else -> "Channel members"
             }
         populateMembersColumn(
             colRoot = v.findViewById(R.id.xv_members_col_vs1),
             headerView = v.findViewById(R.id.xv_members_header_vs1),
             listView = v.findViewById(R.id.xv_members_list_vs1),
             data = vs1,
-            slotLabel = "VS1",
+            slotLabel = "1",
         )
         populateMembersColumn(
             colRoot = v.findViewById(R.id.xv_members_col_vs2),
             headerView = v.findViewById(R.id.xv_members_header_vs2),
             listView = v.findViewById(R.id.xv_members_list_vs2),
             data = vs2,
-            slotLabel = "VS2",
+            slotLabel = "2",
         )
         showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
     }
@@ -1734,7 +1710,7 @@ class XvDropDownReceiver(
         }
     }
 
-    /** Long-press follow-up. Lists "Move VS1 → [channel]" / "Move VS2 →
+    /** Long-press follow-up. Lists "Channel 1 → [channel]" / "Channel 2 →
      *  [channel]" for every channel the peer is on that the local
      *  operator has PARTICIPATE permission on. Tap to issue the join. */
     private fun showJumpChannelSheet(member: ChannelMember) {
@@ -1747,11 +1723,11 @@ class XvDropDownReceiver(
             val chDisplay = MumbleTransport.lobbyLabel(jc.channelName)
             val nameDisplay = if (jc.description != null) "$chDisplay (${jc.description})" else chDisplay
             actions +=
-                "Move VS1 → $nameDisplay" to {
+                "Channel 1 → $nameDisplay" to {
                     controller.setPrimaryChannel(jc.channelName)
                 }
             actions +=
-                "Move VS2 → $nameDisplay" to {
+                "Channel 2 → $nameDisplay" to {
                     controller.setSecondaryChannel(jc.channelName)
                 }
         }
@@ -1776,60 +1752,6 @@ class XvDropDownReceiver(
             .getMapView()
             ?.context ?: pluginContext
 
-    private fun buildChannelButton(
-        label: String,
-        isCurrent: Boolean,
-        participation: Participation,
-        onPick: () -> Unit,
-    ): Button {
-        val btn = Button(pluginContext)
-        // Icons only mark the *denied* tiers — clean labels for
-        // channels the operator can fully use (would otherwise add
-        // noise on every row). Trailing "● now" still wins when
-        // this is the joined channel.
-        //   PARTICIPATE / UNKNOWN — no icon, normal style
-        //   LISTEN — 🤐 zipper-mouth, "can't talk" (single-char,
-        //            renders cleanly on every Android version)
-        //   UNAUTHORIZED — 🔒 lock, can't even enter
-        val prefix =
-            when (participation) {
-                Participation.LISTEN -> "🤐  "
-                Participation.UNAUTHORIZED -> "🔒  "
-                else -> ""
-            }
-        val suffix = if (isCurrent) "   $RX_DOT now" else ""
-        btn.text = "$prefix$label$suffix"
-        btn.textSize = 16f
-        btn.isAllCaps = false
-        btn.gravity = android.view.Gravity.START or android.view.Gravity.CENTER_VERTICAL
-        btn.setPadding(20, 0, 20, 0)
-        val textColor =
-            when (participation) {
-                Participation.UNAUTHORIZED -> R.color.xv_text_dim
-                else -> R.color.xv_text
-            }
-        btn.setTextColor(pluginContext.resources.getColor(textColor, null))
-        btn.alpha = if (participation == Participation.UNAUTHORIZED) 0.45f else 1.0f
-        btn.setBackgroundResource(
-            if (isCurrent) R.drawable.xv_button_active_bg else R.drawable.xv_button_bg,
-        )
-        val lp =
-            android.widget.LinearLayout
-                .LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    (56 * pluginContext.resources.displayMetrics.density).toInt(),
-                ).apply {
-                    topMargin = (6 * pluginContext.resources.displayMetrics.density).toInt()
-                }
-        btn.layoutParams = lp
-        // Even though UNAUTHORIZED is no-op'd in the click handler, also
-        // disable the button so the system gives no haptic / ripple
-        // feedback that suggests it's actionable.
-        btn.isEnabled = participation != Participation.UNAUTHORIZED
-        btn.setOnClickListener { onPick() }
-        return btn
-    }
-
     private fun wireSettings(v: View) {
         v.findViewById<Button>(R.id.xv_settings_back).setOnClickListener {
             // Re-open main panel
@@ -1841,6 +1763,16 @@ class XvDropDownReceiver(
         wireMeshSection(v)
         wirePreferencesSection(v)
         wireBtOffBanner(v)
+
+        // Devices › Troubleshooting is collapsed by default.
+        val troubleshoot = v.findViewById<View>(R.id.xv_devices_troubleshoot)
+        v.findViewById<TextView>(R.id.xv_devices_troubleshoot_toggle).apply {
+            setOnClickListener {
+                val open = troubleshoot.visibility != View.VISIBLE
+                troubleshoot.visibility = if (open) View.VISIBLE else View.GONE
+                text = if (open) "Troubleshooting  ▾" else "Troubleshooting  ▸"
+            }
+        }
 
         val takLabel = v.findViewById<TextView>(R.id.xv_tak_server_label)
         renderTakServerLabel(takLabel)
@@ -1854,6 +1786,13 @@ class XvDropDownReceiver(
 
         v.findViewById<Button>(R.id.xv_btn_mumble_connect).setOnClickListener { controller.connectMumble() }
         v.findViewById<Button>(R.id.xv_btn_mumble_disconnect).setOnClickListener { controller.disconnectMumble() }
+
+        // Mission auto-channels (Server tab): the active ATAK mission
+        // drives channel 1 on the voice server.
+        v.findViewById<Switch>(R.id.xv_switch_mission_channels).apply {
+            isChecked = controller.missionChannelsEnabled()
+            setOnCheckedChangeListener { _, on -> controller.setMissionChannelsEnabled(on) }
+        }
 
         // Help & Documentation — opens the public MkDocs/GitHub Pages site
         // in the device browser. The URL lives in a single string resource
@@ -2221,10 +2160,6 @@ class XvDropDownReceiver(
             controller.setMeshVoiceEnabled(on)
             refreshMeshSection(v)
         }
-
-        val missionSw = v.findViewById<Switch>(R.id.xv_switch_mission_channels)
-        missionSw.isChecked = controller.missionChannelsEnabled()
-        missionSw.setOnCheckedChangeListener { _, on -> controller.setMissionChannelsEnabled(on) }
 
         // Provisioning path 2: one-tap create. XV picks name + group +
         // key; the operator configures nothing. Flips the mesh toggle on
@@ -3838,6 +3773,7 @@ class XvDropDownReceiver(
         // Returning to main (Back from any overlay) clears any open-picker
         // tracking so the refresh loop stops watching it. See #10.
         openPickerSlot = null
+        channelListRoot = null
         // Reuse the cached main view instead of re-inflating on every Back.
         // The main view's state is 100% controller-derived (no local
         // mutable UI state worth preserving), so a repaint via refreshMain
@@ -3857,22 +3793,6 @@ class XvDropDownReceiver(
         startRefreshLoop()
     }
 
-    // "REACT  ● dhirenparbhoo" while a peer is talking; bare "REACT"
-    // otherwise. Multiple concurrent talkers are comma-joined.
-    private fun buildChannelRowText(
-        channel: String?,
-        speakers: List<String>,
-        connected: Boolean,
-        idleText: String,
-    ): String {
-        if (channel == null) return if (connected) idleText else ""
-        // Mesh-mode currentChannelName() can return the raw "Root" or
-        // the lowercase canonical "lobby" for the lobby; render "Lobby".
-        val display = MumbleTransport.lobbyLabel(channel)
-        if (speakers.isEmpty()) return display
-        return "$display  $RX_DOT ${speakers.joinToString(", ")}"
-    }
-
     companion object {
         // Slow tick — push-driven callbacks (channel join, TX/RX
         // edges, suppress changes) handle the operationally-critical
@@ -3886,7 +3806,10 @@ class XvDropDownReceiver(
         // cycle reconnect (~0.8s observed) so the picker rebuilds once,
         // on the settled state, not per-transition.
         private const val CONNECTIVITY_REFRESH_DEBOUNCE_MS = 900L
-        private const val SECONDARY_NONE_LABEL = "(none)"
+
+        // openPickerSlot marker while the unified channel list is open
+        // (it serves both slots, so there is no single slot to record).
+        private const val CHANNEL_LIST_OPEN = -1
         private const val AINA_NONE_LABEL = "Screen-only PTT (no external button)"
 
         // Filled green dot — visually pops against the dim background to

@@ -178,6 +178,9 @@ class MumbleSession(
         val id: Int,
         val name: String,
         val participation: Participation,
+        // Parent channel id from ChannelState (Root has none: -1). Lets
+        // the channel list indent subchannels under their parent.
+        val parentId: Int = -1,
     ) {
         /** Three permission tiers derived from the Mumble Enter (0x4)
          *  and Speak (0x8) ACL bits returned by PermissionQuery:
@@ -1112,6 +1115,7 @@ class MumbleSession(
                                 id = c.channelId,
                                 name = if (c.hasName()) c.name else prev?.name ?: "",
                                 participation = prev?.participation ?: ChannelInfo.Participation.UNKNOWN,
+                                parentId = if (c.hasParent()) c.parent else prev?.parentId ?: -1,
                             )
                         if (merged.name.isNotEmpty()) {
                             channels[c.channelId] = merged

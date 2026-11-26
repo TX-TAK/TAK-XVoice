@@ -9,6 +9,26 @@
     <string name="xv_cd_back">Back</string>
     <string name="xv_cd_members">Channel members</string>
     <string name="xv_cd_brand_mark">Texas TAK mark</string>
+    <string name="xv_cd_settings">Settings</string>
+    <string name="xv_cd_channel_1">Channel 1</string>
+    <string name="xv_cd_channel_2">Channel 2</string>
+    <string name="xv_cd_ptt_1">Push to talk on channel 1</string>
+    <string name="xv_cd_ptt_2">Push to talk on channel 2</string>
+    <string name="xv_cd_swap">Swap channels 1 and 2</string>
+
+    <!-- Main panel + channel list copy. -->
+    <string name="xv_add_channel_2">+ Add channel 2   ·   (both PTT buttons key 1)</string>
+    <string name="xv_channels_title">Channels</string>
+
+    <!-- Read-only button maps on the Settings › Devices cards. The PTT →
+         channel binding is fixed by design; swapping channels in the
+         channel list is the only way to invert it. -->
+    <string name="xv_button_map_speaker_mic" translatable="false">PTT 1      →  channel 1\nPTT 2      →  channel 2\n             (channel 1 when 2 is off)\nEmergency  →  ATAK alert\nFixed mapping · swap channels to change</string>
+    <string name="xv_button_map_button" translatable="false">PTT        →  channel 1\n2nd PTT    →  channel 2 (if fitted)\nFixed mapping · swap channels to change</string>
+    <string name="xv_channels_search_hint">Search channels</string>
+    <string name="xv_channels_swap">⇅ Swap</string>
+    <string name="xv_channels_footer">Tap 1 or 2 to assign. Channel 1 is always set; tap a lit 2 to turn channel 2 off.
+Long-press a channel for mesh options.</string>
 
     <!-- Public help / documentation site (MkDocs on GitHub Pages). This is
          the single source of truth for the in-app "Help & Documentation"

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- On-screen PTT button for the whole transmit window: solid Texas Red. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/xv_ptt_active"/>
+    <corners android:radius="8dp"/>
+</shape>

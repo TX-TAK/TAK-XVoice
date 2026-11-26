@@ -2706,6 +2706,8 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun swapUnavailableReason(): String? = swapUnavailableReasonInternal()
 
+            override fun channelUserCounts(): Map<Int, Int> = mumbleTransport()?.channelUserCounts() ?: emptyMap()
+
             override fun availableAinaDevices(): List<com.atakmap.android.xv.aina.AinaDeviceInfo> {
                 // Speaker-mic slot = audio-carrying PTT hardware only
                 // (AINA V1 SPP + V2 BLE, and — as they land — wired
@@ -5608,7 +5610,7 @@ class XvMapComponent : AbstractMapComponent() {
                         // out of REACT into another channel. Only show
                         // toast when we HAD a previous channel — first-
                         // landing isn't a "move."
-                        val slotLabel = if (slot == 0) "VS1" else "VS2"
+                        val slotLabel = if (slot == 0) "Channel 1" else "Channel 2"
                         val target =
                             MapView.getMapView()
                         if (target != null) {

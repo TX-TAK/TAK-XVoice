@@ -8,10 +8,13 @@ foundation for bridging server-mediated voice to mesh radios.
 Published under the **Texas-TAK** banner — the project's public brand.
 The plugin carries Texas-TAK visual identity: the geometric
 walkie-talkie mark (an octagonal radio body with antenna, signal
-chevrons, a PTT bump, and a speaker waveform) and a gold-on-near-black
-palette, applied across the PTT page, Settings, the in-ATAK toolbar
-icon, and the app/launcher icon. The toolbar icon renders the same
-walkie-talkie as a silhouette so ATAK tints it with the brand gold.
+chevrons, a PTT bump, and a speaker waveform) and the Texas TAK brand
+kit palette — Honey (`#E8A33D`) on Hive Black — applied across the PTT
+page, Settings, the in-ATAK toolbar icon, and the app/launcher icon.
+Colour carries one meaning each and is kept quiet: Honey marks voice
+activity, Bluebonnet marks system / network state, and Texas Red means
+you are transmitting. The toolbar icon renders the same walkie-talkie
+as a silhouette so ATAK tints it with the brand Honey.
 
 The public app name — the Google Play listing title and the label ATAK
 shows when it discovers the plugin — is **Texas TAK-XVoice**. The
@@ -143,10 +146,18 @@ and feature polish.
 
 XV also adds:
 
-- **Per-device defaults with overrides** — each supported speakermic
-  ships pre-mapped (PTT → Channel 1, secondary → Channel 2, emergency
-  button, prev/next channel) so a fresh pairing "just works." Operators
-  edit the defaults; overrides persist by BT address.
+- **Fixed, predictable button map** — every supported speakermic
+  keys the same way: PTT → channel 1, secondary PTT → channel 2
+  (channel 1 when channel 2 is off), emergency button → ATAK alert.
+  The mapping is deliberately not remappable; Settings › Devices shows
+  it read-only on each device's card, and swapping channels is the one
+  way to invert which button keys which net.
+- **Compact main panel** — one row per channel (slot badge, channel
+  name, who is talking, PTT). Tapping a channel opens one searchable
+  channel list with **[1] [2]** pills per row, subchannels indented,
+  and **Swap** in its header; long-press a channel for mesh options.
+  With channel 2 off, its row becomes "+ Add channel 2". The 👥 count
+  on a row opens that channel's member list.
 - **Two live channels, swappable** — channel 1 (keyed by PTT1) and an
   optional channel 2 (keyed by PTT2; PTT2 keys channel 1 when channel
   2 is off) are both remembered across restarts. The button-to-channel
@@ -168,8 +179,8 @@ XV also adds:
   the same group and port with zero coordination. An operator can pin
   a specific group/port per channel instead — required for
   OpenMANET-compatible interop groups.
-- **Mission auto-channels (opt-in)** — behind a toggle that defaults
-  off. When enabled, the operator's active ATAK mission drives the
+- **Mission auto-channels (opt-in)** — behind a toggle on the
+  Settings › Server tab that defaults off. When enabled, the operator's active ATAK mission drives the
   primary voice channel: XV derives a deterministic channel name from
   the mission (the channel name simply *is* the mission), creates it on
   the server if it doesn't exist and the server allows it, and joins it

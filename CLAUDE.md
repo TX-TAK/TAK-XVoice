@@ -62,8 +62,8 @@ will read.
 Play-listing publisher, the launcher mark, and the in-plugin palette).
 It is intentionally public and is **exempt** from the "customer,
 agency, or unit names" rule above: the Texas-TAK name, the honeycomb /
-waveform / bee mark, and the brand palette (gold `#F2B33D` on
-near-black) may appear freely in committed code, resources, README,
+waveform / bee mark, and the brand palette (Honey `#E8A33D` on
+Hive Black `#050608`) may appear freely in committed code, resources, README,
 commit messages, and PR descriptions. Do **not** add `texas-tak` /
 `texastak` to any `forbiddenPatterns` list.
 

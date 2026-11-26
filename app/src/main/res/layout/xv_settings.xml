@@ -352,6 +352,50 @@
                         android:background="@drawable/xv_button_bg"/>
                 </LinearLayout>
 
+                <!-- Mission auto-channels: server-side behaviour (the
+                     mission channel is created / joined on the voice
+                     server), so it lives on the Server tab, not Mesh. -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Missions"
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="11sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"
+                    android:layout_marginTop="20dp"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="12dp"
+                    android:background="@drawable/xv_card_bg"
+                    android:layout_marginTop="8dp">
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Mission auto-channels"
+                        android:textColor="@color/xv_text"
+                        android:textSize="14sp"/>
+
+                    <Switch
+                        android:id="@+id/xv_switch_mission_channels"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Your active ATAK Data Sync mission drives the primary voice channel: XV derives the channel name from the mission and joins it, so the whole mission team lands on one voice channel with no manual coordination."
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="11sp"
+                    android:layout_marginTop="6dp"/>
+
                 <View
                     android:layout_width="match_parent"
                     android:layout_height="40dp"/>
@@ -390,183 +434,321 @@
                     android:focusable="true"
                     android:visibility="gone"/>
 
-                <!-- Section header: Speaker mic input -->
+                <!-- ============================================================
+                     Devices (approved UX v2): one card per input, each
+                     stating its role and exactly which button keys which
+                     channel. The button map is READ-ONLY: PTT1 → channel 1,
+                     PTT2 → channel 2 (channel 1 when 2 is off) is fixed;
+                     the only way to invert it is Swap in the channel list.
+                     The spinners inside the cards are the "Change"
+                     control; their ids are unchanged so wireAinaPicker /
+                     wireExternalButtonPicker drive them as before. Rare
+                     recovery tools collapse under Troubleshooting.
+                     ============================================================ -->
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="SPEAKER MIC INPUT"
+                    android:text="What keys the radio, and on which channel."
                     android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.15"/>
+                    android:textSize="13sp"/>
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="An audio-carrying PTT device — an AINA V1/V2 speakermic — that both keys the channel and carries your voice. Picked separately from audio output so a speakermic + car Bluetooth (or headphones) is one operator-tap apart."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
-
-                <!-- AINA picker — moved up to be visually paired with the
-                     "PTT INPUT" header. Wiring is unchanged; this is the
-                     same xv_spinner_aina the AINA picker code targets. -->
-                <Spinner
-                    android:id="@+id/xv_spinner_aina"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
-
-                <TextView
-                    android:id="@+id/xv_label_aina_status"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="—"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Section header: Button input -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="BUTTON INPUT"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.15"
-                    android:layout_marginTop="24dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="A button-only BLE PTT puck (e.g. Pryme BT-PTT). Keys the channel with no audio of its own — pair it here rather than in Android Bluetooth Settings. Works alongside a speaker mic without one cutting off the other."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
-
-                <Spinner
-                    android:id="@+id/xv_spinner_aina_secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
-
-                <TextView
-                    android:id="@+id/xv_label_aina_secondary_status"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="—"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Shown only when the assigned Button-input device is
-                     paired in Android Bluetooth Settings (OS-bonded),
-                     which causes GATT pairing loops. Tapping opens the
-                     unpair dialog. Visibility is driven at runtime by
-                     wireExternalButtonPicker; default GONE. -->
-                <Button
-                    android:id="@+id/xv_btn_fix_bonded_button"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:minHeight="44dp"
-                    android:text="⚠ Fix this button — remove from Android Bluetooth"
-                    android:textColor="@color/xv_err"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:visibility="gone"/>
-
-                <!-- Scan for BLE PTT buttons that don't pair via the
-                     phone's system Bluetooth settings (they advertise a
-                     vendor service, not HID / HoGP). Opens a dialog that
-                     runs a BluetoothLeScanner filtered for the HM-10
-                     transparent-UART service UUID (Pryme BT-PTT-Z,
-                     PTT-Z01, similar HM-10 buttons) plus a name filter
-                     for anything advertising "PTT". On tap, operator
-                     picks the device + which slot (primary or external
-                     button) to assign it to; XV connects via unbonded
-                     GATT through PrymeBleReader. -->
-                <Button
-                    android:id="@+id/xv_btn_scan_ble_ptt"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="Scan for BLE PTT device"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:minHeight="44dp"/>
-                    
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Note: Do not pair Bluetooth buttons in Android Bluetooth Settings. Doing so causes pairing loops. Pair them here using the Scan button above. If you experience loops, 'Forget' the button in Android Settings."
-                    android:textColor="@color/xv_warn"
-                    android:textSize="12sp"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="6dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp" />
-
-                <!-- Remove a previously-added BLE PTT device. Shows a
-                     dialog listing every MAC the operator has added via
-                     the scan-and-pick flow above, then removes it from
-                     the picker + any slot assignment. -->
-                <Button
-                    android:id="@+id/xv_btn_remove_ble_ptt"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Remove BLE PTT device"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:minHeight="44dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="For BLE PTT buttons that won't pair via system Bluetooth (they advertise a vendor service, not HID)."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Auto-connect toggle for compatible BT speakermics / buttons -->
+                <!-- Card: speaker-mic (audio + buttons) -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
+                    android:layout_marginTop="12dp"
                     android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="16dp">
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="10dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_xv_radio"/>
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Speaker-mic"
+                            android:textColor="@color/xv_text"
+                            android:textSize="15sp"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/xv_chip"
+                            android:paddingStart="6dp"
+                            android:paddingTop="2dp"
+                            android:paddingEnd="6dp"
+                            android:paddingBottom="2dp"
+                            android:text="AUDIO + PTT"
+                            android:textColor="@color/xv_voice"
+                            android:textSize="10sp"
+                            android:letterSpacing="0.1"/>
+                    </LinearLayout>
+
+                    <Spinner
+                        android:id="@+id/xv_spinner_aina"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/xv_field_bg"
+                        android:popupBackground="@color/xv_surface_alt"/>
+
+                    <TextView
+                        android:id="@+id/xv_label_aina_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:fontFamily="monospace"
+                        android:text="—"
+                        android:textColor="@color/xv_net"
+                        android:textSize="11sp"/>
+
+                    <!-- Read-only button map. -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/xv_button_map_speaker_mic"
+                        android:textColor="@color/xv_text"
+                        android:textSize="12sp"/>
+                </LinearLayout>
+
+                <!-- Card: button-only PTT (puck, handlebar, glove) -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/xv_card_bg"
+                    android:orientation="vertical"
+                    android:padding="12dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="PTT button"
+                            android:textColor="@color/xv_text"
+                            android:textSize="15sp"
+                            android:textStyle="bold"/>
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:background="@drawable/xv_chip"
+                            android:paddingStart="6dp"
+                            android:paddingTop="2dp"
+                            android:paddingEnd="6dp"
+                            android:paddingBottom="2dp"
+                            android:text="BUTTON ONLY"
+                            android:textColor="@color/xv_voice"
+                            android:textSize="10sp"
+                            android:letterSpacing="0.1"/>
+                    </LinearLayout>
+
+                    <Spinner
+                        android:id="@+id/xv_spinner_aina_secondary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/xv_field_bg"
+                        android:popupBackground="@color/xv_surface_alt"/>
+
+                    <TextView
+                        android:id="@+id/xv_label_aina_secondary_status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:fontFamily="monospace"
+                        android:text="—"
+                        android:textColor="@color/xv_net"
+                        android:textSize="11sp"/>
+
+                    <!-- Shown only when the assigned button is paired in
+                         Android Bluetooth Settings (OS-bonded), which causes
+                         GATT pairing loops. Visibility driven by
+                         wireExternalButtonPicker; default GONE. -->
+                    <Button
+                        android:id="@+id/xv_btn_fix_bonded_button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/xv_button_bg"
+                        android:minHeight="44dp"
+                        android:text="⚠ Fix this button — remove from Android Bluetooth"
+                        android:textAllCaps="false"
+                        android:textColor="@color/xv_err"
+                        android:visibility="gone"/>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:fontFamily="monospace"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/xv_button_map_button"
+                        android:textColor="@color/xv_text"
+                        android:textSize="12sp"/>
+                </LinearLayout>
+
+                <!-- Card: Samsung Active Key. Visible ONLY on Samsung
+                     hardware with the programmable key (see
+                     wireSamsungActiveKeyRow). Samsung's own "Use Active
+                     button with app" setting is the single on/off switch;
+                     tapping the card opens it. -->
+                <LinearLayout
+                    android:id="@+id/xv_row_samsung_active_key"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/xv_card_bg"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="12dp"
+                    android:visibility="gone">
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Auto-connect compatible Bluetooth"
+                        android:text="Phone Active key"
                         android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
+                        android:textSize="15sp"
+                        android:textStyle="bold"/>
 
-                    <Switch
-                        android:id="@+id/xv_switch_auto_connect_bt"
+                    <TextView
+                        android:id="@+id/xv_label_samsung_active_key_status"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/xv_chip_net"
+                        android:paddingStart="6dp"
+                        android:paddingTop="2dp"
+                        android:paddingEnd="6dp"
+                        android:paddingBottom="2dp"
+                        android:textColor="@color/xv_net"
+                        android:textSize="11sp"/>
                 </LinearLayout>
 
                 <TextView
+                    android:id="@+id/xv_label_samsung_active_key_help"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="When ON, XV automatically connects the first compatible bonded AINA / BLE PTT button it finds on launch. Turn OFF to control connections manually from the pickers above. Persists across launches."
+                    android:layout_marginTop="4dp"
+                    android:text="Active key  →  channel 1. Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. Works in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
                     android:textColor="@color/xv_text_dim"
                     android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    android:visibility="gone"/>
+
+                <!-- Add a BLE PTT button that doesn't pair via Android
+                     Bluetooth (vendor-service pucks). Opens the scan
+                     dialog; the picked device is assigned to its slot. -->
+                <Button
+                    android:id="@+id/xv_btn_scan_ble_ptt"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="10dp"
+                    android:background="@drawable/xv_pill_off"
+                    android:text="+  Add a PTT button (handlebar, glove, puck)"
+                    android:textAllCaps="false"
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="13sp"/>
+
+                <!-- Troubleshooting: collapsed by default; the header
+                     toggles xv_devices_troubleshoot. -->
+                <TextView
+                    android:id="@+id/xv_devices_troubleshoot_toggle"
+                    android:layout_width="match_parent"
+                    android:layout_height="44dp"
+                    android:layout_marginTop="12dp"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:text="Troubleshooting  ▸"
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="13sp"/>
+
+                <LinearLayout
+                    android:id="@+id/xv_devices_troubleshoot"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="4dp"
+                        android:paddingEnd="4dp"
+                        android:text="Don't pair Bluetooth PTT buttons in Android Bluetooth Settings — it causes pairing loops. Add them with the button above. If you see loops, Forget the button in Android Settings."
+                        android:textColor="@color/xv_warn"
+                        android:textSize="12sp"/>
+
+                    <!-- Remove a previously-added BLE PTT device from the
+                         picker and any slot assignment. -->
+                    <Button
+                        android:id="@+id/xv_btn_remove_ble_ptt"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:background="@drawable/xv_button_bg"
+                        android:minHeight="44dp"
+                        android:text="Forget an added PTT button"
+                        android:textAllCaps="false"
+                        android:textColor="@color/xv_text"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:background="@drawable/xv_card_bg"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:padding="12dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Auto-connect compatible Bluetooth"
+                            android:textColor="@color/xv_text"
+                            android:textSize="14sp"/>
+
+                        <Switch
+                            android:id="@+id/xv_switch_auto_connect_bt"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"/>
+                    </LinearLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="When ON, XV connects the first compatible bonded speaker-mic / BLE PTT button it finds on launch. Turn OFF to control connections from the cards above."
+                        android:textColor="@color/xv_text_dim"
+                        android:textSize="11sp"/>
+                </LinearLayout>
 
                 <!-- ============================================================
                      Audio device section. Placed above the device-specific
@@ -632,61 +814,6 @@
                     android:textSize="11sp"
                     android:layout_marginTop="4dp"/>
 
-                <!-- ============================================================
-                     Device-specific hardware-button rows below. Each is
-                     hidden on unsupported hardware so operators only see
-                     the one that matches their device. Configure-once-and-
-                     forget, so intentionally below the more frequently-used
-                     Audio device section above.
-                     ============================================================ -->
-
-                <!-- Samsung ruggedized-device Active Key PTT. Visible
-                     ONLY on Samsung hardware with the programmable key
-                     (XvDropDownReceiver.wireSamsungActiveKeyRow consults
-                     `SamsungActiveKey.isSupported(context)`); hidden on
-                     everything else. Samsung's own "Use Active button
-                     with app" setting is the single on/off switch, so
-                     this row has no XV-side toggle: it shows whether the
-                     key is assigned to XV and opens Samsung's Active
-                     button screen when tapped. -->
-                <LinearLayout
-                    android:id="@+id/xv_row_samsung_active_key"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="12dp"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Samsung Active Key PTT"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
-
-                    <TextView
-                        android:id="@+id/xv_label_samsung_active_key_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/xv_text_dim"
-                        android:textSize="13sp"/>
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/xv_label_samsung_active_key_help"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. The key then works as PTT in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"
-                    android:visibility="gone"/>
 
                 <!-- ============================================================ -->
                 <!-- Help & Documentation                                        -->
@@ -780,37 +907,6 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="When the voice server is unreachable but devices still share a Wi-Fi or mesh network, voice fails over to encrypted IP multicast automatically — same PTT, no reconfiguration. Legs only run on Wi-Fi/Ethernet, never cellular."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Mission auto-channels"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
-
-                    <Switch
-                        android:id="@+id/xv_switch_mission_channels"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Your active ATAK Data Sync mission drives the primary voice channel: XV derives the channel name from the mission and joins it, so the whole mission team lands on one voice channel with no manual coordination."
                     android:textColor="@color/xv_text_dim"
                     android:textSize="11sp"
                     android:layout_marginTop="6dp"/>

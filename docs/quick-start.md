@@ -59,7 +59,9 @@ permissions:
    with your device's ATAK TLS enrollment certificate.
    - If you have multiple TAK Servers configured in ATAK, open **XV Settings**
      to pick a preferred server host.
-3. Select a channel from the Mumble channel list to join.
+3. Tap the channel name on the main panel to open the channel list, then tap
+   **1** on a channel to make it channel 1 (keyed by PTT 1). Optionally tap
+   **2** on another channel for channel 2 (keyed by PTT 2).
 
 !!! note "No separate Mumble login needed"
     Because XV reuses your ATAK enrollment certificate for TLS client
@@ -69,8 +71,8 @@ permissions:
 ## 4. Pair Your Speaker-Mic (Optional)
 
 - **AINA APTT V2 / V1 or Inrico BT02:** Pair the speaker-mic in **Android
-  Bluetooth Settings** first, then select it in **XV Settings → Primary
-  Speaker-Mic**.
+  Bluetooth Settings** first, then select it on the **Speaker-mic** card in
+  **XV Settings → Devices**.
 - **Pryme BT-PTT-Z (BLE button only):** Follow the
   [Pryme BT-PTT-Z Pairing Guide](hardware/pryme-bt-ptt-z.md).
 - **Samsung Active Key:** Enable the hardware key toggle in **XV Settings**;

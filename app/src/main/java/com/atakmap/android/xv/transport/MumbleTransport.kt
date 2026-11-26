@@ -875,6 +875,14 @@ class MumbleTransport(
         )
     }
 
+    /** Users per channel id as seen by the primary session's roster
+     *  (includes our own identities). Feeds the "N users" meta line in
+     *  the channel list. */
+    fun channelUserCounts(): Map<Int, Int> =
+        primary.channelBySession.values
+            .groupingBy { it }
+            .eachCount()
+
     private fun participationOrder(p: com.atakmap.android.xv.transport.mumble.MumbleSession.ChannelInfo.Participation): Int =
         when (p) {
             // Tier sort: full → listen-only → denied. UNKNOWN
