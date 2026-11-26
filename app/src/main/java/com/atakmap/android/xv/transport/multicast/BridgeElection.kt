@@ -19,6 +19,12 @@ package com.atakmap.android.xv.transport.multicast
  *     separate networks each elect their own bridge.
  *   - Our own server connectivity, passed to [evaluate].
  *
+ * Scope: per channel. A peer counts for a channel only when its beacon
+ * lists that channel (a beacon with no channel list counts for every
+ * channel, for older senders). Before this, one global vote let a
+ * server-connected peer on ANOTHER channel win, so the device actually on
+ * the mesh-only peer's channel stood down and that peer heard nothing.
+ *
  * Rule: the bridge is the **lowest UID among server-connected peers**
  * (including ourselves), and the bridge role only activates while at
  * least one known peer LACKS server connectivity — a fully-connected
@@ -42,7 +48,12 @@ class BridgeElection(
         val uid: String,
         val mumbleConnected: Boolean,
         val lastSeenMs: Long,
-    )
+        // Canonical channels from the beacon; null = not listed (any channel).
+        val channels: Set<String>? = null,
+        val bridging: Boolean = false,
+    ) {
+        fun on(channel: String?): Boolean = channel == null || channels == null || channel in channels
+    }
 
     private val peers = HashMap<String, PeerView>()
 
@@ -55,9 +66,11 @@ class BridgeElection(
         uid: String,
         mumbleConnected: Boolean,
         nowMs: Long,
+        channels: Set<String>? = null,
+        bridging: Boolean = false,
     ) {
         if (uid == ourUid) return
-        peers[uid] = PeerView(uid, mumbleConnected, nowMs)
+        peers[uid] = PeerView(uid, mumbleConnected, nowMs, channels?.takeIf { it.isNotEmpty() }, bridging)
     }
 
     /** Explicit departure signal (Mumble UserRemove, presence purge). */
@@ -69,18 +82,28 @@ class BridgeElection(
      * Should WE be relaying right now?
      *
      * @param ourMumbleConnected live server connectivity of this client.
+     * @param channel canonical channel to elect for (null = every peer).
      */
     fun evaluate(
         nowMs: Long,
         ourMumbleConnected: Boolean,
+        channel: String? = null,
     ): Boolean {
         pruneStale(nowMs)
         if (!ourMumbleConnected) return false
-        val anyoneNeedsBridge = peers.values.any { !it.mumbleConnected }
-        if (!anyoneNeedsBridge) return false
-        val connectedUids =
-            peers.values.filter { it.mumbleConnected }.map { it.uid } + ourUid
+        val onChannel = peers.values.filter { it.on(channel) }
+        if (onChannel.none { !it.mumbleConnected }) return false
+        val connectedUids = onChannel.filter { it.mumbleConnected }.map { it.uid } + ourUid
         return connectedUids.min() == ourUid
+    }
+
+    /** Another fresh peer reports it is bridging [channel]. */
+    fun otherBridgeOn(
+        channel: String,
+        nowMs: Long,
+    ): Boolean {
+        pruneStale(nowMs)
+        return peers.values.any { it.bridging && it.on(channel) }
     }
 
     /** True when a fresh peer without server connectivity is known. */

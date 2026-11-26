@@ -75,6 +75,7 @@ class MeshVoiceManagerTest {
         val playedRx = mutableListOf<String>() // speaker labels forwarded to service
         val playedSlots = mutableListOf<Int>() // slot each played frame was routed to
         val relayedToMumble = mutableListOf<Boolean>() // burstStart flags
+        val relayedSlots = mutableListOf<Int>() // session slot each relay went to
         val meshTxStateChanges = mutableListOf<Boolean>()
         val peerSessions = mutableMapOf<Int, String>() // mumble session → uid
         val peerUids = mutableSetOf<String>()
@@ -103,7 +104,10 @@ class MeshVoiceManagerTest {
                     playedRx += label
                     playedSlots += slot
                 },
-                relayToMumble = { _, burstStart -> relayedToMumble += burstStart },
+                relayToMumble = { _, burstStart, slot ->
+                    relayedToMumble += burstStart
+                    relayedSlots += slot
+                },
                 onMeshTxStateChanged = { meshTxStateChanges += it },
                 deviceUidForMumbleSession = { peerSessions[it] },
                 uidMumbleConnected = { it in connectedUids },
@@ -331,12 +335,26 @@ class MeshVoiceManagerTest {
     }
 
     @Test
-    fun `bridge never relays channel 2 mesh audio onto channel 1's server session`() {
+    fun `channel 2's mesh audio is relayed onto channel 2's session, never channel 1's`() {
         val h = Harness()
         h.makeUsBridge()
         h.manager.setSecondaryChannel("Ops-2")
+        h.now += 1_000
+        h.manager.tick() // elects us for channel 2 too (the offline peer lists no channels)
         h.manager.onVoice("ops-2", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
-        assertTrue(h.relayedToMumble.isEmpty())
+        assertEquals(listOf(1), h.relayedSlots)
+    }
+
+    @Test
+    fun `channel 2 server speakers are relayed to channel 2's leg when bridging it`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.manager.setSecondaryChannel("Ops-2")
+        h.now += 1_000
+        h.manager.tick()
+        h.manager.onMumbleRxFrame(1, speakerSession = 9, opus = byteArrayOf(5))
+        assertEquals(1, h.legs.getValue("ops-2").relayed.size)
+        assertTrue(h.channelLeg().relayed.isEmpty())
     }
 
     @Test
@@ -626,6 +644,9 @@ class MeshVoiceManagerTest {
         val h = Harness()
         h.joinAndTick() // server healthy (mumbleUp=true), not the bridge
         h.manager.observeMumbleHealth() // server is actively delivering
+        // Another peer is bridging this channel: it relays mesh speakers onto
+        // Mumble, so this client hears them there.
+        h.beaconFrom("uid-aaa-bridge", mumbleConnected = true, bridging = true)
         // The failover playback gate: this client already hears everyone via
         // Mumble, so the multicast copy must NOT play — that copy is the
         // double audio the operator reported.
@@ -641,10 +662,12 @@ class MeshVoiceManagerTest {
     }
 
     @Test
-    fun `Both mode with a live server plays nothing from the mesh — Mumble is primary`() {
+    fun `Both mode with a live server and a bridge plays nothing from the mesh — Mumble is primary`() {
         val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = MulticastMode.ALWAYS) })
         h.joinAndTick()
         h.manager.observeMumbleHealth()
+        // Another peer bridges the channel: mesh-only speakers reach us over Mumble.
+        h.beaconFrom("uid-aaa-bridge", mumbleConnected = true, bridging = true)
         h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
         assertTrue("Both mode must not play the mesh copy while Mumble is live", h.playedRx.isEmpty())
         h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
@@ -699,6 +722,46 @@ class MeshVoiceManagerTest {
     }
 
     // ---- bridge election + relay ----
+
+    private fun Harness.beaconFrom(
+        uid: String,
+        mumbleConnected: Boolean,
+        bridging: Boolean,
+        channel: String = "ops-1",
+    ) {
+        manager.onControl(
+            MeshVoiceManager.RENDEZVOUS_CHANNEL,
+            ControlPacket.Message.PeerBeacon(
+                uid = uid,
+                callsign = uid,
+                mumbleConnected = mumbleConnected,
+                bridging = bridging,
+                channels = listOf(ControlPacket.Message.PeerBeacon.Channel(name = channel, group = "239.255.0.1", port = 16_000)),
+            ),
+            sourceHost = "192.0.2.30",
+            isPatchLeg = false,
+        )
+    }
+
+    @Test
+    fun `a mesh-only speaker plays when nobody is bridging the channel`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.observeMumbleHealth() // server live, we are not the bridge
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals("no Mumble copy will come: hear it on the mesh", listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+    }
+
+    @Test
+    fun `a bridge on another channel doesn't take the bridge role from us`() {
+        val h = Harness(ourUid = "uid-mmm")
+        h.joinAndTick()
+        h.beaconFrom("uid-aaa", mumbleConnected = true, bridging = false, channel = "elsewhere")
+        h.beaconFrom("uid-zzz-mesh-only", mumbleConnected = false, bridging = false)
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("lowest server-connected uid on OUR channel", h.manager.isBridging())
+    }
 
     private fun Harness.observePeerConnectivity(uid: String, mumbleConnected: Boolean) {
         manager.onControl(

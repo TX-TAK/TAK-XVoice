@@ -3695,7 +3695,7 @@ class XvMapComponent : AbstractMapComponent() {
                         }
                     }
                 },
-                relayToMumble = { opus, burstStart ->
+                relayToMumble = { opus, burstStart, slot ->
                     // Bridge relay: a server-less mesh speaker's frame
                     // goes onto the Mumble channel over OUR session —
                     // and ONLY there. Never route this through
@@ -3707,13 +3707,13 @@ class XvMapComponent : AbstractMapComponent() {
                     // group (field repro 2026-07-16). Same reasoning
                     // for the burst edge: reset only the Mumble
                     // sequence, not the mesh legs' TX state.
-                    if (burstStart) mumbleTransport()?.beginVoiceBurst()
+                    if (burstStart) mumbleTransport()?.beginVoiceBurst(slot)
                     activeTransport?.sendFrame(
                         com.atakmap.android.xv.transport.VoiceFrame(
                             opusPayload = opus,
                             senderId = "self",
                             monotonicTimestampMs = System.nanoTime() / 1_000_000,
-                            targetSlot = 0,
+                            targetSlot = slot,
                         ),
                     )
                 },
