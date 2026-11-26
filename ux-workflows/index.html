@@ -1,0 +1,1829 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ATAK voice plugin focused on operational Bluetooth audio routing, predictable auto-reconnect, curated external PTT hardware, and Mumble + multicast voice.">
+      
+      
+      
+        <link rel="canonical" href="https://tx-tak.github.io/TAK-XVoice/ux-workflows/">
+      
+      
+        <link rel="prev" href="../user-setup/">
+      
+      
+        <link rel="next" href="../server-setup/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../brand/ic_play_512.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.8.2">
+    
+    
+      
+        <title>Operator Workflows - TAK-XVoice</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.57a0d79d.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.fb2fffe2.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#operator-workflows" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+<header class="md-header" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="TAK-XVoice" class="md-header__button md-logo" aria-label="TAK-XVoice" data-md-component="logo">
+      
+  <img src="../brand/ic_play_512.png" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            TAK-XVoice
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Operator Workflows
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="teal" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/TX-TAK/TAK-XVoice" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TX-TAK/TAK-XVoice
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+            
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href=".." class="md-tabs__link">
+        
+  
+  
+    
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../quick-start/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Quick Start
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../user-setup/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  User Setup
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="./" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Operator Workflows
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../server-setup/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Server & Channels
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../hardware/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Supported Hardware
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../dependencies/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Dependencies
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../design-decisions/" class="md-tabs__link">
+          
+  
+  
+    
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ul>
+  </div>
+</nav>
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="TAK-XVoice" class="md-nav__button md-logo" aria-label="TAK-XVoice" data-md-component="logo">
+      
+  <img src="../brand/ic_play_512.png" alt="logo">
+
+    </a>
+    TAK-XVoice
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/TX-TAK/TAK-XVoice" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    TX-TAK/TAK-XVoice
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../user-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    User Setup
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator Workflows
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-first-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. First run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-daily-use-listen-and-transmit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Daily use — listen and transmit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Daily use — listen and transmit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-main-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The main panel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transmitting-every-input-and-what-it-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transmitting — every input and what it keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#map-ptt-buttons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Map PTT buttons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2a-channel-members" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2a. Channel members
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Devices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-mesh-voice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Mesh voice
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5a-direct-calls-dormant-not-shipping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5a. Direct calls (dormant — not shipping)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-sharing-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Sharing (today)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-settings-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Settings map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gaps-inconsistencies-and-dead-ends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaps, inconsistencies and dead ends
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../server-setup/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Server & Channels
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../hardware/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Supported Hardware
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Supported Hardware
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/samsung-active-key/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Samsung Active Key
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/pryme-bt-ptt-z/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pryme BT-PTT-Z
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/inrico-bt02/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Inrico BT02 (Experimental)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../hardware/sonim-xp10/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Sonim XP10 (Retired)
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../dependencies/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Dependencies
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
+        
+          
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../design-decisions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Design Decisions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../verify-channel-share/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Channel Share Verification
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://tx-tak.github.io/TAK-XVoice/privacy.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Privacy Policy
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="https://tx-tak.github.io/TAK-XVoice/terms.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Terms of Service
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#1-first-run" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        1. First run
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#2-daily-use-listen-and-transmit" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2. Daily use — listen and transmit
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="2. Daily use — listen and transmit">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-main-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The main panel
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#transmitting-every-input-and-what-it-keys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Transmitting — every input and what it keys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#map-ptt-buttons" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Map PTT buttons
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#2a-channel-members" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        2a. Channel members
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#3-channels" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        3. Channels
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#4-devices" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        4. Devices
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5-mesh-voice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5. Mesh voice
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#5a-direct-calls-dormant-not-shipping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        5a. Direct calls (dormant — not shipping)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#6-sharing-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        6. Sharing (today)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#7-settings-map" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        7. Settings map
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#gaps-inconsistencies-and-dead-ends" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Gaps, inconsistencies and dead ends
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+    <a href="https://github.com/TX-TAK/TAK-XVoice/edit/main/docs/ux-workflows.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M10 20H6V4h7v5h5v3.1l2-2V8l-6-6H6c-1.1 0-2 .9-2 2v16c0 1.1.9 2 2 2h4zm10.2-7c.1 0 .3.1.4.2l1.3 1.3c.2.2.2.6 0 .8l-1 1-2.1-2.1 1-1c.1-.1.2-.2.4-.2m0 3.9L14.1 23H12v-2.1l6.1-6.1z"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="operator-workflows">Operator workflows<a class="headerlink" href="#operator-workflows" title="Permanent link">&para;</a></h1>
+<p>A map of how TAK-XVoice (XV) works from the operator's side, as it ships on this branch: what you see, what you press, what you hear back, and what happens when something goes wrong. Where this differs from the approved mockups, the <strong>code</strong> wins and the difference is called out.</p>
+<p><strong>Conventions used throughout</strong></p>
+<ul>
+<li><strong>Channel 1 / channel 2</strong> are the two voice slots. Logs and code also call them VS1 / VS2, or slot 0 / slot 1.</li>
+<li><strong>Colour meanings</strong>, kept consistent everywhere:</li>
+<li><strong>Honey</strong> (<code>#E8A33D</code>) means voice activity: someone talking, the active slot, the brand accent.</li>
+<li><strong>Bluebonnet</strong> means system and network state: connected, server, mesh.</li>
+<li><strong>Texas Red</strong> means you are transmitting, or a destructive action.</li>
+<li><strong>Fixed button mapping</strong> (never remappable):</li>
+<li>PTT1 always keys channel 1.</li>
+<li>PTT2 always keys channel 2, or channel 1 when channel 2 is off.</li>
+<li><strong>Swap</strong> is the only way to change which net each button keys.</li>
+<li><strong>Tones</strong>:</li>
+<li><strong>Talk-permit tone (TPT)</strong>: your PTT is live.</li>
+<li><strong>Deny / bonk</strong>: your PTT was refused, because you're listen-only, not connected, or a swap is in flight.</li>
+<li><strong>Join chirp</strong>: a channel was joined. A swap plays a single chirp.</li>
+<li><strong>Voice-lost warning</strong>: the voice link dropped.</li>
+</ul>
+<hr />
+<h2 id="1-first-run">1. First run<a class="headerlink" href="#1-first-run" title="Permanent link">&para;</a></h2>
+<p><strong>Entry:</strong> install the plugin, then load it in ATAK › Plugins.</p>
+<pre class="mermaid"><code>flowchart TD
+    A[Plugin loads] --&gt; B{Mic / Bluetooth / notification permissions granted?}
+    B -- no --&gt; C[XV permission screen opens] --&gt; B
+    B -- yes --&gt; D{TAK server enrolled in ATAK?}
+    D -- no --&gt; E[No voice connection. Panel status line: 'no TAK server'.&lt;br/&gt;Enroll a TAK server in ATAK, then reopen XV]
+    D -- yes --&gt; F[Voice connects to the same host, TLS with your ATAK certificate]
+    F --&gt; G[Channel 1 = where the server places you&lt;br/&gt;usually Lobby; saved for next time]
+    G --&gt; H[Speaker-mic / button auto-connect, if one is paired and powered]
+    H --&gt; I[Map PTT buttons appear on the map edge]</code></pre>
+<ul>
+<li><strong>Permissions.</strong></li>
+<li>If any are missing, XV opens its own grant screen.</li>
+<li>Opening the panel later with a permission revoked shows a toast and opens the grant prompt again.</li>
+<li><strong>Channel 1 auto-pick.</strong> There is no picker on first run. Channel 1 is whatever channel the server puts you in, normally Lobby, and XV saves it. From then on, XV rejoins the last channel 1 on every start. Channel 1 is never blank.</li>
+<li><strong>Failure paths.</strong></li>
+<li><strong>No enrolled server:</strong> XV doesn't dial.</li>
+<li><strong>Wrong or expired certificate:</strong> a server reject that isn't retried.</li>
+<li><strong>Network down:</strong> a reconnect countdown on the status line, and the voice-lost tone.</li>
+</ul>
+<p><strong>Connects to:</strong> Daily use (2), Channels (3).</p>
+<hr />
+<h2 id="2-daily-use-listen-and-transmit">2. Daily use — listen and transmit<a class="headerlink" href="#2-daily-use-listen-and-transmit" title="Permanent link">&para;</a></h2>
+<p><strong>Entry:</strong> the XV toolbar button opens the panel, or you use the map PTT buttons with the panel closed.</p>
+<h3 id="the-main-panel">The main panel<a class="headerlink" href="#the-main-panel" title="Permanent link">&para;</a></h3>
+<p>Each channel row shows, left to right:</p>
+<ul>
+<li>a hex slot badge: Honey when live, an outline when the slot isn't live;</li>
+<li>the channel name, which shrinks and then wraps to two lines. With no channel yet it reads <strong>Pick a channel</strong>. A <strong>⚑</strong> before channel 1's name means the active mission set it (Settings › Server);</li>
+<li>what's happening on the channel: talker names in Honey with a waveform, or <em>quiet</em>, <em>joining…</em>, <em>not connected</em>, <em>listen only</em>, or <em>mesh</em> (Bluebonnet: the server is down and a mesh leg is carrying that channel);</li>
+<li>while the mesh is carrying a channel, its slot badge, PTT outline and map PTT hex turn Bluebonnet instead of Honey (still Texas Red while transmitting);</li>
+<li>a <strong>👥 N</strong> member count (the same number the channel list shows for that channel);</li>
+<li>a large <strong>PTT</strong> button.</li>
+</ul>
+<p>A row is <strong>live</strong> only while voice can actually leave: each channel needs the server (channel 2: its own session joined) or its mesh leg carrying voice. A row that isn't live is dimmed, even if a channel name is remembered. Row 2's PTT is disabled while channel 2 is joining.</p>
+<p>Other parts of the panel:</p>
+<ul>
+<li><strong>Status line</strong> (Bluebonnet): connection dot, server, and audio route.</li>
+<li>Connected: the server name.</li>
+<li>Reconnecting: the dot at half strength plus a countdown.</li>
+<li><strong>Server off — tap to connect</strong> after Disconnect › Server only (mesh stays as backup), or <strong>All voice off — tap to connect</strong> after Disconnect › All voice off. Tap to connect.</li>
+<li><strong>refused: <reason> · tap to fix</strong> (red) when the server turned you away for good, e.g. <em>wrong password</em> or <em>no certificate</em>. Tap to open Settings › Server.<ul>
+<li>Both channels share one server login, so a refusal on either applies to both: each row whose connection is down reads <strong>unavailable · <reason></strong> (e.g. <em>access revoked</em>), PTT is refused on both, and neither retries against the refused credential. Connect (or a successful login once access is restored) clears it.</li>
+</ul>
+</li>
+<li><strong>no TAK server · tap to set up</strong>. Tap to open Settings › Server.</li>
+<li><strong>Mesh line</strong>: shown only while a mesh leg exists (hidden when mesh is off or no channel has a leg).</li>
+<li>Bluebonnet normally; Honey for <code>· KEY NEEDED</code>; red, bold, only for <code>· CLEAR</code> (an unencrypted leg).</li>
+<li>It shows the mesh state only. While a channel is on the mesh, its own row reads <strong>mesh · <code>group:port</code></strong> (that channel's live mesh address); <strong>long-press</strong> the row's mesh text to copy it for an interop peer.</li>
+<li><strong>Channel 2 off</strong>: its row becomes <strong>+ Add channel 2 · (both PTT buttons key 1)</strong>.</li>
+<li><strong>Left-handed</strong> (Settings › TX/RX) puts the PTT button at the left of each row.</li>
+</ul>
+<h3 id="transmitting-every-input-and-what-it-keys">Transmitting — every input and what it keys<a class="headerlink" href="#transmitting-every-input-and-what-it-keys" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Input</th>
+<th>Keys</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Panel PTT, row 1</td>
+<td>Channel 1</td>
+<td>Greys the instant you press; turns red only when the transmission is confirmed.</td>
+</tr>
+<tr>
+<td>Panel PTT, row 2</td>
+<td>Channel 2</td>
+<td>Row 2 exists only while channel 2 is on, and is disabled while it's joining.</td>
+</tr>
+<tr>
+<td>Map PTT 1 / 2</td>
+<td>Channel 1 / 2</td>
+<td>Shown while the panel is closed.</td>
+</tr>
+<tr>
+<td>Speaker-mic PTT1</td>
+<td>Channel 1</td>
+<td>AINA V1/V2, Inrico BT02.</td>
+</tr>
+<tr>
+<td>Speaker-mic PTT2</td>
+<td>Channel 2, or channel 1 when 2 is off</td>
+<td>Channel 2 on but not live (joining, reconnecting): refused with the deny tone. It never falls back to channel 1.</td>
+</tr>
+<tr>
+<td>Speaker-mic emergency</td>
+<td>The chosen ATAK alert (911 by default)</td>
+<td>AINA: a short press fires the alert; a 1 s long press cancels it. Inrico BT02: the button sends a single pulse, so it can only fire the alert; cancel it in ATAK.</td>
+</tr>
+<tr>
+<td>Button-only PTT (puck, handlebar, glove)</td>
+<td>Channel 1</td>
+<td>The external button reader handles the main PTT only.</td>
+</tr>
+<tr>
+<td>Samsung Active key</td>
+<td>Channel 1</td>
+<td>Works in the background and with the screen locked, once assigned in Samsung settings.</td>
+</tr>
+</tbody>
+</table>
+<p>Feedback and refusals:</p>
+<ul>
+<li><strong>Normal transmit:</strong> the button greys the instant you press (pressed). TPT plays, and only when the service confirms the transmission does it turn Texas Red and read <strong>TX</strong>, until the burst ends. Red always means you are on the air.</li>
+<li><strong>Refused press:</strong> the button flashes <strong>DENIED</strong> (red outline, never a red fill) for under a second, with the deny tone. This covers listen-only, channel 2 not live, no voice link, and a swap in flight.</li>
+<li><strong>Listen-only channel:</strong> the PTT reads <strong>LISTEN</strong>, dimmed. Pressing gives the deny tone and the DENIED flash.</li>
+<li><strong>A swap in flight (about 1 s):</strong></li>
+<li>panel and map PTT are refused with a toast;</li>
+<li>hardware PTT gets the deny tone;</li>
+<li>a press that is still priming blocks the swap from starting.</li>
+<li><strong>On a cellular call:</strong> PTT is refused with a toast.</li>
+<li><strong>Releasing:</strong></li>
+<li>each release ends exactly the slot that was pressed;</li>
+<li>on the panel, a second finger brushing the other PTT can't end the first transmission;</li>
+<li>releasing also happens when you slide off the button, the panel hides, or the button is disabled.</li>
+</ul>
+<h3 id="map-ptt-buttons">Map PTT buttons<a class="headerlink" href="#map-ptt-buttons" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Hex buttons are docked on the map edge: right by default, left when Left-handed is on. ATAK keeps them clear of its own widgets.</li>
+<li>They appear while the XV panel is closed and hide while it's open. Hiding releases a held button, and so does anything that takes the touch away from the map (a dialog, an incoming call, ATAK going to the background).</li>
+<li>Each shows the slot number and the channel name, which wraps to two lines and slowly scrolls only if it's longer still.</li>
+<li>Looks:</li>
+<li>Honey outline: idle.</li>
+<li>Grey fill: pressed, waiting for the transmission to start.</li>
+<li>Honey fill: someone is talking.</li>
+<li>Texas Red fill + <strong>TX</strong>: you're transmitting (confirmed).</li>
+<li>Red outline + <strong>DENIED</strong>: the press was refused (briefly).</li>
+<li>Dim: listen-only, or the slot isn't live.</li>
+<li>A talker line per channel: <strong>1 · <name></strong> above the buttons and <strong>2 · <name></strong> below them, so both are readable when both channels are busy. The lines keep their place while quiet, so incoming audio never moves the buttons. With nobody talking it shows <strong>Voice offline</strong> when there's no server or mesh link, or <strong>PTT1 → <channel></strong> for a few seconds after a swap.</li>
+<li>Size is Small, Medium or Large (Settings › TX/RX): a share of the screen's shorter side, never below 48 dp. Toggle the buttons off in Settings › TX/RX; they're on by default.</li>
+</ul>
+<p><strong>Connects to:</strong>
+- tapping a channel name opens Channels (3);
+- <strong>👥 N</strong> opens Channel members (the 2a note below);
+- the gear opens Settings (7).</p>
+<h3 id="2a-channel-members">2a. Channel members<a class="headerlink" href="#2a-channel-members" title="Permanent link">&para;</a></h3>
+<p>The <strong>👥 N</strong> count on a row opens that channel's member list.</p>
+<ul>
+<li>Each member row shows the callsign, Honey while talking, and server or mesh icons. Non-XV clients are dimmed.</li>
+<li><strong>Tap</strong> a member to find them on the map. This works for XV peers only; others show a toast.</li>
+<li><strong>Long-press</strong> a member for actions, as on channel rows: <strong>Find on map</strong>, and <em>Channel 1 → / Channel 2 →</em> a channel they're on.</li>
+<li>With nobody else on the channel, the list says so.</li>
+</ul>
+<hr />
+<h2 id="3-channels">3. Channels<a class="headerlink" href="#3-channels" title="Permanent link">&para;</a></h2>
+<p><strong>Entry:</strong> tap a channel name or <strong>+ Add channel 2</strong> on the panel. The channel list is locked during a direct call (a toast says to hang up first). <strong>◀</strong> returns to the panel where you left it, and the list reopens at the same scroll position.</p>
+<pre class="mermaid"><code>flowchart LR
+    P[Panel row] --&gt;|tap name| L[Channel list]
+    L --&gt;|tap 1 on a channel| C1[Becomes channel 1]
+    L --&gt;|tap 2 on a channel| C2[Becomes channel 2]
+    L --&gt;|tap the lit 2| OFF[Channel 2 off]
+    L --&gt;|⇅ Swap button| SW[Swap: one chirp, ~1 s + Undo]
+    SW --&gt;|server refuses one side| RB[Rolled back + toast]
+    L --&gt;|long-press| M[Mesh options / Share / Forget]</code></pre>
+<ul>
+<li><strong>The header bar</strong> shows the current channel 1 and channel 2 (long names wrap to two lines), and <strong>⇅ Swap</strong>.</li>
+<li>Swap is greyed with a reason while you're transmitting, on a direct call, have no channel 2, or channel 2 is still joining.</li>
+<li>Tapping it while greyed toasts the reason.</li>
+<li><strong>Search</strong> filters by name. It starts empty on every visit.</li>
+<li><strong>Order:</strong></li>
+<li>Lobby first, then server channels, with subchannels indented under their parent;</li>
+<li>within each level: full access, then listen-only, then no access, each alphabetical;</li>
+<li>then an <strong>OFFLINE · MESH</strong> section.</li>
+<li><strong>Row meta line:</strong> user count, who's talking (Honey), and <em>listen only</em> or <em>no access</em>; mesh-only rows read <em>mesh only</em>. Channels 1 and 2 show the panel's count, which includes mesh peers.</li>
+<li><strong>Pill rules:</strong></li>
+<li><strong>[1]</strong> assigns channel 1. A lit <strong>[1]</strong> can't be cleared; pick another channel to move it.</li>
+<li><strong>[2]</strong> assigns channel 2. A lit <strong>[2]</strong> turns channel 2 off; this works on mesh-only rows offline too.</li>
+<li>A channel already on one slot has the other slot's pill <strong>greyed out</strong>: channel 1's <strong>[2]</strong> and channel 2's <strong>[1]</strong>. Tapping it says to use <strong>Swap</strong>. Exchanging the two is only ever the explicit Swap button, never a side effect of picking a channel.</li>
+<li><strong>No-access</strong> rows have grey pills that explain why.</li>
+<li><strong>Mesh-only</strong> rows can't be channel 2. While the server is up they can't be channel 1 either: the mesh leg follows the server channel.</li>
+<li><strong>Channel 2 on/off:</strong> tap <strong>[2]</strong> on a channel to make it channel 2; tap the lit <strong>[2]</strong> to turn channel 2 off. Both are one direct tap, and the list marks the change immediately. With channel 2 off, the panel is single-channel and both PTT buttons key channel 1.</li>
+<li><strong>Undo (Swap only):</strong> Swap acts on one tap, then an <strong>Undo</strong> bar stays for about 5 s. After a swap, row 1 and the map pill show <strong>PTT1 → <channel></strong> for a few seconds.</li>
+<li><strong>Swap behaviour:</strong></li>
+<li>Both channels move in place, with no reconnect and one chirp.</li>
+<li>If the server refuses one side, the other side is undone and a toast says which.</li>
+<li>The result is saved and survives a restart or reconnect.</li>
+<li><strong>Mission auto-channels</strong> (Settings › Server, off by default): your active ATAK Data Sync mission drives channel 1. A manual move or a completed swap hands control back to you until the mission changes.</li>
+<li><strong>Failure paths:</strong></li>
+<li><strong>Saved channel 2 deleted on the server:</strong> channel 2 turns off, with a toast at connect.</li>
+<li><strong>Moved by a server admin:</strong> a toast. Your own moves and reconnects never trigger it.</li>
+</ul>
+<hr />
+<h2 id="4-devices">4. Devices<a class="headerlink" href="#4-devices" title="Permanent link">&para;</a></h2>
+<p><strong>Entry:</strong> Settings › <strong>Devices</strong>.</p>
+<ul>
+<li><strong>Speaker-mic card:</strong></li>
+<li>a role chip (AUDIO + PTT);</li>
+<li>a device picker, which shows only devices that are reachable;</li>
+<li>a Bluebonnet status line;</li>
+<li>a read-only button map: PTT1 → 1, PTT2 → 2 (1 when 2 is off), emergency → the chosen alert;</li>
+<li><strong>Emergency button sends</strong>: 911 Alert (default), Ring The Bell, Troops In Contact or Geo-fence Breached, or <strong>Off</strong>. Choosing Off asks twice: a warning, then type <strong>DISABLE</strong>. Cancelling either step leaves the button on. With it off, a press does nothing but show a toast saying so.</li>
+<li><strong>Phone Active key card</strong> (Samsung hardware only): shows whether the key is assigned to XV. Tap to open Samsung's settings.</li>
+<li><strong>PTT button card:</strong></li>
+<li>a role chip (BUTTON ONLY), a picker, and status. The picker's first entry is <strong>Off — no Bluetooth button</strong>: once you pick Off it stays off, and nothing auto-assigns a button again until you pick or add one;</li>
+<li><strong>+ Add a button</strong> and <strong>Forget an added button</strong>, side by side under the picker. Add scans for BLE pucks that don't pair through Android; the device you pick is assigned to the slot automatically;</li>
+<li>a read-only map: PTT → channel 1;</li>
+<li>a red <strong>Fix this button</strong> action appears if the button is paired in Android Bluetooth Settings, which causes pairing loops.</li>
+<li><strong>Audio device:</strong> where you hear and speak. Auto, or a chosen Bluetooth device. <strong>Built-in fallback</strong> (speaker or earpiece) applies when nothing is connected.</li>
+<li><strong>Auto-select:</strong> at start, XV restores your last speaker-mic if it's reachable; otherwise it picks the first live supported device, without overwriting your saved choice. If no speaker-mic is selected and one connects mid-session, it's selected then. A device that drops for 15 s falls back to the phone speaker and comes back when it reconnects. Device addresses are redacted in XV's logs.</li>
+<li><strong>Problem chips:</strong> the speaker-mic and PTT button cards show a red chip when the Bluetooth service reports a problem with that input:</li>
+<li><strong>NEEDS RE-PAIR</strong>: the device rejects the bond. Tap for details and <strong>Bluetooth settings</strong>; forget the device there and pair it again.</li>
+<li><strong>NOT RECOGNISED</strong>: the device connects but isn't the expected device, or a permission is missing. Tap for details.</li>
+<li>Every report is also a toast. A report that doesn't name which input it's about stays a toast only, so a chip never points at the wrong device.</li>
+<li>The chip clears when that device reconnects cleanly, you pick a different device for that card, or you re-pair the device it backs.</li>
+<li><strong>Troubleshooting</strong> (collapsed): the pairing warning and <strong>Auto-connect compatible Bluetooth</strong>.</li>
+<li><strong>Bluetooth off:</strong> a banner at the top. Tap it to turn Bluetooth on.</li>
+</ul>
+<hr />
+<h2 id="5-mesh-voice">5. Mesh voice<a class="headerlink" href="#5-mesh-voice" title="Permanent link">&para;</a></h2>
+<p><strong>Entry:</strong> Settings › <strong>Mesh</strong>.</p>
+<pre class="mermaid"><code>stateDiagram-v2
+    [*] --&gt; Off
+    Off --&gt; Ready: master switch on
+    Ready --&gt; Active: server drops (Backup) / always (Both)
+    Active --&gt; Ready: server back
+    Ready --&gt; Off: master switch off</code></pre>
+<ul>
+<li><strong>Master switch:</strong> <em>Mesh voice</em> keeps voice working when the server is down. It runs on Wi-Fi and mesh networks only, never cellular, and is always encrypted. There is no encryption choice.</li>
+<li><strong>Status line</strong> (also on the panel):</li>
+<li><code>MESH READY</code>: standing by.</li>
+<li><code>MESH ACTIVE</code>: carrying voice.</li>
+<li><code>· BRIDGE</code>: this device relays between server and mesh.</li>
+<li><code>· KEY NEEDED</code>: peers are encrypted and you don't hold the key yet, so you hear nothing until keyed.</li>
+<li><code>· CLEAR</code> (red): an unencrypted interop leg is live.</li>
+<li><strong>Channels list,</strong> one compact card per channel:</li>
+<li>collapsed (the default), one line: the name (Bluebonnet when active), the mode chip (<strong>BACKUP</strong>, <strong>OFF</strong> or <strong>BOTH</strong>), and <strong>ENCRYPTED</strong> — or a red <strong>CLEAR</strong> with <strong>OPENMANET</strong> when this device has an interop patch on that channel;</li>
+<li><strong>tap</strong> a card to open it (one at a time): a context line, <strong>Off / Backup / Both</strong>, and <strong>Details…</strong>. Picking a mode saves it and collapses the card;<ul>
+<li><em>Off</em>: no mesh leg.</li>
+<li><em>Backup</em>: mesh carries the channel only while the server is down. This is the default.</li>
+<li><em>Both</em>: transmits on server and mesh every time.</li>
+</ul>
+</li>
+<li><strong>Details…</strong> opens the channel's settings. Server channels: mode (Off / Backup / Both) and the <strong>interop patch (OpenMANET RTP)</strong> — this device only, never shared, unencrypted — with <strong>Clear patch</strong>. Offline channels: name and fixed group/port, plus <strong>Interop patch…</strong> for the same patch dialog;</li>
+<li><strong>long-press</strong> an offline channel to forget it.</li>
+<li><strong>Failover and back:</strong> when the server drops, voice continues on the mesh leg of any channel set to Backup or Both — channel 1 and channel 2 alike, each on its own leg (PTT2 keys channel 2's leg; what you hear there plays on row 2). The voice-lost tone plays and the status shows <code>MESH ACTIVE</code>. When the server returns, voice moves back automatically.</li>
+<li><strong>Bridge (automatic, per channel):</strong> when one device on a channel loses the server but is still on the mesh, it keeps talking over the mesh with no settings changed anywhere. The lowest-ID server-connected device on that same channel (channel 1 or 2) becomes the bridge and relays both ways between the mesh and the server. Everyone else on the server hears that device over the server.</li>
+<li><strong>Mumble first:</strong> while the server is up, anyone who is on the server is heard over the server only, never also over the mesh (no doubled audio, in any mode). A speaker who is only on the mesh is still heard: by the bridge, or by anyone when no bridge is relaying that channel.</li>
+<li><strong>Disconnect has two choices</strong> (Settings › Server › Disconnect): <strong>Server only</strong> leaves the server and keeps the mesh as backup (both channels fail over as above; status <em>Server off — tap to connect</em>); <strong>All voice off</strong> stops server and mesh (no failover, nothing heard or sent; status <em>All voice off — tap to connect</em>) until you connect again.</li>
+<li><strong>Not after a refusal:</strong> if the server <em>rejects</em> this device (access revoked, certificate or login refused), the mesh stops too: every mesh leg (interop patch included) closes, so nothing is heard or sent, until access is restored. A server that is just down or unreachable still fails over as above.</li>
+<li><strong>+ Add channel</strong> presets:</li>
+<li><strong>Private channel:</strong> XV picks the name, group and key.</li>
+<li><strong>Join a channel plan:</strong> import a plan you were sent.</li>
+<li><strong>Custom address / interop:</strong> the manual form.</li>
+<li><strong>Interop patch</strong> (collapsed, <em>this device only</em>): bridges the current channel to an OpenMANET or VX group. It's unencrypted, never shared, and doesn't change the mesh leg's encryption.</li>
+<li><strong>Security &amp; recovery</strong> (collapsed):</li>
+<li>rotate the active channel's key (trusted devices re-key; guests are cut off);</li>
+<li>forget all offline channels;</li>
+<li><strong>wipe</strong> all mesh keys, behind a slide-to-confirm.</li>
+</ul>
+<hr />
+<h2 id="5a-direct-calls-dormant-not-shipping">5a. Direct calls (dormant — not shipping)<a class="headerlink" href="#5a-direct-calls-dormant-not-shipping" title="Permanent link">&para;</a></h2>
+<blockquote>
+<p>Direct calls are switched off in this release: call signalling is not registered and nothing places or receives a call. This section records the dormant design. Phone calls (below) are live.</p>
+</blockquote>
+<p><strong>Entry:</strong> an incoming call arrives as a heads-up notification with <strong>Answer</strong> / <strong>Decline</strong>.</p>
+<pre class="mermaid"><code>flowchart LR
+    I[Incoming call notification] --&gt;|Answer| C[In call]
+    I --&gt;|Decline| X[Caller hears busy]
+    C --&gt; B[Panel: red IN CALL bar + End Call]
+    C --&gt; N[Ongoing-call notification: Hang up]
+    B --&gt;|End Call| E[Back to your channels]
+    N --&gt;|Hang up| E</code></pre>
+<ul>
+<li>While in a call, the panel shows a red <strong>● IN CALL</strong> bar with <strong>End Call</strong> above everything else, so there's always a visible way out even if the system call notification doesn't render.</li>
+<li>The channel list is locked until you hang up; Swap is greyed for the same reason.</li>
+<li>On the earpiece route, the screen turns off when the phone is at your ear.</li>
+<li>Channel 2's audio is paused for the call (the bar reads <strong>● IN CALL · channel 2 paused</strong>).</li>
+</ul>
+<p><strong>Phone calls (cellular or another app's call).</strong> During any phone call, ringing included, channel audio is ignored: nothing plays and nothing is kept for later. The panel shows <strong>On a phone call · channel audio paused</strong> (no End Call button; hang up on the phone). PTT is refused with a toast. Channel audio resumes when the call ends.
+- When the call ends, you return to your channels as they were.</p>
+<hr />
+<h2 id="6-sharing-today">6. Sharing (today)<a class="headerlink" href="#6-sharing-today" title="Permanent link">&para;</a></h2>
+<p><strong>Entry:</strong> Settings › Mesh › <strong>Share channel plan…</strong>, or long-press a channel in the channel list › <strong>Share this channel…</strong>.</p>
+<pre class="mermaid"><code>flowchart TD
+    S[Share] --&gt; W{Which channels?}
+    W --&gt; T{Share to whom?&lt;br/&gt;Everyone / teammates}
+    T --&gt;|Send| N[Sent through ATAK to the chosen teammates]
+    T --&gt;|Offline / QR| O{Encrypted channel?}
+    O -- yes --&gt; PP[Set a passphrase] --&gt; Q[QR + share as text]
+    O -- no --&gt; Q
+    N --&gt; R[Teammate: 'Join shared channel(s)?' → Join]
+    Q --&gt; I[Teammate: Mesh › Add channel › Join a channel plan → enter passphrase]</code></pre>
+<ul>
+<li>Network share uses ATAK's own addressing (individual, group or everyone). A teammate gets a <strong>Join shared channel(s)?</strong> prompt.</li>
+<li>Offline share produces a QR code and text. An encrypted plan needs a passphrase, which the receiver enters on import.</li>
+<li><strong>Deferred, not in this release:</strong> guest pass (single-use QR invite with a live approval code), NFC tap, and Quick Share.</li>
+</ul>
+<hr />
+<h2 id="7-settings-map">7. Settings map<a class="headerlink" href="#7-settings-map" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Tab</th>
+<th>What lives there</th>
+<th>Why there</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>Devices</strong> (opens first)</td>
+<td>Speaker-mic, PTT button, Phone Active key, + Add a PTT button, Audio device, Built-in fallback, Troubleshooting, Help</td>
+<td>What keys the radio and where you hear it: touched most often</td>
+</tr>
+<tr>
+<td><strong>TX/RX</strong></td>
+<td>Layout (Left-handed, map PTT buttons and their size), Advanced › Low latency mode (Bluetooth only, not recommended; holds the voice link the whole time in a channel), PTT timeout, Talk-permit tone</td>
+<td>How transmitting feels</td>
+</tr>
+<tr>
+<td><strong>Server</strong></td>
+<td>TAK server picker, voice Connect / Disconnect (Server only, or All voice off), Mission auto-channels</td>
+<td>Server-side behaviour: which server, and which channel a mission drives</td>
+</tr>
+<tr>
+<td><strong>Mesh</strong></td>
+<td>Master switch + status, channel list (Off/Backup/Both), + Add channel, Share channel plan, Interop patch, Security &amp; recovery</td>
+<td>Everything that works without a server</td>
+</tr>
+</tbody>
+</table>
+<p>Other screens:
+- <strong>Channel list</strong>, from the panel: channel choice.
+- <strong>Channel members</strong>, from the 👥 count.
+- Dialogs: confirmations, pickers, share and import. These all share one look: Honey primary action, red for destructive actions.</p>
+<hr />
+<h2 id="gaps-inconsistencies-and-dead-ends">Gaps, inconsistencies and dead ends<a class="headerlink" href="#gaps-inconsistencies-and-dead-ends" title="Permanent link">&para;</a></h2>
+<p><strong>Fixed on this branch while mapping the journeys:</strong></p>
+<ol>
+<li><strong>Button-only PTT map was wrong.</strong> The Devices card said "2nd PTT → channel 2 (if fitted)", but the external-button reader handles only the main PTT, which keys channel 1. The card now says <em>PTT → channel 1</em>.</li>
+<li><strong>Sharing wasn't reachable from a channel.</strong> The mockups put Share on the channel, but the channel list's long-press offered only mesh options. It now also offers <strong>Share this channel…</strong>, the same flow pre-selected to that channel. Settings › Mesh › Share channel plan remains for sharing several channels at once.</li>
+</ol>
+<p><strong>Open (out of scope here, or blocked):</strong></p>
+<ol>
+<li><strong>Problem chips wait on the Bluetooth PR.</strong> The chips, their dialogs and the per-card state are built; they light up once the Bluetooth reader-health PR adds <code>onPttInputNeedsRepair</code> / <code>onPttInputProblem</code> to the service listener. Until then they can be exercised with the debug <code>PTT_INPUT_ISSUE</code> broadcast.</li>
+<li><strong>OpenMANET talkgroup preset.</strong> The mockup's TG picker needs a talkgroup addressing scheme that XV doesn't have in code. Today, interop is the device-local patch fields or <em>Custom address / interop</em>.</li>
+<li><strong>KEY NEEDED is only on the status line.</strong> Mesh channel cards don't show which channel lacks a key. A per-channel badge needs per-channel key state from the mesh manager.</li>
+<li><strong>Interop patch applies to the current channel.</strong> The patch fields act on the active mesh channel, not the card you were looking at. Per-channel patch editing exists in the channel's details dialog.</li>
+<li><strong>No first-run channel prompt.</strong> Channel 1 is wherever the server places you (usually Lobby) until you pick one. This is intentional (channel 1 is never blank), but a new operator may not realise they're in Lobby.</li>
+<li><strong>Hardware PTT during a swap gets only a deny tone.</strong> On-screen and map PTT add a toast; a speaker-mic can't show one. The window is about 1 s.</li>
+<li><strong>Direct calls are dormant.</strong> Neither placing nor receiving a direct call is possible in this release (signalling off, no UI entry point). Re-enabling needs the signalling, the phone-call foreground-service type, and an entry point such as a member-row action.</li>
+<li><strong>Texas Red text contrast.</strong> Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.</li>
+<li><strong>Terminology:</strong> operator-facing text says <em>channel 1 / channel 2</em> everywhere. <em>VS1/VS2</em> survives only in logs and internal names.</li>
+<li><strong>Map PTT buttons aren't reachable with TalkBack.</strong> They're ATAK map widgets, which aren't in the Android accessibility tree. TalkBack users key from the panel PTT or a hardware button.</li>
+<li><strong>One VoIP case isn't detected.</strong> The phone-call rule covers ringing, cellular calls (including VoLTE calls, which run in the same audio mode as XV's own audio, once answered or placed), and another app's VoIP call that starts while XV is quiet. It can't see a VoIP call another app starts while XV is already playing or transmitting, because the audio mode doesn't change. With Low latency mode on, XV holds that mode the whole time, so this also covers a call you <em>place</em> from the phone (an incoming call still rings first and is caught). Replaying channel audio missed during a call is a backlog item.</li>
+</ol>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../user-setup/" class="md-footer__link md-footer__link--prev" aria-label="Previous: User Setup">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                User Setup
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../server-setup/" class="md-footer__link md-footer__link--next" aria-label="Next: Server &amp; Channels">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Server & Channels
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 11v2h12l-5.5 5.5 1.42 1.42L19.84 12l-7.92-7.92L10.5 5.5 16 11z"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.tabs", "navigation.sections", "navigation.indexes", "navigation.top", "navigation.footer", "search.suggest", "search.highlight", "content.code.copy", "content.action.edit"], "search": "../assets/javascripts/workers/search.a7633da7.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.a5f9d56c.min.js"></script>
+      
+    
+  </body>
+</html>

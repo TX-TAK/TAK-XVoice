@@ -16,7 +16,7 @@
         <link rel="prev" href="../quick-start/">
       
       
-        <link rel="next" href="../server-setup/">
+        <link rel="next" href="../ux-workflows/">
       
       
         
@@ -271,6 +271,25 @@
     
   
   User Setup
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../ux-workflows/" class="md-tabs__link">
+        
+  
+  
+    
+  
+  Operator Workflows
 
       </a>
     </li>
@@ -590,10 +609,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#direct-calling" class="md-nav__link">
+  <a href="#direct-calling-not-shipping" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Direct Calling
+        Direct Calling (not shipping)
       
     </span>
   </a>
@@ -622,10 +641,48 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#low-latency-mode-not-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low latency mode (not recommended)
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
       
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../ux-workflows/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Operator Workflows
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -691,7 +748,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -713,14 +770,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_5">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -908,10 +965,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_8" >
         
           
-          <label class="md-nav__link" for="__nav_7" id="__nav_7_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_8" id="__nav_8_label" tabindex="0">
             
   
   
@@ -929,8 +986,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_7">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_8">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1152,10 +1209,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#direct-calling" class="md-nav__link">
+  <a href="#direct-calling-not-shipping" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Direct Calling
+        Direct Calling (not shipping)
       
     </span>
   </a>
@@ -1178,6 +1235,17 @@
     <span class="md-ellipsis">
       
         Mesh-Voice Failover (Alpha — Testing Only)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#low-latency-mode-not-recommended" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Low latency mode (not recommended)
       
     </span>
   </a>
@@ -1217,16 +1285,16 @@ tones, emergency alerts, and channel sharing.</p>
 <p>TAK-XVoice treats your paired Bluetooth speaker-mic as <strong>XV-exclusive comms
 gear</strong> while leaving the rest of your phone alone:</p>
 <ul>
-<li><strong>No held audio resources:</strong> HFP/SCO is engaged <strong>only while the mic is
-  actively open</strong> (PTT-down or hot-mic). Loading the plugin or joining a
-  channel does not hijack your audio route.</li>
+<li><strong>No held audio resources:</strong> HFP/SCO is engaged <strong>only while you
+  transmit</strong>. Loading the plugin or joining a channel does not hijack your
+  audio route (unless you turn on Low latency mode, below).</li>
 <li><strong>Media &amp; navigation keep working:</strong> Spotify, podcasts, GPS turn-by-turn
   prompts, ATAK alerts, and personal headphones continue using their normal
   A2DP / phone audio paths between transmissions.</li>
 </ul>
 <h2 id="bluetooth-speaker-mic-picker-fallback">Bluetooth Speaker-Mic Picker &amp; Fallback<a class="headerlink" href="#bluetooth-speaker-mic-picker-fallback" title="Permanent link">&para;</a></h2>
-<p>Open <strong>XV Settings → Primary Speaker-Mic</strong> to pick your preferred Bluetooth
-device:</p>
+<p>Open <strong>XV Settings → Devices</strong> and use the <strong>Speaker-mic</strong> card to pick your
+preferred Bluetooth device:</p>
 <ul>
 <li><strong>Reachability-aware picker:</strong> On plugin load, XV restores your
   last-connected speaker-mic if it is reachable; otherwise it automatically
@@ -1236,10 +1304,12 @@ device:</p>
   unreachable for <strong>15 seconds</strong> during a session, XV falls back to the phone
   speaker while remembering your preferred MAC address — audio automatically
   returns to the speaker-mic as soon as it reconnects.</li>
-<li><strong>Per-MAC button defaults &amp; overrides:</strong> Each supported device ships
-  pre-mapped (PTT → Channel 1, secondary → Channel 2, emergency button,
-  prev/next channel) so a fresh pairing works out of the box. Any custom button
-  overrides you make persist per Bluetooth MAC address.</li>
+<li><strong>Fixed button map:</strong> Every supported device keys the same way — PTT →
+  channel 1, secondary PTT → channel 2 (channel 1 when channel 2 is off),
+  emergency button → ATAK alert — so a fresh pairing works out of the box.
+  The mapping is shown read-only on the device's card and is not
+  remappable; to change which net a button keys, <strong>Swap</strong> channels 1 and 2
+  in the channel list.</li>
 </ul>
 <p>For device-specific pairing and button notes, see
 <a href="../hardware/">Supported Hardware</a>.</p>
@@ -1248,8 +1318,9 @@ device:</p>
 backgrounded, and with the screen locked once it is assigned to XV in
 Samsung's own settings:</p>
 <ol>
-<li>Open <strong>XV Settings</strong> and tap <strong>Samsung Active Key PTT</strong> (visible only on
-   devices with the key). XV opens Samsung's Active button settings screen.</li>
+<li>Open <strong>XV Settings → Devices → Phone Active key</strong> (visible only on
+   devices with the key) and tap it. XV opens Samsung's Active button settings
+   screen.</li>
 <li>Turn on <strong>Use Active button with app</strong> and pick <strong>Texas TAK-XVoice</strong>.</li>
 <li>Back in XV Settings the row shows <strong>Assigned</strong>.</li>
 </ol>
@@ -1292,13 +1363,17 @@ the emergency — it <strong>cannot</strong> disarm it. You must cancel an activ
 emergency from ATAK's Emergency / Alert tool. See
 <a href="../hardware/inrico-bt02/">Inrico BT02</a>.</p>
 </div>
-<h2 id="direct-calling">Direct Calling<a class="headerlink" href="#direct-calling" title="Permanent link">&para;</a></h2>
-<p>You can place private, 1-to-1 calls to peers on your server or mesh presence
-roster:</p>
+<h2 id="direct-calling-not-shipping">Direct Calling (not shipping)<a class="headerlink" href="#direct-calling-not-shipping" title="Permanent link">&para;</a></h2>
+<div class="admonition warning">
+<p class="admonition-title">Dormant in this release</p>
+<p>Private 1-to-1 calls are not available in this release: the call
+signalling is switched off, and nothing in the UI places or receives a
+direct call. The notes below describe the dormant design.</p>
+</div>
 <ul>
-<li>Uses a heads-up incoming-call notification with Answer / Decline actions.</li>
-<li>Holds a proximity wake-lock when using the earpiece route so the screen turns
-  off when held to your ear.</li>
+<li>Incoming calls would use a heads-up notification with Answer / Decline.</li>
+<li>The earpiece route would hold a proximity wake-lock so the screen turns off
+  at your ear.</li>
 </ul>
 <h2 id="channel-sharing-offline-comms-plans">Channel Sharing &amp; Offline Comms Plans<a class="headerlink" href="#channel-sharing-offline-comms-plans" title="Permanent link">&para;</a></h2>
 <p>Share channels with teammates in two ways:</p>
@@ -1334,6 +1409,25 @@ investigation. Do not rely on it operationally until it graduates.</p>
   peers). OpenMANET interop has not yet been verified on-air against a live
   node.</li>
 </ul>
+<h2 id="low-latency-mode-not-recommended">Low latency mode (not recommended)<a class="headerlink" href="#low-latency-mode-not-recommended" title="Permanent link">&para;</a></h2>
+<p><strong>Settings → TX/RX → Advanced → Low latency mode (not recommended)</strong>
+appears only while a Bluetooth speaker-mic or headset is the voice route. It
+is off by default, and turning it on asks you to confirm.</p>
+<p>When on, XV keeps the headset's voice link open the whole time you're in a
+channel, so every press starts instantly instead of after the usual 0.5–1.5 s
+Bluetooth start-up. It lets go when you leave every channel, turn it off, the
+audio stops being Bluetooth, or a phone call needs the headset (a call always
+wins), and picks the link back up when that clears. The whole time it's on:</p>
+<ul>
+<li>music and other media on the headset stay paused;</li>
+<li>many headsets hiss or whine;</li>
+<li>everything else on the headset is call quality;</li>
+<li>the phone and headset use more battery;</li>
+<li>some headsets show "on a call";</li>
+<li>other calling apps may not get the headset until it closes.</li>
+</ul>
+<p>Use it only when the first words after a quiet spell must never be clipped.
+It is <strong>not</strong> an open mic: nothing is sent unless you press PTT.</p>
 
 
 
@@ -1386,13 +1480,13 @@ investigation. Do not rely on it operationally until it graduates.</p>
         
         
           
-          <a href="../server-setup/" class="md-footer__link md-footer__link--next" aria-label="Next: Server &amp; Channels">
+          <a href="../ux-workflows/" class="md-footer__link md-footer__link--next" aria-label="Next: Operator Workflows">
             <div class="md-footer__title">
               <span class="md-footer__direction">
                 Next
               </span>
               <div class="md-ellipsis">
-                Server & Channels
+                Operator Workflows
               </div>
             </div>
             <div class="md-footer__button md-icon">
