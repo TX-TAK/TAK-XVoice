@@ -1237,7 +1237,9 @@ class XvDropDownReceiver(
     // and rows come and go (call bar, channel 2, the mesh line). Only
     // while the main panel is the pane on screen.
     private fun fitMainToContent(v: View) {
-        if (!isPortrait() || isClosed() || mainView !== v || !v.isAttachedToWindow) return
+        if (!isPortrait() || isClosed() || mainView !== v || !v.isAttachedToWindow) {
+            return
+        }
         val fraction = mainPanelPortraitHeight(v)
         if (kotlin.math.abs(fraction - mainPaneFraction) < MAIN_PANEL_RESIZE_STEP) return
         mainPaneFraction = fraction
@@ -4820,7 +4822,9 @@ class XvDropDownReceiver(
         // Coming back from Settings / the channel list ATAK keeps that
         // pane's (larger) size: re-fit once the panel is showing.
         mainPaneFraction = 0.0
-        mainHandler.post { fitMainToContent(v) }
+        // After ATAK has attached and laid out the pane (a View.post waits
+        // for attach); its open animation can swallow an earlier resize.
+        v.postDelayed({ fitMainToContent(v) }, MAIN_PANEL_FIT_DELAY_MS)
     }
 
     // The map view's long / short sides in px: the space ATAK actually
@@ -4834,8 +4838,14 @@ class XvDropDownReceiver(
             } else {
                 pluginContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
             }
-        return maxOf(w, h) to minOf(w, h)
+        // An open pane shrinks the map view, so remember the longest side
+        // seen (the closed map): sizing against the shrunken map would
+        // read the panel as half the screen.
+        mapLongSideMaxPx = maxOf(mapLongSideMaxPx, maxOf(w, h))
+        return mapLongSideMaxPx to minOf(w, h)
     }
+
+    private var mapLongSideMaxPx = 0
 
     private fun mainPanelPortraitHeight(v: View): Double {
         val (longSide, shortSide) = mapSidesPx()
@@ -4843,8 +4853,26 @@ class XvDropDownReceiver(
             View.MeasureSpec.makeMeasureSpec(shortSide, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        val fraction = v.measuredHeight / longSide.toDouble() + MAIN_PANEL_HEIGHT_SLACK
+        // Once on screen the content is stretched to the pane (the
+        // ScrollView fills its viewport), so a measure reads the pane, not
+        // the rows: use where the last visible row ends instead.
+        val content = laidOutContentHeight(v) ?: v.measuredHeight
+        val fraction = content / longSide.toDouble() + MAIN_PANEL_HEIGHT_SLACK
         return fraction.coerceIn(QUARTER_SCREEN, HALF_HEIGHT)
+    }
+
+    // Bottom of the last visible row (plus padding) of a laid-out main
+    // panel, or null before layout.
+    private fun laidOutContentHeight(v: View): Int? {
+        val column = (v as? android.widget.ScrollView)?.getChildAt(0) as? android.view.ViewGroup ?: return null
+        if (!column.isLaidOut) return null
+        val last =
+            (0 until column.childCount)
+                .map { column.getChildAt(it) }
+                .filter { it.visibility != View.GONE }
+                .maxOfOrNull { it.bottom + ((it.layoutParams as? android.view.ViewGroup.MarginLayoutParams)?.bottomMargin ?: 0) }
+                ?: return null
+        return last + column.paddingBottom + v.paddingTop + v.paddingBottom
     }
 
     // A third of the width, but never narrower than the rows need
@@ -4867,6 +4895,7 @@ class XvDropDownReceiver(
         // content: room for the in-call bar without clipping a row.
         private const val MAIN_PANEL_HEIGHT_SLACK = 0.02
         private const val MAIN_PANEL_RESIZE_STEP = 0.01
+        private const val MAIN_PANEL_FIT_DELAY_MS = 400L
 
         // Settings tab indexes (Devices | TX/RX | Server | Mesh).
         private const val SETTINGS_TAB_SERVER = 2
