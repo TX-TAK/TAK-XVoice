@@ -2864,6 +2864,7 @@ class XvMapComponent : AbstractMapComponent() {
                     val am = heldPluginContext?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
                     com.atakmap.android.xv.service.CallRxPolicy.phoneCallActive(am?.mode ?: android.media.AudioManager.MODE_NORMAL)
                 } catch (t: Throwable) {
+                    Log.w(TAG, "phoneCallActive: audio mode read failed — assuming no call", t)
                     false
                 }
 

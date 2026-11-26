@@ -2073,6 +2073,7 @@ class VoicePlant(
                 try {
                     CallRxPolicy.phoneCallActive(audioManager.mode)
                 } catch (t: Throwable) {
+                    Log.w(TAG, "phone-call check: audio mode read failed — assuming no call", t)
                     false
                 }
             if (active !=
