@@ -13,7 +13,7 @@ import android.util.Log
  *
  * Why XV needs this:
  *   - XvVoiceService is a foreground service (microphone +
- *     connectedDevice + phoneCall during a call), but Doze can still
+ *     connectedDevice), but Doze can still
  *     suspend its sockets when the screen has been off for a few
  *     minutes and the device classifies XV as "non-essential". On
  *     Android 12+ this manifests as Mumble TCP/UDP packets stalling

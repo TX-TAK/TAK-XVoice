@@ -93,7 +93,7 @@ XV does not collect, store, or transmit personal information to its developers. 
 
 - Network state. Read only to react to Wi-Fi / cellular / offline transitions. The plugin does not change your network settings.
 
-- Notifications, full-screen intent, wake lock, battery-optimization exemption. Used to show call and status notifications and to keep a voice session alive while the screen is off. No data is collected.
+- Notifications, wake lock, battery-optimization exemption. Used to show call and status notifications and to keep a voice session alive while the screen is off. No data is collected.
 
 ### Location
 

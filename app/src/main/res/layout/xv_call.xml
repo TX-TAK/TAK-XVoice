@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Full-screen call surface used as the setFullScreenIntent target for
-  CallStyleNotifier's incoming + active notifications. Two distinct UI
+  In-call surface for XvCallActivity, launched directly once a direct
+  call is ACTIVE (not a full-screen-intent target). Two distinct UI
   shapes selected by EXTRA_MODE:
     - MODE_INCOMING: status + callsign + Answer + Decline
     - MODE_ACTIVE: status + callsign + Mute + 3 audio-route toggles
