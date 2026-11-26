@@ -198,7 +198,11 @@ flowchart LR
 - **+ Add a PTT button:** scans for BLE pucks that don't pair through Android. Pick the device, and it's assigned to its slot automatically.
 - **Audio device:** where you hear and speak. Auto, or a chosen Bluetooth device. **Built-in fallback** (speaker or earpiece) applies when nothing is connected.
 - **Auto-select:** at start, XV restores your last speaker-mic if it's reachable; otherwise it picks the first live supported device. A device that drops for 15 s falls back to the phone speaker and comes back when it reconnects.
-- **Re-pair state:** each card has a **NEEDS RE-PAIR** chip. It's a hidden placeholder until the Bluetooth service reports a device that must be re-paired (a later Bluetooth PR).
+- **Problem chips:** the speaker-mic and PTT button cards show a red chip when the Bluetooth service reports a problem with that input:
+  - **NEEDS RE-PAIR**: the device rejects the bond. Tap for details and **Bluetooth settings**; forget the device there and pair it again.
+  - **NOT RECOGNISED**: the device connects but isn't the expected device, or a permission is missing. Tap for details.
+  - Every report is also a toast. A report that doesn't name which input it's about stays a toast only, so a chip never points at the wrong device.
+  - The chip clears when you pick a different device for that card, or re-pair the device it backs.
 - **Troubleshooting** (collapsed): the pairing warning, **Forget an added PTT button**, and **Auto-connect compatible Bluetooth**.
 - **Bluetooth off:** a banner at the top. Tap it to turn Bluetooth on.
 
@@ -263,6 +267,9 @@ flowchart LR
 - While in a call, the panel shows a red **● IN CALL** bar with **End Call** above everything else, so there's always a visible way out even if the system call notification doesn't render.
 - The channel list is locked until you hang up; Swap is greyed for the same reason.
 - On the earpiece route, the screen turns off when the phone is at your ear.
+- Channel 2's audio is paused for the call (the bar reads **● IN CALL · channel 2 paused**).
+
+**Phone calls (cellular).** During any phone call, ringing included, channel audio is ignored: nothing plays and nothing is kept for later. The panel shows **On a phone call · channel audio paused** (no End Call button; hang up on the phone). PTT is refused with a toast. Channel audio resumes when the call ends.
 - When the call ends, you return to your channels as they were.
 
 ---
@@ -314,7 +321,7 @@ Other screens:
 
 **Open (out of scope here, or blocked):**
 
-3. **Re-pair state** is a hidden placeholder until the Bluetooth PR adds the service signal (`onPttInputNeedsRepair`).
+3. **Problem chips wait on the Bluetooth PR.** The chips, their dialogs and the per-card state are built; they light up once the Bluetooth reader-health PR adds `onPttInputNeedsRepair` / `onPttInputProblem` to the service listener. Until then they can be exercised with the debug `PTT_INPUT_ISSUE` broadcast.
 4. **OpenMANET talkgroup preset.** The mockup's TG picker needs a talkgroup addressing scheme that XV doesn't have in code. Today, interop is the device-local patch fields or *Custom address / interop*.
 5. **KEY NEEDED is only on the status line.** Mesh channel cards don't show which channel lacks a key. A per-channel badge needs per-channel key state from the mesh manager.
 6. **Interop patch applies to the current channel.** The patch fields act on the active mesh channel, not the card you were looking at. Per-channel patch editing exists in the channel's details dialog.
@@ -324,3 +331,4 @@ Other screens:
 10. **Texas Red text contrast.** Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.
 11. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
 12. **Map PTT buttons aren't reachable with TalkBack.** They're ATAK map widgets, which aren't in the Android accessibility tree. TalkBack users key from the panel PTT or a hardware button.
+13. **Other apps' VoIP calls don't pause channel audio.** The phone-call rule reads the system audio mode; a VoIP call in another app uses the same mode as XV's own audio, so it can't be told apart. Cellular calls and ringing are covered. Replaying channel audio missed during a call is a backlog item.

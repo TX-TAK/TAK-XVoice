@@ -2059,11 +2059,39 @@ class VoicePlant(
     private val perSpeakerDecoders: MutableMap<String, OpusDecoder> =
         java.util.concurrent.ConcurrentHashMap()
 
+    // Audio mode is a binder call; RX frames arrive ~50/s, so re-read it
+    // at most every PHONE_CALL_POLL_MS.
+    @Volatile private var phoneCallCheckedAtMs = 0L
+
+    @Volatile private var phoneCallCached = false
+
+    private fun phoneCallActiveCached(): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - phoneCallCheckedAtMs >= PHONE_CALL_POLL_MS) {
+            phoneCallCheckedAtMs = now
+            val active =
+                try {
+                    CallRxPolicy.phoneCallActive(audioManager.mode)
+                } catch (t: Throwable) {
+                    false
+                }
+            if (active !=
+                phoneCallCached
+            ) {
+                Log.i(TAG, "phone call ${if (active) "active — channel RX ignored" else "ended — channel RX resumes"}")
+            }
+            phoneCallCached = active
+        }
+        return phoneCallCached
+    }
+
     fun onRxOpus(
         slot: Int,
         opus: ByteArray,
         speakerName: String?,
     ) {
+        // Any phone call: channel RX is ignored (not played, not kept).
+        if (CallRxPolicy.dropChannelRx(slot, phoneCallActiveCached(), privateCallActive)) return
         val key = speakerName ?: "slot:$slot"
         val dec = perSpeakerDecoders.getOrPut(key) { opusDecoderFactory() }
         val pcm =
@@ -2163,6 +2191,9 @@ class VoicePlant(
     }
 
     companion object {
+        // How often RX re-reads the audio mode for the phone-call rule.
+        private const val PHONE_CALL_POLL_MS = 500L
+
         private const val TAG = "XvVoicePlant"
 
         // Operator-facing message for the cellular-call PTT gate. Kept

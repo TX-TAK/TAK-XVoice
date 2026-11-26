@@ -159,7 +159,9 @@ XV also adds:
   transmission is confirmed, so red always means on the air; a refused
   press flashes DENIED with the deny tone. A row dims when its channel
   has no live link, and the status line says why voice is off (with a
-  tap to connect or to fix a server refusal).
+  tap to connect or to fix a server refusal). During any phone call,
+  ringing included, channel audio is ignored (not played, not kept) and
+  the panel says so.
   A **Left-handed** setting (Settings › TX/RX) moves the PTT buttons to
   the left edge.
 - **PTT buttons on the map** — while the XV panel is closed, hex PTT

@@ -139,6 +139,16 @@ class DebugReceiver : BroadcastReceiver() {
                 handler.dumpMeshStatus()
             }
 
+            // Inject a Bluetooth PTT input problem (chips on Settings ›
+            // Devices) without a misbehaving device:
+            //   --es kind repair|problem --es reason "Bluetooth speaker-mic …"
+            ACTION_PTT_INPUT_ISSUE -> {
+                val repair = intent.getStringExtra("kind") != "problem"
+                val reason = intent.getStringExtra("reason") ?: "Bluetooth speaker-mic rejected the connection"
+                Log.i(TAG, "PTT_INPUT_ISSUE repair=$repair reason='$reason'")
+                handler.reportPttInputIssue(repair, reason)
+            }
+
             ACTION_MESH_PLAN_EXPORT -> {
                 Log.i(TAG, "MESH_PLAN_EXPORT")
                 handler.exportCommsPlan(intent.getStringExtra("passphrase"))
@@ -299,6 +309,12 @@ class DebugReceiver : BroadcastReceiver() {
         // TX state, bridge role, discovered channels.
         fun dumpMeshStatus()
 
+        // Report a Bluetooth PTT input problem as the service would.
+        fun reportPttInputIssue(
+            needsRepair: Boolean,
+            reason: String,
+        ) {}
+
         // Log the current channel set as a comms-plan carrier string
         // (cleartext, or KDF-locked when a passphrase is given).
         fun exportCommsPlan(passphrase: String?)
@@ -387,6 +403,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_STOP_MULTICAST = "com.atakmap.android.xv.debug.STOP_MULTICAST"
         const val ACTION_MESH_VOICE = "com.atakmap.android.xv.debug.MESH_VOICE"
         const val ACTION_MESH_STATUS = "com.atakmap.android.xv.debug.MESH_STATUS"
+        const val ACTION_PTT_INPUT_ISSUE = "com.atakmap.android.xv.debug.PTT_INPUT_ISSUE"
         const val ACTION_MESH_PLAN_EXPORT = "com.atakmap.android.xv.debug.MESH_PLAN_EXPORT"
         const val ACTION_MESH_PLAN_IMPORT = "com.atakmap.android.xv.debug.MESH_PLAN_IMPORT"
         const val ACTION_AUDIO_STATE = "com.atakmap.android.xv.debug.AUDIO_STATE"

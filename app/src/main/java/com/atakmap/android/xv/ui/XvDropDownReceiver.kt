@@ -278,6 +278,15 @@ class XvDropDownReceiver(
 
         fun selectedExternalButtonMac(): String? = null
 
+        // Bluetooth PTT input problem on a Devices card, or null.
+        fun pttInputIssue(card: PttInputHealth.Card): PttInputHealth.Issue? = null
+
+        // A device finished bonding (the operator re-paired it).
+        fun onBluetoothBonded(mac: String) {}
+
+        // A phone call (cellular / ringing) is up: channel RX is ignored.
+        fun phoneCallActive(): Boolean = false
+
         fun externalButtonConnectionUp(): Boolean = false
 
         fun setSelectedExternalButton(mac: String?) {}
@@ -738,6 +747,7 @@ class XvDropDownReceiver(
     private val settingsPickerConnectivityRefresh =
         Runnable {
             val panel = settingsPanelView ?: return@Runnable
+            renderInputHealthChips(panel)
             try {
                 wireAinaPicker(panel)
             } catch (t: Throwable) {
@@ -1064,9 +1074,7 @@ class XvDropDownReceiver(
         // In-call escape bar — surfaces above everything else when a
         // private call is up so the operator always has a visible exit
         // path even if the system CallStyle notification didn't render.
-        val inCall = controller.isInCall()
-        v.findViewById<View>(R.id.xv_in_call_bar).visibility =
-            if (inCall) View.VISIBLE else View.GONE
+        renderCallBar(v)
         val connected = controller.isMumbleConnected()
         val reconnect = if (connected) null else controller.mumbleReconnectInfo()
         val dot = v.findViewById<View>(R.id.xv_status_dot)
@@ -1226,6 +1234,24 @@ class XvDropDownReceiver(
                 label.isClickable = false
             }
         }
+    }
+
+    // One bar for both kinds of call. An XV direct call gets End Call;
+    // a phone call is informational only (hang up on the phone). Either
+    // way channel audio is paused (operator rule: no channel RX during
+    // any phone call; the direct call rides channel 1's session).
+    private fun renderCallBar(v: View) {
+        val xvCall = controller.isInCall()
+        val phoneCall = !xvCall && controller.phoneCallActive()
+        v.findViewById<View>(R.id.xv_in_call_bar).visibility = if (xvCall || phoneCall) View.VISIBLE else View.GONE
+        v.findViewById<View>(R.id.xv_btn_end_call).visibility = if (xvCall) View.VISIBLE else View.GONE
+        val ch2On = !controller.secondaryChannelName().isNullOrBlank()
+        v.findViewById<TextView>(R.id.xv_in_call_label).text =
+            when {
+                xvCall && ch2On -> "● IN CALL · channel 2 paused"
+                xvCall -> "● IN CALL"
+                else -> "On a phone call · channel audio paused"
+            }
     }
 
     private enum class ServerLine { CONNECTED, RECONNECTING, REFUSED, NO_TAK_SERVER, VOICE_OFF }
@@ -2268,6 +2294,7 @@ class XvDropDownReceiver(
         wireMeshSection(v)
         wirePreferencesSection(v)
         wireBtOffBanner(v)
+        renderInputHealthChips(v)
 
         // Devices › Troubleshooting is collapsed by default.
         val troubleshoot = v.findViewById<View>(R.id.xv_devices_troubleshoot)
@@ -2421,6 +2448,69 @@ class XvDropDownReceiver(
      * off). This banner is the "why is the dropdown empty" answer,
      * one tap away from the fix.
      */
+    private fun bondedMac(intent: Intent): String? =
+        try {
+            @Suppress("DEPRECATION")
+            intent.getParcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)?.address
+        } catch (_: SecurityException) {
+            null
+        }
+
+    // NEEDS RE-PAIR / NOT RECOGNISED chips on the speaker-mic and PTT
+    // button cards. Tap explains the problem; re-pair offers Bluetooth
+    // settings (forget there, then pair again).
+    private fun renderInputHealthChips(v: View) {
+        renderInputHealthChip(v.findViewById(R.id.xv_chip_aina_repair), PttInputHealth.Card.SPEAKER_MIC)
+        renderInputHealthChip(v.findViewById(R.id.xv_chip_button_repair), PttInputHealth.Card.BUTTON)
+    }
+
+    private fun renderInputHealthChip(
+        chip: TextView?,
+        card: PttInputHealth.Card,
+    ) {
+        chip ?: return
+        val issue = controller.pttInputIssue(card)
+        chip.visibility = if (issue == null) View.GONE else View.VISIBLE
+        if (issue == null) return
+        chip.text = issue.kind.chip
+        val device = if (card == PttInputHealth.Card.SPEAKER_MIC) "Speaker-mic" else "PTT button"
+        chip.contentDescription = "$device: ${issue.kind.chip.lowercase()}. Tap for details."
+        chip.setOnClickListener { showInputHealthDialog(device, issue) }
+    }
+
+    private fun showInputHealthDialog(
+        device: String,
+        issue: PttInputHealth.Issue,
+    ) {
+        val repair = issue.kind == PttInputHealth.Kind.NEEDS_REPAIR
+        val builder =
+            android.app.AlertDialog
+                .Builder(mapView.context)
+                .setTitle(if (repair) "$device needs re-pairing" else "$device not recognised")
+                .setMessage(
+                    issue.reason +
+                        if (repair) {
+                            "\n\nIn Android Bluetooth settings, forget the device, then pair it again."
+                        } else {
+                            "\n\nCheck it's the right device and that XV has Bluetooth permission."
+                        },
+                ).setNegativeButton("Close", null)
+        if (repair) {
+            builder.setPositiveButton("Bluetooth settings") { _, _ ->
+                try {
+                    pluginContext.startActivity(
+                        Intent(android.provider.Settings.ACTION_BLUETOOTH_SETTINGS).apply {
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        },
+                    )
+                } catch (t: Throwable) {
+                    android.util.Log.w("XvSettings", "open Bluetooth settings threw", t)
+                }
+            }
+        }
+        builder.showXv(pluginContext)
+    }
+
     private fun wireBtOffBanner(v: View) {
         val banner = v.findViewById<TextView>(R.id.xv_devices_bt_off_banner) ?: return
         banner.setOnClickListener {
@@ -2525,6 +2615,10 @@ class XvDropDownReceiver(
                                 bondState == BluetoothDevice.BOND_NONE
                             ) {
                                 repopulatePickers("bond state change")
+                            }
+                            if (bondState == BluetoothDevice.BOND_BONDED) {
+                                bondedMac(intent)?.let { controller.onBluetoothBonded(it) }
+                                renderInputHealthChips(v)
                             }
                         }
                     }

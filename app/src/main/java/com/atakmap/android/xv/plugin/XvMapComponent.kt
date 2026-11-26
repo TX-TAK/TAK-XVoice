@@ -82,6 +82,25 @@ class XvMapComponent : AbstractMapComponent() {
     private var statusTones: com.atakmap.android.xv.audio.StatusTones? = null
     private var dropDown: XvDropDownReceiver? = null
 
+    // Bluetooth PTT input problems shown as chips on Settings › Devices.
+    // Fed by IXvVoiceListener.onPttInputNeedsRepair / onPttInputProblem
+    // (Bluetooth reader-health PR) via [reportPttInputIssue].
+    private val pttInputHealth = com.atakmap.android.xv.ui.PttInputHealth()
+
+    /**
+     * Record a Bluetooth PTT input problem and refresh Settings. Every
+     * report is also toasted (a reason that names no input gets no chip).
+     */
+    internal fun reportPttInputIssue(
+        kind: com.atakmap.android.xv.ui.PttInputHealth.Kind,
+        reason: String,
+    ) {
+        val card = pttInputHealth.report(kind, reason)
+        Log.w(TAG, "PTT input issue $kind on ${card ?: "no card"}: $reason")
+        toastOnMain(reason)
+        dropDown?.onDeviceConnectivityChanged()
+    }
+
     // Persistent settings (SharedPreferences accessors). Constructed
     // with a prefs-provider lambda so accesses gracefully degrade to
     // defaults during the brief window before heldMapView is attached.
@@ -1189,6 +1208,18 @@ class XvMapComponent : AbstractMapComponent() {
                         Log.i(TAG, "meshVoiceEnabled = $enabled (legs reconcile on next tick)")
                     }
 
+                    override fun reportPttInputIssue(
+                        needsRepair: Boolean,
+                        reason: String,
+                    ) = this@XvMapComponent.reportPttInputIssue(
+                        if (needsRepair) {
+                            com.atakmap.android.xv.ui.PttInputHealth.Kind.NEEDS_REPAIR
+                        } else {
+                            com.atakmap.android.xv.ui.PttInputHealth.Kind.NOT_RECOGNISED
+                        },
+                        reason,
+                    )
+
                     override fun dumpMeshStatus() {
                         val m = meshVoiceManager
                         if (m == null) {
@@ -1378,6 +1409,7 @@ class XvMapComponent : AbstractMapComponent() {
                     addAction(DebugReceiver.ACTION_STOP_MULTICAST)
                     addAction(DebugReceiver.ACTION_MESH_VOICE)
                     addAction(DebugReceiver.ACTION_MESH_STATUS)
+                    addAction(DebugReceiver.ACTION_PTT_INPUT_ISSUE)
                     addAction(DebugReceiver.ACTION_MESH_PLAN_EXPORT)
                     addAction(DebugReceiver.ACTION_MESH_PLAN_IMPORT)
                     addAction(DebugReceiver.ACTION_AUDIO_STATE)
@@ -2820,7 +2852,29 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun setSelectedAina(mac: String?) {
                 Log.i(TAG, "Controller.setSelectedAina('$mac')")
+                // A different speaker-mic: the old one's problem no longer applies.
+                if (mac != settings.persistedAinaMac()) pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.SPEAKER_MIC)
                 setSelectedAinaInternal(mac)
+            }
+
+            override fun pttInputIssue(card: com.atakmap.android.xv.ui.PttInputHealth.Card) = pttInputHealth.issue(card)
+
+            override fun phoneCallActive(): Boolean =
+                try {
+                    val am = heldPluginContext?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
+                    com.atakmap.android.xv.service.CallRxPolicy.phoneCallActive(am?.mode ?: android.media.AudioManager.MODE_NORMAL)
+                } catch (t: Throwable) {
+                    false
+                }
+
+            override fun onBluetoothBonded(mac: String) {
+                // The operator re-paired a device: clear the card it backs.
+                if (mac.equals(settings.persistedAinaMac(), ignoreCase = true)) {
+                    pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.SPEAKER_MIC)
+                }
+                if (mac.equals(settings.persistedExternalButtonMac(), ignoreCase = true)) {
+                    pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.BUTTON)
+                }
             }
 
             override fun setAinaButtonProtocol(kind: com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol?) {
@@ -2910,6 +2964,9 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun setSelectedExternalButton(mac: String?) {
                 Log.i(TAG, "Controller.setSelectedExternalButton('$mac')")
+                if (mac != settings.persistedExternalButtonMac()) {
+                    pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.BUTTON)
+                }
                 setSelectedExternalButtonInternal(mac)
             }
 
