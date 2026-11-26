@@ -173,8 +173,8 @@ XV also adds:
   held button). Tapping a channel opens one searchable
   channel list with **[1] [2]** pills per row, subchannels indented,
   and **Swap** in its header; long-press a channel to share it or for
-  mesh options. Swap and turning channel 2 off can be undone for a few
-  seconds.
+  mesh options. Tapping **[2]** adds or removes channel 2 in one tap;
+  Swap can be undone for a few seconds.
   With channel 2 off, its row becomes "+ Add channel 2". The 👥 count
   on a row opens that channel's member list.
 - **Two live channels, swappable** — channel 1 (keyed by PTT1) and an

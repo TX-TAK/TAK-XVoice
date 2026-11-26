@@ -1485,7 +1485,7 @@ class XvDropDownReceiver(
         showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
     }
 
-    // ---- Undo (no confirm dialogs: one tap acts, 5 s to take it back) ----
+    // ---- Undo for Swap (one tap acts, 5 s to take it back) ----
 
     private var undoToken = 0
 
@@ -1517,15 +1517,6 @@ class XvDropDownReceiver(
             controller.swapChannels()
             armPtt1Hint()
         }
-    }
-
-    private fun clearChannel2WithUndo(
-        list: View,
-        previous: String?,
-    ) {
-        controller.setSecondaryChannel("")
-        if (previous.isNullOrBlank()) return
-        showUndo(list, "Channel 2 off") { controller.setSecondaryChannel(previous) }
     }
 
     // After a swap, show "PTT1 → <new channel 1>" for a few seconds on the
@@ -1718,7 +1709,10 @@ class XvDropDownReceiver(
             stylePill(pill, pillState)
             pill.isSelected = pillState == ChannelListPolicy.Pill.ON
             pill.contentDescription = pillDescription(slot, display, pillState)
-            pill.setOnClickListener { onChannelPillTap(list, slot, ch, state.ch1, state.ch2) }
+            // Read the slots at tap time, not when the row was built: a
+            // quick second tap on a not-yet-repainted row must act on the
+            // current assignment (it used to toggle channel 2 back off).
+            pill.setOnClickListener { onChannelPillTap(list, slot, ch) }
         }
         rv.setOnLongClickListener {
             showChannelOptions(list, ch)
@@ -1818,20 +1812,23 @@ class XvDropDownReceiver(
         v: View,
         slot: Int,
         ch: ChannelListPolicy.Channel,
-        ch1: String?,
-        ch2: String?,
     ) {
+        val ch1 = controller.currentChannelName()?.let { MumbleTransport.lobbyLabel(it) }
+        val ch2 = controller.secondaryChannelName()?.let { MumbleTransport.lobbyLabel(it) }
         when (val action = ChannelListPolicy.onPillTap(slot, ch, ch1, ch2, online = controller.isMumbleConnected())) {
             is ChannelListPolicy.Action.SetPrimary -> controller.setPrimaryChannel(action.name)
             is ChannelListPolicy.Action.SetSecondary -> controller.setSecondaryChannel(action.name)
-            ChannelListPolicy.Action.ClearSecondary -> clearChannel2WithUndo(v, ch2)
+            // Channel 2 off is one direct tap (operator: no Undo step):
+            // both PTT buttons go back to channel 1.
+            ChannelListPolicy.Action.ClearSecondary -> controller.setSecondaryChannel("")
             ChannelListPolicy.Action.Swap -> swapWithUndo(v)
             is ChannelListPolicy.Action.Explain ->
                 android.widget.Toast.makeText(pluginContext, action.message, android.widget.Toast.LENGTH_SHORT).show()
         }
-        // Server-confirmed moves arrive asynchronously; repaint now for
-        // the pills that changed locally and let the refresh loop pick up
-        // the confirmed state.
+        // Channel 2 add/remove updates the plugin's slot state
+        // synchronously: repaint now so the pills and header show it
+        // immediately, then again once the server confirms a move.
+        if (channelListRoot === v) populateChannelList(v)
         mainHandler.postDelayed({ if (channelListRoot === v) populateChannelList(v) }, 400L)
     }
 

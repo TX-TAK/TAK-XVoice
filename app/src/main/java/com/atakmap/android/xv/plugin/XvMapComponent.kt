@@ -6413,6 +6413,7 @@ class XvMapComponent : AbstractMapComponent() {
             Log.i(TAG, "MUMBLE_SET_SECONDARY: applied '$trimmed' (empty=clear)")
         } else {
             Log.w(TAG, "MUMBLE_SET_SECONDARY: '$trimmed' rejected (collision with primary or unresolvable)")
+            toastOnMain("Couldn't set channel 2 to '$trimmed'")
         }
     }
 

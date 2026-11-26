@@ -148,7 +148,7 @@ flowchart LR
     P[Panel row] -->|tap name| L[Channel list]
     L -->|tap 1 on a channel| C1[Becomes channel 1]
     L -->|tap 2 on a channel| C2[Becomes channel 2]
-    L -->|tap the lit 2| OFF[Channel 2 off + Undo]
+    L -->|tap the lit 2| OFF[Channel 2 off]
     L -->|Swap / tap the other slot's pill| SW[Swap: one chirp, ~1 s + Undo]
     SW -->|server refuses one side| RB[Rolled back + toast]
     L -->|long-press| M[Mesh options / Share / Forget]
@@ -169,7 +169,8 @@ flowchart LR
   - Tapping the pill of the other slot's channel swaps the two. This is online only; offline it explains instead.
   - **No-access** rows have grey pills that explain why.
   - **Mesh-only** rows can't be channel 2. While the server is up they can't be channel 1 either: the mesh leg follows the server channel.
-- **Undo:** Swap and turning channel 2 off act on one tap, then an **Undo** bar stays for about 5 s. After a swap, row 1 and the map pill show **PTT1 → <channel>** for a few seconds.
+- **Channel 2 on/off:** tap **[2]** on a channel to make it channel 2; tap the lit **[2]** to turn channel 2 off. Both are one direct tap, and the list marks the change immediately. With channel 2 off, the panel is single-channel and both PTT buttons key channel 1.
+- **Undo (Swap only):** Swap acts on one tap, then an **Undo** bar stays for about 5 s. After a swap, row 1 and the map pill show **PTT1 → <channel>** for a few seconds.
 - **Swap behaviour:**
   - Both channels move in place, with no reconnect and one chirp.
   - If the server refuses one side, the other side is undone and a toast says which.
