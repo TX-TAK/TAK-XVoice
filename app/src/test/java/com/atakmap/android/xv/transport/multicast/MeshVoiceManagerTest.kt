@@ -641,6 +641,34 @@ class MeshVoiceManagerTest {
     }
 
     @Test
+    fun `Both mode with a live server plays nothing from the mesh — Mumble is primary`() {
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = MulticastMode.ALWAYS) })
+        h.joinAndTick()
+        h.manager.observeMumbleHealth()
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue("Both mode must not play the mesh copy while Mumble is live", h.playedRx.isEmpty())
+        h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
+        assertEquals("Both mode still transmits on the mesh", 1, h.channelLeg().sentOpus.size)
+    }
+
+    @Test
+    fun `bridge with a live server drops the mesh copy of a server-connected speaker`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.manager.observeMumbleHealth()
+        h.peerUids += "uid-on-server"
+        h.connectedUids += "uid-on-server"
+        h.now += 1_000
+        h.manager.tick() // learns the ssrc -> uid mapping
+        h.manager.observeMumbleHealth()
+        h.manager.onVoice("ops-1", byteArrayOf(1), ssrcKeyOf("uid-on-server"), seqInBurst = 0)
+        assertTrue("heard over Mumble already", h.playedRx.isEmpty())
+        // A serverless peer is only reachable over the mesh: the bridge plays it.
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+    }
+
+    @Test
     fun `connected-but-silent server lets mesh RX through — no dead air`() {
         val h = Harness()
         h.joinAndTick() // mumbleUp stays true (socket connected)...

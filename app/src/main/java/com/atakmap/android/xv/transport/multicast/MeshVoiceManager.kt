@@ -590,6 +590,11 @@ class MeshVoiceManager(
         }
     }
 
+    // The speaker is heard on the server: a Mumble session id, our own uid,
+    // or a peer whose presence says it is server-connected.
+    private fun speakerOnServer(canonical: String): Boolean =
+        canonical.startsWith("mumble:") || canonical == ourUid || uidMumbleConnected(canonical)
+
     private data class VoiceRxAction(
         val play: Boolean,
         val relay: Boolean,
@@ -639,12 +644,18 @@ class MeshVoiceManager(
         // the grace is comfortably longer than the ~5 s ping interval, so a
         // healthy-but-idle server stays gated with no flap while a truly
         // silent one lifts the gate after the grace.
-        val mode = legs[channelName]?.config?.mode
         val serverLive = mumbleConnected() && lastMumbleActivityMs != Long.MIN_VALUE && now - lastMumbleActivityMs <= MUMBLE_LIVE_GRACE_MS
-        if (mode == MulticastMode.FAILOVER && serverLive && !meshTxActive && !bridging) {
+        val canonical = ssrcKeyToUid[speakerKey] ?: speakerKey
+        // Operator rule: Mumble is primary. While the server is live and
+        // failover isn't engaged, mesh audio is NOT played in ANY mode (Both
+        // included): this device already hears the channel over Mumble, and
+        // playing the mesh copy too is the doubled / colliding audio
+        // operators hear. The one exception is the bridge hearing a peer
+        // that is NOT on the server: that peer is reachable only over the
+        // mesh, so the bridge plays it (and relays it onto Mumble).
+        if (serverLive && !meshTxActive && !(bridging && !speakerOnServer(canonical))) {
             return VoiceRxAction(play = false, relay = false, relayBurstStart = false)
         }
-        val canonical = ssrcKeyToUid[speakerKey] ?: speakerKey
         // The dedup leg id includes the datagram's SOURCE: during a
         // bridge handoff two bridges relay the SAME server speaker
         // (same SSRC, independent sequence bases) for a few seconds,

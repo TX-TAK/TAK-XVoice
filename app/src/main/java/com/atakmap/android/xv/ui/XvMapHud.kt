@@ -59,7 +59,7 @@ class XvMapHud(
     private var dockedSide: MapHudPolicy.Side? = null
     private val holder = LinearLayoutWidget(LinearLayoutWidget.WRAP_CONTENT, LinearLayoutWidget.WRAP_CONTENT, LinearLayoutWidget.VERTICAL)
 
-    // One talker line per channel ("1 · name", "2 · name") above the buttons.
+    // One talker line per channel: "1 · name" above the buttons, "2 · name" below.
     private val talkerLines = listOf(TextWidget(""), TextWidget(""))
     private val buttons = mapOf(0 to MarkerIconWidget(), 1 to MarkerIconWidget())
     private val renderedKey = mutableMapOf<Int, String>()
@@ -127,8 +127,9 @@ class XvMapHud(
                 line.setName("XV talker ${i + 1}")
                 line.setTextFormat(com.atakmap.android.maps.MapTextFormat(android.graphics.Typeface.DEFAULT_BOLD, TALKER_TEXT_SIZE))
                 line.setColor(pluginContext.resources.getColor(R.color.xv_voice, null))
-                holder.addWidget(line)
             }
+            // Channel 1's talker above both buttons, channel 2's below them.
+            holder.addWidget(talkerLines[0])
             for ((slot, w) in buttons) {
                 w.setName("XV PTT ${slot + 1}")
                 w.addOnPressListener(MapWidget.OnPressListener { _, _ -> press(slot) })
@@ -143,6 +144,7 @@ class XvMapHud(
                 )
                 holder.addWidget(w)
             }
+            holder.addWidget(talkerLines[1])
             attached = true
             // Icons from earlier sessions (other sizes, labels, channel
             // names) are never reused: prune them before drawing new ones.
