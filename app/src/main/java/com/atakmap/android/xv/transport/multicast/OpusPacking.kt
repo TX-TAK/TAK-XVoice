@@ -21,6 +21,9 @@ object OpusPacking {
 
     private const val MAX_FRAME_BYTES = 1275
 
+    /** 120 ms at 48 kHz. */
+    private const val MAX_PACKET_SAMPLES = 5760
+
     /** Frame duration in 48 kHz samples for a TOC config number (0..31). */
     private fun frameSamples(config: Int): Int =
         when {
@@ -35,22 +38,18 @@ object OpusPacking {
      * safe default instead of guessing).
      */
     fun packetSamples(packet: ByteArray): Int? {
-        if (packet.isEmpty()) return null
-        val toc = packet[0].toInt() and 0xFF
-        val perFrame = frameSamples(toc shr 3)
+        val toc = if (packet.isEmpty()) -1 else packet[0].toInt() and 0xFF
         val frames =
-            when (toc and 0x03) {
-                0 -> 1
-                1, 2 -> 2
-                else -> {
-                    if (packet.size < 2) return null
-                    packet[1].toInt() and 0x3F
-                }
+            when {
+                toc < 0 -> 0
+                (toc and 0x03) == 0 -> 1
+                (toc and 0x03) < 3 -> 2
+                packet.size < 2 -> 0
+                else -> packet[1].toInt() and 0x3F
             }
-        if (frames == 0) return null
-        val total = frames * perFrame
         // RFC 6716 §3.2.5: a packet never exceeds 120 ms.
-        return if (total > 5760) null else total
+        val total = if (frames == 0) 0 else frames * frameSamples(toc shr 3)
+        return total.takeIf { it in 1..MAX_PACKET_SAMPLES }
     }
 
     /**
@@ -71,40 +70,50 @@ object OpusPacking {
     fun pack(
         first: ByteArray,
         second: ByteArray,
-    ): ByteArray? {
-        if (first.isEmpty() || second.isEmpty()) return null
+    ): ByteArray? = if (canPack(first, second)) merge(first, second) else null
+
+    private fun canPack(
+        first: ByteArray,
+        second: ByteArray,
+    ): Boolean {
+        if (first.isEmpty() || second.isEmpty()) return false
         val tocA = first[0].toInt() and 0xFF
         val tocB = second[0].toInt() and 0xFF
-        if ((tocA and 0x03) != 0 || (tocB and 0x03) != 0) return null
-        // Config (5 bits) + stereo bit must match; only the code differs.
-        if ((tocA and 0xFC) != (tocB and 0xFC)) return null
+        // Both single-frame (code 0); config (5 bits) + stereo bit must
+        // match, only the code differs.
+        return (tocA and 0x03) == 0 &&
+            (tocB and 0x03) == 0 &&
+            (tocA and 0xFC) == (tocB and 0xFC) &&
+            first.size - 1 <= MAX_FRAME_BYTES &&
+            second.size - 1 <= MAX_FRAME_BYTES
+    }
+
+    private fun merge(
+        first: ByteArray,
+        second: ByteArray,
+    ): ByteArray {
+        val tocBase = first[0].toInt() and 0xFC
         val lenA = first.size - 1
         val lenB = second.size - 1
-        if (lenA > MAX_FRAME_BYTES || lenB > MAX_FRAME_BYTES) return null
-
-        return if (lenA == lenB) {
-            // Code 1: two frames, equal compressed size, no length bytes.
-            val out = ByteArray(1 + lenA + lenB)
-            out[0] = ((tocA and 0xFC) or 0x01).toByte()
-            System.arraycopy(first, 1, out, 1, lenA)
-            System.arraycopy(second, 1, out, 1 + lenA, lenB)
-            out
-        } else {
-            // Code 2: two frames, different sizes; length of frame 1 is
-            // coded up front (1 byte if < 252, else 2 bytes), frame 2
-            // takes the remainder.
-            val lenBytes = if (lenA < 252) 1 else 2
-            val out = ByteArray(1 + lenBytes + lenA + lenB)
-            out[0] = ((tocA and 0xFC) or 0x02).toByte()
-            if (lenBytes == 1) {
-                out[1] = lenA.toByte()
-            } else {
-                out[1] = (252 + (lenA and 0x03)).toByte()
-                out[2] = ((lenA - (out[1].toInt() and 0xFF)) shr 2).toByte()
+        // Code 1: equal sizes, no length bytes. Code 2: frame 1's length
+        // is coded up front (1 byte if < 252, else 2); frame 2 takes the
+        // remainder.
+        val lenBytes =
+            when {
+                lenA == lenB -> 0
+                lenA < 252 -> 1
+                else -> 2
             }
-            System.arraycopy(first, 1, out, 1 + lenBytes, lenA)
-            System.arraycopy(second, 1, out, 1 + lenBytes + lenA, lenB)
-            out
+        val out = ByteArray(1 + lenBytes + lenA + lenB)
+        out[0] = (tocBase or (if (lenBytes == 0) 0x01 else 0x02)).toByte()
+        if (lenBytes == 1) {
+            out[1] = lenA.toByte()
+        } else if (lenBytes == 2) {
+            out[1] = (252 + (lenA and 0x03)).toByte()
+            out[2] = ((lenA - (out[1].toInt() and 0xFF)) shr 2).toByte()
         }
+        System.arraycopy(first, 1, out, 1 + lenBytes, lenA)
+        System.arraycopy(second, 1, out, 1 + lenBytes + lenA, lenB)
+        return out
     }
 }

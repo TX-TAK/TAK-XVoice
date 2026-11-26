@@ -334,45 +334,46 @@ class OpenManetRtpWireCodec(
         private set
 
     override fun beginBurst() {
-        if (pending != null) {
-            droppedFrames++
-            pending = null
-        }
+        dropPending()
         burstStart = true
     }
 
     override fun encodeTx(opus: ByteArray): ByteArray? {
         lastEncodeBuffered = false
-        if (opus.isEmpty()) return null
-
-        if (!OpusPacking.isMergeableTenMs(opus)) {
+        return when {
+            opus.isEmpty() -> null
             // Already a full-size (or unusual) packet: send as-is. A held
             // 10 ms frame can't precede it on the wire without breaking
             // order, so it is dropped.
-            if (pending != null) {
-                droppedFrames++
-                pending = null
+            !OpusPacking.isMergeableTenMs(opus) -> {
+                dropPending()
+                frame(opus)
             }
-            return frame(opus)
+            else -> encodeMergeable(opus)
         }
+    }
 
+    private fun encodeMergeable(opus: ByteArray): ByteArray? {
         val held = pending
-        if (held == null) {
-            pending = opus
-            lastEncodeBuffered = true
-            return null
-        }
         pending = null
-        val merged = OpusPacking.pack(held, opus)
-        if (merged == null) {
+        val merged = held?.let { OpusPacking.pack(it, opus) }
+        if (held != null && merged == null) {
             // Config mismatch between consecutive frames (encoder was
             // reconfigured mid-burst): drop the older, hold the newer.
             droppedFrames++
+        }
+        if (merged == null) {
             pending = opus
             lastEncodeBuffered = true
-            return null
         }
-        return frame(merged)
+        return merged?.let { frame(it) }
+    }
+
+    private fun dropPending() {
+        if (pending != null) {
+            droppedFrames++
+            pending = null
+        }
     }
 
     private fun frame(opusPacket: ByteArray): ByteArray {
@@ -395,20 +396,25 @@ class OpenManetRtpWireCodec(
         datagram: ByteArray,
         sourceHost: String,
     ): MulticastWireCodec.RxResult {
-        if (datagram.isEmpty()) return MulticastWireCodec.RxResult.Dropped(MulticastWireCodec.DropReason.EMPTY)
-        val decoded =
-            RtpFraming.decode(datagram)
-                ?: return MulticastWireCodec.RxResult.Dropped(MulticastWireCodec.DropReason.NOT_RTP)
-        val (header, payload) = decoded
-        if (header.payloadType != RtpFraming.PAYLOAD_TYPE_OPUS) {
-            return MulticastWireCodec.RxResult.Dropped(MulticastWireCodec.DropReason.WRONG_PAYLOAD_TYPE)
+        val decoded = if (datagram.isEmpty()) null else RtpFraming.decode(datagram)
+        val reason =
+            when {
+                datagram.isEmpty() -> MulticastWireCodec.DropReason.EMPTY
+                decoded == null -> MulticastWireCodec.DropReason.NOT_RTP
+                decoded.first.payloadType != RtpFraming.PAYLOAD_TYPE_OPUS ->
+                    MulticastWireCodec.DropReason.WRONG_PAYLOAD_TYPE
+                else -> null
+            }
+        return if (reason != null || decoded == null) {
+            MulticastWireCodec.RxResult.Dropped(reason ?: MulticastWireCodec.DropReason.NOT_RTP)
+        } else {
+            MulticastWireCodec.RxResult.Voice(
+                speakerKey = "ssrc:%08x".format(decoded.first.ssrc),
+                // The RTP sequence is stream-wide here, not burst-relative.
+                seqInBurst = null,
+                opus = decoded.second,
+            )
         }
-        return MulticastWireCodec.RxResult.Voice(
-            speakerKey = "ssrc:%08x".format(header.ssrc),
-            // The RTP sequence is stream-wide here, not burst-relative.
-            seqInBurst = null,
-            opus = payload,
-        )
     }
 }
 
