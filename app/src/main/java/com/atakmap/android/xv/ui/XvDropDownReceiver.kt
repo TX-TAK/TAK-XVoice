@@ -2190,7 +2190,7 @@ class XvDropDownReceiver(
      * one tap away from the fix.
      */
     private fun wireBtOffBanner(v: View) {
-        val banner = v.findViewById<TextView>(R.id.xv_prefs_bt_off_banner) ?: return
+        val banner = v.findViewById<TextView>(R.id.xv_devices_bt_off_banner) ?: return
         banner.setOnClickListener {
             // Prefer the in-place system prompt over dropping the
             // operator into full Bluetooth settings — the prompt is a
@@ -2338,37 +2338,26 @@ class XvDropDownReceiver(
     }
 
     private fun wireSettingsTabs(v: View) {
-        val tabTxRx = v.findViewById<Button>(R.id.xv_tab_txrx)
-        val tabCalls = v.findViewById<Button>(R.id.xv_tab_calls)
-        val tabPrefs = v.findViewById<Button>(R.id.xv_tab_prefs)
-        val tabMesh = v.findViewById<Button>(R.id.xv_tab_mesh)
-        val sectionTxRx = v.findViewById<View>(R.id.xv_section_txrx)
-        val sectionCalls = v.findViewById<View>(R.id.xv_section_calls)
-        val sectionPrefs = v.findViewById<View>(R.id.xv_section_prefs)
-        val sectionMesh = v.findViewById<View>(R.id.xv_section_mesh)
-        // List order MUST match the tab strip's visual order so
-        // select(0) puts the first tab up. Operator-visible ordering
-        // is Devices (prefs) | TX/RX | Server (calls) | Mesh — Devices
-        // leads because it carries the AINA / external-button /
-        // audio-device pickers operators touch every session; Mesh
-        // (server-less voice + channel provisioning/sharing) sits last.
-        // The XML id names still say "prefs" for backward compatibility
-        // with the findViewById calls above.
-        val tabs = listOf(tabPrefs, tabTxRx, tabCalls, tabMesh)
-        val sections = listOf(sectionPrefs, sectionTxRx, sectionCalls, sectionMesh)
+        // Order matches the tab strip: Devices | TX/RX | Server | Mesh.
+        val tabs =
+            listOf(R.id.xv_tab_devices, R.id.xv_tab_txrx, R.id.xv_tab_server, R.id.xv_tab_mesh)
+                .map { v.findViewById<Button>(it) }
+        val sections =
+            listOf(R.id.xv_section_devices, R.id.xv_section_txrx, R.id.xv_section_server, R.id.xv_section_mesh)
+                .map { v.findViewById<View>(it) }
+        val res = pluginContext.resources
 
         fun select(idx: Int) {
             sections.forEachIndexed { i, s -> s.visibility = if (i == idx) View.VISIBLE else View.GONE }
-            tabs.forEachIndexed { i, b -> b.alpha = if (i == idx) 1.0f else 0.55f }
+            tabs.forEachIndexed { i, b ->
+                val on = i == idx
+                // Selected tab: Honey fill with dark text; others outline.
+                b.setBackgroundResource(if (on) R.drawable.xv_button_active_bg else R.drawable.xv_button_bg)
+                b.setTextColor(res.getColor(if (on) R.color.xv_bg else R.color.xv_text, null))
+                b.isSelected = on
+            }
         }
-        // Visual order is Devices | TX/RX | Server | Mesh. The XML ids
-        // (tabPrefs = Devices, tabCalls = Server) keep their historical
-        // names for on-disk back-compat — see the note above; the labels
-        // here disambiguate so the wiring isn't misread on the next edit.
-        tabPrefs.setOnClickListener { select(0) } // Devices tab
-        tabTxRx.setOnClickListener { select(1) } // TX/RX tab
-        tabCalls.setOnClickListener { select(2) } // Server tab
-        tabMesh.setOnClickListener { select(3) }
+        tabs.forEachIndexed { i, b -> b.setOnClickListener { select(i) } }
         select(0)
     }
 
