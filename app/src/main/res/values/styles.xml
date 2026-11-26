@@ -226,7 +226,7 @@
     <!-- Alert chip (CLEAR traffic, NEEDS RE-PAIR). -->
     <style name="XV.Chip.Alert">
         <item name="android:background">@drawable/xv_chip_alert</item>
-        <item name="android:textColor">@color/xv_err</item>
+        <item name="android:textColor">@color/xv_text</item>
     </style>
 
     <!-- Segmented choice pill (Off / Backup / Both, Small / Medium / Large). -->

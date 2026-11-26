@@ -9,9 +9,10 @@
                         slot, the brand accent.
            Bluebonnet = system / network: connected, server, mesh legs.
            Texas Red  = you are transmitting.
-         Errors (e.g. a mesh leg in the clear) use xv_err: a brighter red
-         than Texas Red, because Texas Red as 11-12sp text on Hive Black
-         falls below a readable contrast ratio. -->
+         One red: errors (a mesh leg in the clear, a server refusal) use
+         Texas Red too, so red always means "act now". Texas Red is about
+         3:1 on Hive Black, so red status text is set bold and red chips
+         carry Wax White text on a red fill. -->
     <color name="xv_brand_hive_black">#050608</color>
     <color name="xv_brand_comb">#0F1318</color>
     <color name="xv_brand_line">#1A2028</color>
@@ -40,7 +41,7 @@
     <color name="xv_net">@color/xv_brand_bluebonnet</color>
     <color name="xv_ok">@color/xv_brand_bluebonnet</color>
     <color name="xv_warn">@color/xv_brand_honey</color>
-    <color name="xv_err">#FF5252</color>
+    <color name="xv_err">@color/xv_brand_texas_red</color>
     <!-- Server leg glyph: network, so Bluebonnet. -->
     <color name="xv_cloud">@color/xv_brand_bluebonnet</color>
     <color name="xv_ptt_idle">@color/xv_brand_honey</color>

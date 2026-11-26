@@ -162,4 +162,11 @@ class ChannelListPolicyTest {
         assertEquals(Action.Swap, ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = true))
         assertTrue(ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = false) is Action.Explain)
     }
+
+    @Test
+    fun `assigned channel shows the panel roster count, others the server count`() {
+        assertEquals(4, ChannelListPolicy.memberCount(serverCount = 3, assignedSlotCount = 4))
+        assertEquals(3, ChannelListPolicy.memberCount(serverCount = 3, assignedSlotCount = null))
+        assertEquals(0, ChannelListPolicy.memberCount(serverCount = 2, assignedSlotCount = 0))
+    }
 }

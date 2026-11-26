@@ -2493,6 +2493,9 @@ class XvMapComponent : AbstractMapComponent() {
                 return t.isInPrivateCall()
             }
 
+            override fun mumbleRefusedReason(): String? =
+                (activeTransport as? com.atakmap.android.xv.transport.ReconnectingMumbleTransport)?.fatalReason()
+
             override fun mumbleReconnectInfo(): XvDropDownReceiver.ReconnectInfo? {
                 val t =
                     activeTransport as? com.atakmap.android.xv.transport.ReconnectingMumbleTransport
@@ -2972,6 +2975,13 @@ class XvMapComponent : AbstractMapComponent() {
             }
 
             override fun missionChannelsEnabled(): Boolean = settings.persistedMissionChannelsEnabled()
+
+            override fun missionDrivesChannel1(): Boolean {
+                if (!settings.persistedMissionChannelsEnabled()) return false
+                val target = missionChannelProvisioner?.currentTarget() ?: return false
+                val ch1 = currentChannelName() ?: return false
+                return com.atakmap.android.xv.transport.AutoJoinPolicy.sameChannel(target, ch1)
+            }
 
             override fun setMissionChannelsEnabled(enabled: Boolean) {
                 Log.i(TAG, "Controller.setMissionChannelsEnabled($enabled)")

@@ -28,7 +28,7 @@
     <string name="xv_channels_search_hint">Search channels</string>
     <string name="xv_channels_swap">⇅ Swap</string>
     <string name="xv_channels_footer">Tap 1 or 2 to assign. Channel 1 is always set; tap a lit 2 to turn channel 2 off.
-Long-press a channel for mesh options.</string>
+Long-press a channel to share it or set mesh options.</string>
 
     <!-- Public help / documentation site (MkDocs on GitHub Pages). This is
          the single source of truth for the in-app "Help & Documentation"

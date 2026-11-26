@@ -155,6 +155,11 @@ XV also adds:
 - **Compact main panel** — one row per channel (slot badge, channel
   name, who is talking, and a large PTT button about half the row wide).
   The panel opens only as tall as it needs instead of half the screen.
+  A pressed PTT greys instantly and turns red only once the
+  transmission is confirmed, so red always means on the air; a refused
+  press flashes DENIED with the deny tone. A row dims when its channel
+  has no live link, and the status line says why voice is off (with a
+  tap to connect or to fix a server refusal).
   A **Left-handed** setting (Settings › TX/RX) moves the PTT buttons to
   the left edge.
 - **PTT buttons on the map** — while the XV panel is closed, hex PTT
@@ -165,17 +170,23 @@ XV also adds:
   left-handed setting, and opening the panel hides them (releasing a
   held button). Tapping a channel opens one searchable
   channel list with **[1] [2]** pills per row, subchannels indented,
-  and **Swap** in its header; long-press a channel for mesh options.
+  and **Swap** in its header; long-press a channel to share it or for
+  mesh options. Swap and turning channel 2 off can be undone for a few
+  seconds.
   With channel 2 off, its row becomes "+ Add channel 2". The 👥 count
   on a row opens that channel's member list.
 - **Two live channels, swappable** — channel 1 (keyed by PTT1) and an
   optional channel 2 (keyed by PTT2; PTT2 keys channel 1 when channel
-  2 is off) are both remembered across restarts. The button-to-channel
+  2 is off; while channel 2 is on but not yet live, PTT2 is refused
+  rather than falling back to channel 1) are both remembered across
+  restarts. The button-to-channel
   binding is fixed; **Swap** exchanges the two channels in place on the
   live connection (no reconnect) and is unavailable while keyed or on a
   direct call. If the server refuses one side, the swap is undone.
 - **LMR-style emergency button** — short press fires the emergency
-  configured in ATAK's Alert Tool; long press (1 s) cancels.
+  configured in ATAK's Alert Tool; long press (1 s) cancels. (Inrico
+  BT02: the button sends a single pulse, so it fires only; cancel in
+  ATAK.)
 - **Configurable Talk Permit Tones** (ASTRO 25 / Nextel / DMR / MOTOTRBO
   / None) for operators transitioning from public-safety LMR systems.
 - **Mumble + multicast channels under a single UX** — transport is an

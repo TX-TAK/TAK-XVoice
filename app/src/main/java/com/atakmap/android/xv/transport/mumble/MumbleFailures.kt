@@ -7,6 +7,29 @@ import mumble.MumbleProto
 // want a textual "voice broke because X" use Throwable.message; the
 // reconnect wrapper switches on the concrete subtype.
 
+/**
+ * Short operator-facing wording for a fatal server refusal, shown on the
+ * main panel's status line ("refused: wrong password · tap to fix").
+ * Never includes the server's free-text reason (may carry identifiers).
+ */
+object RejectSummary {
+    fun of(type: MumbleProto.Reject.RejectType?): String =
+        when (type) {
+            MumbleProto.Reject.RejectType.WrongUserPW,
+            MumbleProto.Reject.RejectType.WrongServerPW,
+            -> "wrong password"
+            MumbleProto.Reject.RejectType.NoCertificate -> "no certificate"
+            MumbleProto.Reject.RejectType.InvalidUsername -> "callsign not accepted"
+            MumbleProto.Reject.RejectType.AuthenticatorFail -> "sign-in failed"
+            MumbleProto.Reject.RejectType.UsernameInUse -> "callsign already connected"
+            MumbleProto.Reject.RejectType.ServerFull -> "server full"
+            MumbleProto.Reject.RejectType.WrongVersion -> "version not supported"
+            else -> "connection refused"
+        }
+
+    const val REMOVED = "removed by the server"
+}
+
 /** Auth wall, missing cert, banned, or any other Reject type that
  *  retry can't fix. ReconnectingMumbleTransport will NOT auto-retry
  *  these — the operator has to act (re-enroll, swap callsign,

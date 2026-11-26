@@ -208,4 +208,14 @@ object ChannelListPolicy {
             channel.offline && (slot == 1 || online) -> Pill.DISABLED
             else -> Pill.OFF
         }
+
+    /**
+     * Member count shown on a channel row. An assigned channel (1 or 2)
+     * uses the main panel's roster count, which also counts mesh-only
+     * peers; other channels use the server's user count.
+     */
+    fun memberCount(
+        serverCount: Int,
+        assignedSlotCount: Int?,
+    ): Int = assignedSlotCount ?: serverCount
 }

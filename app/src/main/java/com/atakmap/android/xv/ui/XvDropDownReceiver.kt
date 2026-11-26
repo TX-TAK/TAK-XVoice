@@ -86,6 +86,10 @@ class XvDropDownReceiver(
         // is gone for good.
         fun mumbleReconnectInfo(): ReconnectInfo?
 
+        // Why the voice server last refused us for good (short wording),
+        // or null. Cleared on the next successful connect.
+        fun mumbleRefusedReason(): String? = null
+
         // Currently-joined channel, the destination of slot-0 (VS1) talk.
         fun currentChannelName(): String?
 
@@ -384,6 +388,10 @@ class XvDropDownReceiver(
 
         fun setMissionChannelsEnabled(enabled: Boolean)
 
+        // True while the active ATAK mission is what put channel 1 where
+        // it is (row 1 shows a mission marker).
+        fun missionDrivesChannel1(): Boolean = false
+
         // Offline channel selection. When Mumble can't connect the
         // picker has no server directory to list, but mesh voice can
         // still run: candidates are the operator's last-joined channel
@@ -680,7 +688,7 @@ class XvDropDownReceiver(
             enabled = controller.mapPttEnabled(),
             leftHanded = controller.pttOnLeft(),
             size = MapHudPolicy.Size.parse(controller.mapPttSize()),
-            slot1 = hudSlot(0, controller.currentChannelName(), controller.currentChannelName() != null && linked),
+            slot1 = hudSlot(0, controller.currentChannelName(), SlotRowPolicy.channel1Live(controller.currentChannelName(), linked, false)),
             slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
             notice = ptt1Hint(0) ?: if (linked) null else "Voice offline",
         )
@@ -880,6 +888,8 @@ class XvDropDownReceiver(
         channelListRoot = null
         val inflater = LayoutInflater.from(pluginContext)
         val v = inflater.inflate(R.layout.xv_main, null)
+        // ◀ from any screen comes back to where the operator left off.
+        (v as? android.widget.ScrollView)?.setOnScrollChangeListener { _, _, y, _, _ -> mainScrollY = y }
         v.findViewById<View>(R.id.xv_btn_settings).setOnClickListener { showSettings() }
         // The small "👥 N" count on each row opens that channel's member
         // list (tap a member → map, long-press → move a slot to their
@@ -1066,14 +1076,7 @@ class XvDropDownReceiver(
         dot.alpha = if (reconnect != null) 0.5f else 1.0f
         v.findViewById<TextView>(R.id.xv_server_label).setTextColor(pluginContext.resources.getColor(netColor, null))
         v.findViewById<TextView>(R.id.xv_audio_route).setTextColor(pluginContext.resources.getColor(netColor, null))
-        v.findViewById<TextView>(R.id.xv_server_label).text =
-            when {
-                reconnect != null -> {
-                    val seconds = (reconnect.nextDelayMs + 999L) / 1000L
-                    "reconnecting in ${seconds}s (#${reconnect.attempt})"
-                }
-                else -> controller.connectedTakHost() ?: "no TAK server"
-            }
+        renderServerLabel(v.findViewById(R.id.xv_server_label), connected, reconnect)
 
         // Audio route indicator (right side of the connection line).
         // Themed leading icon + label so it reads at a glance: mic for
@@ -1115,6 +1118,7 @@ class XvDropDownReceiver(
             meshStatusView.setTextColor(
                 pluginContext.resources.getColor(meshColor, null),
             )
+            meshStatusView.setTypeface(null, if (mesh.cleartext) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
             // Long-press the failover status to copy the live group:port —
             // the quick path to hand an OpenManet / legacy-VX peer the
             // address while a mission is running.
@@ -1142,7 +1146,7 @@ class XvDropDownReceiver(
             v,
             slot = 0,
             channel = primary,
-            live = primary != null && (connected || meshCarrying),
+            live = SlotRowPolicy.channel1Live(primary, connected, meshCarrying),
             connected = connected,
         )
         val secondaryName = controller.secondaryChannelName()
@@ -1164,13 +1168,70 @@ class XvDropDownReceiver(
         }
     }
 
+    // Status line text + tap action. Connected / reconnecting: the host or
+    // the retry countdown, no tap. Refused: the reason, tap opens Server.
+    // Voice off: an explicit "tap to connect" so a disconnected panel never
+    // reads as merely quiet.
+    private fun renderServerLabel(
+        label: TextView,
+        connected: Boolean,
+        reconnect: ReconnectInfo?,
+    ) {
+        val host = controller.connectedTakHost()
+        val refused = if (connected) null else controller.mumbleRefusedReason()
+        val state =
+            when {
+                connected -> ServerLine.CONNECTED
+                reconnect != null -> ServerLine.RECONNECTING
+                refused != null -> ServerLine.REFUSED
+                host == null -> ServerLine.NO_TAK_SERVER
+                else -> ServerLine.VOICE_OFF
+            }
+        label.text =
+            when (state) {
+                ServerLine.CONNECTED -> host ?: "connected"
+                ServerLine.RECONNECTING -> {
+                    val r = reconnect!!
+                    "reconnecting in ${(r.nextDelayMs + 999L) / 1000L}s (#${r.attempt})"
+                }
+                ServerLine.REFUSED -> "refused: $refused · tap to fix"
+                ServerLine.NO_TAK_SERVER -> "no TAK server · tap to set up"
+                ServerLine.VOICE_OFF -> "Voice off — tap to connect"
+            }
+        if (state == ServerLine.REFUSED) {
+            label.setTextColor(pluginContext.resources.getColor(R.color.xv_err, null))
+        }
+        // Red text is bold (Texas Red is ~3:1 on Hive Black).
+        label.setTypeface(
+            android.graphics.Typeface.MONOSPACE,
+            if (state ==
+                ServerLine.REFUSED
+            ) {
+                android.graphics.Typeface.BOLD
+            } else {
+                android.graphics.Typeface.NORMAL
+            }
+        )
+        when (state) {
+            ServerLine.REFUSED, ServerLine.NO_TAK_SERVER ->
+                label.setOnClickListener { showSettings(SETTINGS_TAB_SERVER) }
+            ServerLine.VOICE_OFF -> label.setOnClickListener { controller.connectMumble() }
+            else -> {
+                label.setOnClickListener(null)
+                label.isClickable = false
+            }
+        }
+    }
+
+    private enum class ServerLine { CONNECTED, RECONNECTING, REFUSED, NO_TAK_SERVER, VOICE_OFF }
+
     // Red only for CLEAR (we'd send unencrypted); KEY NEEDED (we can't
     // hear encrypted peers yet) is a Honey caution; otherwise Bluebonnet.
     private fun meshStatusColor(mesh: MeshStatus): Int =
-        when {
-            mesh.cleartext -> R.color.xv_err
-            mesh.keyNeeded -> R.color.xv_warn
-            else -> R.color.xv_net
+        when (SlotRowPolicy.meshTone(mesh.cleartext, mesh.keyNeeded)) {
+            SlotRowPolicy.MeshTone.CLEAR -> R.color.xv_err
+            SlotRowPolicy.MeshTone.KEY_NEEDED -> R.color.xv_warn
+            SlotRowPolicy.MeshTone.OK -> R.color.xv_net
         }
 
     // Per-slot view ids for the compact main panel.
@@ -1249,8 +1310,11 @@ class XvDropDownReceiver(
             setTextColor(res.getColor(if (live) R.color.xv_bg else R.color.xv_text_dim, null))
         }
         val display = channel?.let { MumbleTransport.lobbyLabel(it) } ?: "Pick a channel"
+        val mission = slot == 0 && channel != null && controller.missionDrivesChannel1()
         v.findViewById<TextView>(ids.name).apply {
-            text = "$display  ▾"
+            // ⚑ = channel 1 follows the active mission (Settings › Server).
+            text = if (mission) "⚑ $display  ▾" else "$display  ▾"
+            contentDescription = if (mission) "Channel ${slot + 1}: $display, set by the active mission" else null
             setTextColor(res.getColor(if (live) R.color.xv_text else R.color.xv_text_dim, null))
         }
         val memberCount = controller.channelMembersForSlot(slot)?.members?.size ?: 0
@@ -1261,7 +1325,6 @@ class XvDropDownReceiver(
         }
     }
 
-    // What the activity line says when nobody is talking.
     // Idle line text + colour. Mesh carrying voice with the server down
     // reads "mesh" in Bluebonnet (system state) and the row stays usable.
     private fun slotIdle(
@@ -1269,14 +1332,10 @@ class XvDropDownReceiver(
         live: Boolean,
         connected: Boolean,
         listenOnly: Boolean,
-    ): Pair<String, Int> =
-        when {
-            !connected && live && slot == 0 -> "mesh" to R.color.xv_net
-            !connected -> "not connected" to R.color.xv_text_dim
-            !live -> "joining…" to R.color.xv_text_dim
-            listenOnly -> "listen only" to R.color.xv_text_dim
-            else -> "quiet" to R.color.xv_text_dim
-        }
+    ): Pair<String, Int> {
+        val idle = SlotRowPolicy.idle(slot, live, connected, listenOnly)
+        return idle.text to if (idle == SlotRowPolicy.Idle.MESH) R.color.xv_net else R.color.xv_text_dim
+    }
 
     // Activity line: talkers in Honey with the waveform glyph, else the
     // dim idle text.
@@ -1334,7 +1393,11 @@ class XvDropDownReceiver(
         ptt.contentDescription = "Push to talk on channel ${slot + 1}$state"
     }
 
-    private fun showSettings() {
+    // Tab the next Settings open lands on (Devices unless a caller asks).
+    private var pendingSettingsTab = 0
+
+    private fun showSettings(tab: Int = 0) {
+        pendingSettingsTab = tab
         val inflater = LayoutInflater.from(pluginContext)
         val v = inflater.inflate(R.layout.xv_settings, null)
         wireSettings(v)
@@ -1361,6 +1424,11 @@ class XvDropDownReceiver(
             return
         }
         val v = LayoutInflater.from(pluginContext).inflate(R.layout.xv_channel_list, null)
+        v.findViewById<android.widget.ScrollView>(R.id.xv_channels_scroll).apply {
+            val y = channelListScrollY
+            post { scrollTo(0, y) }
+            setOnScrollChangeListener { _, _, sy, _, _ -> channelListScrollY = sy }
+        }
         v.findViewById<Button>(R.id.xv_channels_back).setOnClickListener {
             mainHandler.post { inflateMainAndShow() }
         }
@@ -1492,7 +1560,24 @@ class XvDropDownReceiver(
         val speakers1: List<String>,
         val speakers2: List<String>,
         val online: Boolean,
+        // The panel's 👥 counts for channels 1 / 2 (server + mesh peers),
+        // so an assigned channel shows the same number in both places.
+        val slotCounts: Pair<Int?, Int?> = null to null,
     ) {
+        fun memberCount(
+            display: String,
+            ch: ChannelListPolicy.Channel,
+        ): Int =
+            ChannelListPolicy.memberCount(
+                serverCount = counts[ch.id] ?: 0,
+                assignedSlotCount =
+                when {
+                    matches(display, ch1) -> slotCounts.first
+                    matches(display, ch2) -> slotCounts.second
+                    else -> null
+                },
+            )
+
         fun talkingOn(display: String): List<String> =
             when {
                 matches(display, ch1) -> speakers1
@@ -1518,6 +1603,9 @@ class XvDropDownReceiver(
                 speakers1 = controller.activeSpeakers(0),
                 speakers2 = if (ch2 != null) controller.activeSpeakers(1) else emptyList(),
                 online = controller.isMumbleConnected(),
+                slotCounts =
+                controller.channelMembersForSlot(0)?.members?.size to
+                    ch2?.let { controller.channelMembersForSlot(1)?.members?.size },
             )
         renderAssignmentBar(v, state)
 
@@ -1592,7 +1680,7 @@ class XvDropDownReceiver(
             setTextColor(res.getColor(if (noAccess) R.color.xv_text_dim else R.color.xv_text, null))
         }
         val talking = state.talkingOn(display)
-        rv.findViewById<TextView>(R.id.xv_row_meta).text = channelRowMetaStyled(ch, state.counts[ch.id] ?: 0, talking)
+        rv.findViewById<TextView>(R.id.xv_row_meta).text = channelRowMetaStyled(ch, state.memberCount(display, ch), talking)
         for (slot in 0..1) {
             val pill = rv.findViewById<TextView>(if (slot == 0) R.id.xv_row_pill_1 else R.id.xv_row_pill_2)
             val pillState = ChannelListPolicy.pillState(slot, ch, state.ch1, state.ch2, state.online)
@@ -1666,7 +1754,7 @@ class XvDropDownReceiver(
     ): String {
         val parts = mutableListOf<String>()
         if (ch.offline) {
-            parts += "local multicast"
+            parts += "mesh only"
         } else {
             parts +=
                 when (users) {
@@ -2052,8 +2140,7 @@ class XvDropDownReceiver(
                 append(member.callsign)
                 if (member.talkingNow) append(", talking")
                 if (!member.isXvPeer) append(", not an XV device")
-                if (member.deviceUid != null) append(". Tap to find on the map")
-                if (member.availableJumpChannels.isNotEmpty()) append(", long-press to move to their channel")
+                if (member.deviceUid != null) append(". Tap to find on the map, long-press for actions")
             }
         val lp =
             android.widget.LinearLayout
@@ -2082,7 +2169,8 @@ class XvDropDownReceiver(
                 mainHandler.post { inflateMainAndShow() }
             }
         }
-        if (member.availableJumpChannels.isNotEmpty()) {
+        // Same as channel rows: tap acts, long-press opens the actions.
+        if (member.deviceUid != null || member.availableJumpChannels.isNotEmpty()) {
             btn.setOnLongClickListener {
                 showJumpChannelSheet(member)
                 true
@@ -2126,6 +2214,7 @@ class XvDropDownReceiver(
      *  operator has PARTICIPATE permission on. Tap to issue the join. */
     private fun showJumpChannelSheet(member: ChannelMember) {
         val actions = mutableListOf<Pair<String, () -> Unit>>()
+        member.deviceUid?.let { uid -> actions += "Find on map" to { controller.findOnMap(uid) } }
         for (jc in member.availableJumpChannels) {
             // Two actions per channel — one per local slot. Operator
             // picks which slot to move. Channel name surfaces in the
@@ -2145,7 +2234,7 @@ class XvDropDownReceiver(
         val labels = actions.map { it.first }.toTypedArray()
         android.app.AlertDialog
             .Builder(mapViewContext())
-            .setTitle("Follow ${member.callsign} →")
+            .setTitle(member.callsign)
             .setItems(labels) { dlg, which ->
                 actions[which].second()
                 dlg.dismiss()
@@ -2196,7 +2285,17 @@ class XvDropDownReceiver(
         takLabel.setOnClickListener { showTakServerPicker(takLabel) }
 
         v.findViewById<Button>(R.id.xv_btn_mumble_connect).setOnClickListener { controller.connectMumble() }
-        v.findViewById<Button>(R.id.xv_btn_mumble_disconnect).setOnClickListener { controller.disconnectMumble() }
+        v.findViewById<Button>(R.id.xv_btn_mumble_disconnect).setOnClickListener {
+            // Disconnect silences both channels with no audible cue:
+            // confirm, so a stray tap can't take the operator off the air.
+            android.app.AlertDialog
+                .Builder(mapView.context)
+                .setTitle("Disconnect voice?")
+                .setMessage("You won't hear or transmit on either channel until you reconnect.")
+                .setPositiveButton("Disconnect") { _, _ -> controller.disconnectMumble() }
+                .setNegativeButton("Cancel", null)
+                .showXv(pluginContext, destructive = true)
+        }
 
         // Mission auto-channels (Server tab): the active ATAK mission
         // drives channel 1 on the voice server.
@@ -2486,7 +2585,8 @@ class XvDropDownReceiver(
             }
         }
         tabs.forEachIndexed { i, b -> b.setOnClickListener { select(i) } }
-        select(0)
+        select(pendingSettingsTab.coerceIn(0, tabs.size - 1))
+        pendingSettingsTab = 0
     }
 
     // TX/RX tab: latched mode toggle + PTT/latched timeout sliders.
@@ -3135,7 +3235,7 @@ class XvDropDownReceiver(
             }
         val groupField =
             android.widget.EditText(ctx).apply {
-                hint = "Multicast group (blank = automatic)"
+                hint = "Mesh group address (blank = automatic)"
                 // The PRIMARY pin only. The patch leg is a separate endpoint
                 // (gear dialog); prefilling it here pinned the channel itself
                 // to the patch address on save.
@@ -3329,7 +3429,8 @@ class XvDropDownReceiver(
             (this as TextView).text = row.interopLabel
         }
         card.findViewById<View>(R.id.xv_mesh_card_badge_clear).visibility = if (row.hasClearLeg) View.VISIBLE else View.GONE
-        card.findViewById<View>(R.id.xv_mesh_card_badge_encrypted).visibility = if (row.hasClearLeg) View.GONE else View.VISIBLE
+        card.findViewById<View>(R.id.xv_mesh_card_badge_encrypted).visibility =
+            if (SlotRowPolicy.showEncryptedChip(row.hasClearLeg)) View.VISIBLE else View.GONE
         card.findViewById<TextView>(R.id.xv_mesh_card_detail).text = row.detail
         val segments =
             mapOf(
@@ -4197,8 +4298,14 @@ class XvDropDownReceiver(
                 inflateMain()
             }
         showMainDropDown(v)
+        val y = mainScrollY
+        (v as? android.widget.ScrollView)?.post { v.scrollTo(0, y) }
         startRefreshLoop()
     }
+
+    // Last scroll offsets, so ◀ returns to the same place (session only).
+    private var mainScrollY = 0
+    private var channelListScrollY = 0
 
     // The compact main panel opens only as big as it needs: a third of
     // the width in landscape, and in portrait its measured content height
@@ -4251,6 +4358,9 @@ class XvDropDownReceiver(
         // Extra portrait height for the main panel beyond its measured
         // content: room for the in-call bar without clipping a row.
         private const val MAIN_PANEL_HEIGHT_SLACK = 0.06
+
+        // Settings tab indexes (Devices | TX/RX | Server | Mesh).
+        private const val SETTINGS_TAB_SERVER = 2
 
         // How long a refused PTT shows its DENIED state.
         private const val DENY_FLASH_MS = 700L

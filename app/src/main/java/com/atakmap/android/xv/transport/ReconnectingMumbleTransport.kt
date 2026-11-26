@@ -3,6 +3,7 @@ package com.atakmap.android.xv.transport
 import android.util.Log
 import com.atakmap.android.xv.transport.mumble.FatalMumbleException
 import com.atakmap.android.xv.transport.mumble.MumbleSession
+import com.atakmap.android.xv.transport.mumble.RejectSummary
 import com.atakmap.android.xv.transport.mumble.SelfKickedException
 import com.atakmap.android.xv.transport.mumble.UsernameInUseException
 import java.util.concurrent.Executors
@@ -113,6 +114,13 @@ class ReconnectingMumbleTransport(
     // operator-initiated connect() or by a successful onConnected
     // (network swap / manual retry re-arms the wrapper).
     private val fatalRejected = AtomicBoolean(false)
+
+    // Why the server last refused us for good (RejectSummary wording);
+    // null once connected. Drives the panel's "refused: …" status line.
+    @Volatile
+    private var fatalReason: String? = null
+
+    fun fatalReason(): String? = fatalReason
 
     @Volatile
     private var lastScheduledDelayMs: Long = 0L
@@ -495,6 +503,7 @@ class ReconnectingMumbleTransport(
                 reconnecting.set(false)
                 secondaryUsernameInUseAttempts.set(0)
                 fatalRejected.set(false)
+                fatalReason = null
                 upstream?.onConnected()
             }
 
@@ -520,10 +529,14 @@ class ReconnectingMumbleTransport(
                 if (teardownRequested) return
                 val outcome =
                     when (error) {
-                        is FatalMumbleException ->
+                        is FatalMumbleException -> {
+                            fatalReason = RejectSummary.of(error.rejectType)
                             ReconnectPolicy.Outcome.Fatal(error.message ?: "fatal reject")
-                        is SelfKickedException ->
+                        }
+                        is SelfKickedException -> {
+                            fatalReason = RejectSummary.REMOVED
                             ReconnectPolicy.Outcome.Fatal(error.message ?: "self-kicked")
+                        }
                         is UsernameInUseException -> {
                             // Primary uses a stable device-UID-derived
                             // username (see MumbleAuth.mumbleUsername).

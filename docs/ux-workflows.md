@@ -59,15 +59,24 @@ flowchart TD
 Each channel row shows, left to right:
 
 - a hex slot badge: Honey when live, an outline when the slot isn't live;
-- the channel name, which shrinks and then wraps to two lines;
-- what's happening on the channel: talker names in Honey with a waveform, or *quiet*, *joining…*, *not connected* or *listen only*;
-- a **👥 N** member count;
+- the channel name, which shrinks and then wraps to two lines. With no channel yet it reads **Pick a channel**. A **⚑** before channel 1's name means the active mission set it (Settings › Server);
+- what's happening on the channel: talker names in Honey with a waveform, or *quiet*, *joining…*, *not connected*, *listen only*, or *mesh* (Bluebonnet: the server is down and a mesh leg is carrying channel 1);
+- a **👥 N** member count (the same number the channel list shows for that channel);
 - a large **PTT** button.
+
+A row is **live** only while voice can actually leave: channel 1 needs the server or a mesh leg carrying voice; channel 2 needs its own session joined. A row that isn't live is dimmed, even if a channel name is remembered. Row 2's PTT is disabled while channel 2 is joining.
 
 Other parts of the panel:
 
-- **Status line** (Bluebonnet): connection dot, server, and audio route. A reconnect shows the dot at half strength plus a countdown.
-- **Mesh line**: Bluebonnet normally, red `· CLEAR` if any mesh leg is unencrypted. Hidden when mesh is off.
+- **Status line** (Bluebonnet): connection dot, server, and audio route.
+  - Connected: the server name.
+  - Reconnecting: the dot at half strength plus a countdown.
+  - **Voice off — tap to connect** after a Disconnect (or before the first connect). Tap to connect.
+  - **refused: <reason> · tap to fix** (red) when the server turned you away for good, e.g. *wrong password* or *no certificate*. Tap to open Settings › Server.
+  - **no TAK server · tap to set up**. Tap to open Settings › Server.
+- **Mesh line**: shown only while a mesh leg exists (hidden when mesh is off or no channel has a leg).
+  - Bluebonnet normally; Honey for `· KEY NEEDED`; red, bold, only for `· CLEAR` (an unencrypted leg).
+  - **Long-press** it to copy the live mesh group address (`group:port`) for an interop peer.
 - **Channel 2 off**: its row becomes **+ Add channel 2 · (both PTT buttons key 1)**.
 - **Left-handed** (Settings › TX/RX) puts the PTT button at the left of each row.
 
@@ -75,19 +84,20 @@ Other parts of the panel:
 
 | Input | Keys | Notes |
 |---|---|---|
-| Panel PTT, row 1 | Channel 1 | Red the instant you press, and stays red for the whole transmission. |
-| Panel PTT, row 2 | Channel 2 | Row 2 exists only while channel 2 is on. |
+| Panel PTT, row 1 | Channel 1 | Greys the instant you press; turns red only when the transmission is confirmed. |
+| Panel PTT, row 2 | Channel 2 | Row 2 exists only while channel 2 is on, and is disabled while it's joining. |
 | Map PTT 1 / 2 | Channel 1 / 2 | Shown while the panel is closed. |
 | Speaker-mic PTT1 | Channel 1 | AINA V1/V2, Inrico BT02. |
-| Speaker-mic PTT2 | Channel 2, or channel 1 when 2 is off | |
-| Speaker-mic emergency | ATAK alert | Short press fires the alert; a 1 s long press cancels it. |
+| Speaker-mic PTT2 | Channel 2, or channel 1 when 2 is off | Channel 2 on but not live (joining, reconnecting): refused with the deny tone. It never falls back to channel 1. |
+| Speaker-mic emergency | ATAK alert | AINA: a short press fires the alert; a 1 s long press cancels it. Inrico BT02: the button sends a single pulse, so it can only fire the alert; cancel it in ATAK. |
 | Button-only PTT (puck, handlebar, glove) | Channel 1 | The external button reader handles the main PTT only. |
 | Samsung Active key | Channel 1 | Works in the background and with the screen locked, once assigned in Samsung settings. |
 
 Feedback and refusals:
 
-- **Normal transmit:** TPT, then the PTT goes red. The UI shows TX until the burst ends.
-- **Listen-only channel:** the PTT reads **LISTEN**, dimmed. Pressing gives the deny tone.
+- **Normal transmit:** the button greys the instant you press (pressed). TPT plays, and only when the service confirms the transmission does it turn Texas Red and read **TX**, until the burst ends. Red always means you are on the air.
+- **Refused press:** the button flashes **DENIED** (red outline, never a red fill) for under a second, with the deny tone. This covers listen-only, channel 2 not live, no voice link, and a swap in flight.
+- **Listen-only channel:** the PTT reads **LISTEN**, dimmed. Pressing gives the deny tone and the DENIED flash.
 - **A swap in flight (about 1 s):**
   - panel and map PTT are refused with a toast;
   - hardware PTT gets the deny tone;
@@ -105,10 +115,12 @@ Feedback and refusals:
 - Each shows the slot number and the channel name, which wraps to two lines and slowly scrolls only if it's longer still.
 - Looks:
   - Honey outline: idle.
+  - Grey fill: pressed, waiting for the transmission to start.
   - Honey fill: someone is talking.
-  - Texas Red: you're transmitting.
+  - Texas Red fill + **TX**: you're transmitting (confirmed).
+  - Red outline + **DENIED**: the press was refused (briefly).
   - Dim: listen-only, or the slot isn't live.
-- A Honey pill above the buttons names the slot and the talker.
+- A pill above the buttons names each talking slot and talker, both channels at once when both are busy. With nobody talking it shows **Voice offline** when there's no server or mesh link, or **PTT1 → <channel>** for a few seconds after a swap.
 - Size is Small, Medium or Large (Settings › TX/RX): a share of the screen's shorter side, never below 48 dp. Toggle the buttons off in Settings › TX/RX; they're on by default.
 
 **Connects to:**
@@ -122,22 +134,22 @@ The **👥 N** count on a row opens that channel's member list.
 
 - Each member row shows the callsign, Honey while talking, and server or mesh icons. Non-XV clients are dimmed.
 - **Tap** a member to find them on the map. This works for XV peers only; others show a toast.
-- **Long-press** a member to move channel 1 or channel 2 to a channel they're on.
+- **Long-press** a member for actions, as on channel rows: **Find on map**, and *Channel 1 → / Channel 2 →* a channel they're on.
 - With nobody else on the channel, the list says so.
 
 ---
 
 ## 3. Channels
 
-**Entry:** tap a channel name or **+ Add channel 2** on the panel.
+**Entry:** tap a channel name or **+ Add channel 2** on the panel. The channel list is locked during a direct call (a toast says to hang up first). **◀** returns to the panel where you left it, and the list reopens at the same scroll position.
 
 ```mermaid
 flowchart LR
     P[Panel row] -->|tap name| L[Channel list]
     L -->|tap 1 on a channel| C1[Becomes channel 1]
     L -->|tap 2 on a channel| C2[Becomes channel 2]
-    L -->|tap the lit 2| OFF[Channel 2 off]
-    L -->|Swap / tap the other slot's pill| SW[Swap: one chirp, ~1 s]
+    L -->|tap the lit 2| OFF[Channel 2 off + Undo]
+    L -->|Swap / tap the other slot's pill| SW[Swap: one chirp, ~1 s + Undo]
     SW -->|server refuses one side| RB[Rolled back + toast]
     L -->|long-press| M[Mesh options / Share / Forget]
 ```
@@ -150,13 +162,14 @@ flowchart LR
   - Lobby first, then server channels, with subchannels indented under their parent;
   - within each level: full access, then listen-only, then no access, each alphabetical;
   - then an **OFFLINE · MESH** section.
-- **Row meta line:** user count, who's talking (Honey), and *listen only* or *no access*.
+- **Row meta line:** user count, who's talking (Honey), and *listen only* or *no access*; mesh-only rows read *mesh only*. Channels 1 and 2 show the panel's count, which includes mesh peers.
 - **Pill rules:**
   - **[1]** assigns channel 1. A lit **[1]** can't be cleared; pick another channel to move it.
   - **[2]** assigns channel 2. A lit **[2]** turns channel 2 off; this works on mesh-only rows offline too.
   - Tapping the pill of the other slot's channel swaps the two. This is online only; offline it explains instead.
   - **No-access** rows have grey pills that explain why.
   - **Mesh-only** rows can't be channel 2. While the server is up they can't be channel 1 either: the mesh leg follows the server channel.
+- **Undo:** Swap and turning channel 2 off act on one tap, then an **Undo** bar stays for about 5 s. After a swap, row 1 and the map pill show **PTT1 → <channel>** for a few seconds.
 - **Swap behaviour:**
   - Both channels move in place, with no reconnect and one chirp.
   - If the server refuses one side, the other side is undone and a toast says which.
@@ -212,9 +225,9 @@ stateDiagram-v2
   - `· KEY NEEDED`: peers are encrypted and you don't hold the key yet, so you hear nothing until keyed.
   - `· CLEAR` (red): an unencrypted interop leg is live.
 - **Channels list,** one card per channel:
-  - the name (Honey when active);
-  - an **ENCRYPTED** chip, always shown;
-  - **OPENMANET** / **VX** plus a red **CLEAR** chip, only when this device has an interop patch on that channel;
+  - the name (Bluebonnet when active);
+  - an **ENCRYPTED** chip, or instead a red **CLEAR** chip when this device has an interop patch on that channel (never both);
+  - **OPENMANET** / **VX** with the patch;
   - **Off / Backup / Both**:
     - *Off*: no mesh leg.
     - *Backup*: mesh carries the channel only while the server is down. This is the default.
@@ -230,6 +243,27 @@ stateDiagram-v2
   - rotate the active channel's key (trusted devices re-key; guests are cut off);
   - forget all offline channels;
   - **wipe** all mesh keys, behind a slide-to-confirm.
+
+---
+
+## 5a. Direct calls
+
+**Entry:** an incoming call arrives as a heads-up notification with **Answer** / **Decline**.
+
+```mermaid
+flowchart LR
+    I[Incoming call notification] -->|Answer| C[In call]
+    I -->|Decline| X[Caller hears busy]
+    C --> B[Panel: red IN CALL bar + End Call]
+    C --> N[Ongoing-call notification: Hang up]
+    B -->|End Call| E[Back to your channels]
+    N -->|Hang up| E
+```
+
+- While in a call, the panel shows a red **● IN CALL** bar with **End Call** above everything else, so there's always a visible way out even if the system call notification doesn't render.
+- The channel list is locked until you hang up; Swap is greyed for the same reason.
+- On the earpiece route, the screen turns off when the phone is at your ear.
+- When the call ends, you return to your channels as they were.
 
 ---
 
@@ -261,7 +295,7 @@ flowchart TD
 |---|---|---|
 | **Devices** (opens first) | Speaker-mic, PTT button, Phone Active key, + Add a PTT button, Audio device, Built-in fallback, Troubleshooting, Help | What keys the radio and where you hear it: touched most often |
 | **TX/RX** | Layout (Left-handed, map PTT buttons and their size), Hot mic, PTT timeout, Talk-permit tone | How transmitting feels |
-| **Server** | TAK server picker, voice Connect / Disconnect, Mission auto-channels | Server-side behaviour: which server, and which channel a mission drives |
+| **Server** | TAK server picker, voice Connect / Disconnect (Disconnect asks first), Mission auto-channels | Server-side behaviour: which server, and which channel a mission drives |
 | **Mesh** | Master switch + status, channel list (Off/Backup/Both), + Add channel, Share channel plan, Interop patch, Security & recovery | Everything that works without a server |
 
 Other screens:
@@ -286,4 +320,6 @@ Other screens:
 6. **Interop patch applies to the current channel.** The patch fields act on the active mesh channel, not the card you were looking at. Per-channel patch editing exists in the channel's details dialog.
 7. **No first-run channel prompt.** Channel 1 is wherever the server places you (usually Lobby) until you pick one. This is intentional (channel 1 is never blank), but a new operator may not realise they're in Lobby.
 8. **Hardware PTT during a swap gets only a deny tone.** On-screen and map PTT add a toast; a speaker-mic can't show one. The window is about 1 s.
+9. **No way to place a direct call.** Receiving works (5a), but nothing in the UI starts an outgoing call: the dialling code in the plugin has no caller. Needs an entry point, e.g. a member-row action or an ATAK contact action.
+10. **Texas Red text contrast.** Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.
 9. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
