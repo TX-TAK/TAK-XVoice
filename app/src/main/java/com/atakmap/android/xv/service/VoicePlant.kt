@@ -569,6 +569,18 @@ class VoicePlant(
 
     @Volatile private var externalPttOwner: PttInputOwner? = null
 
+    // One lock per slot serializes that slot's connect / disconnect
+    // lifecycle. AIDL calls arrive on binder-pool threads while bond and
+    // shutdown paths run on the main thread; without this, two
+    // overlapping connects (STATE_ON + ACL_CONNECTED, or a protocol-probe
+    // callback) could interleave and orphan a live reader whose owner is
+    // never retired. Reader callback threads never take these locks —
+    // they only check owner.retired — so there is no lock cycle with the
+    // readers' own locks.
+    private val primarySlotLock = Any()
+
+    private val externalSlotLock = Any()
+
     // MAC of the external button this slot is currently bound to (or null
     // when none). Set at connect-attempt time in [connectExternalButton]
     // — BEFORE the reader reports its first connection edge — and cleared
@@ -624,20 +636,27 @@ class VoicePlant(
         } catch (t: Throwable) {
             Log.w(TAG, "clearAinaProtocolOverride threw", t)
         }
-        val current = connectedAinaMac
-        if (current != null && current.equals(mac, ignoreCase = true)) {
-            Log.w(TAG, "AINA $mac was unpaired — tearing down reader to stop reconnect storm")
-            disconnectAina()
-        }
-        val extCurrent = connectedExternalButtonMac
-        if (extCurrent != null && extCurrent.equals(mac, ignoreCase = true)) {
-            Log.w(TAG, "External Button $mac was unpaired — tearing down reader to stop reconnect storm")
-            try {
-                settingsForOverride.persistExternalButtonKind(null)
-            } catch (t: Throwable) {
-                Log.w(TAG, "clearExternalButtonKind threw", t)
+        val redacted = com.atakmap.android.xv.aina.redactMac(mac)
+        // Check-then-teardown under the slot lock so a concurrent connect
+        // to a different device can't be torn down by mistake.
+        synchronized(primarySlotLock) {
+            val current = connectedAinaMac
+            if (current != null && current.equals(mac, ignoreCase = true)) {
+                Log.w(TAG, "AINA $redacted was unpaired — tearing down reader to stop reconnect storm")
+                disconnectAina()
             }
-            disconnectExternalButton()
+        }
+        synchronized(externalSlotLock) {
+            val extCurrent = connectedExternalButtonMac
+            if (extCurrent != null && extCurrent.equals(mac, ignoreCase = true)) {
+                Log.w(TAG, "External Button $redacted was unpaired — tearing down reader to stop reconnect storm")
+                try {
+                    settingsForOverride.persistExternalButtonKind(null)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "clearExternalButtonKind threw", t)
+                }
+                disconnectExternalButton()
+            }
         }
     }
 
@@ -1423,6 +1442,12 @@ class VoicePlant(
         mac: String?,
         name: String?,
         kind: String?,
+    ) = synchronized(primarySlotLock) { connectAinaLocked(mac, name, kind) }
+
+    private fun connectAinaLocked(
+        mac: String?,
+        name: String?,
+        kind: String?,
     ) {
         // Quick-win: log the resolved kind at the call site so field
         // logs distinguish "auto leaked through" from "operator
@@ -1542,9 +1567,14 @@ class VoicePlant(
         val owner = PttInputOwner("primary-$resolvedKind")
         primaryPttOwner = owner
         val onConn: (source: PttSource, up: Boolean) -> Unit = { source, up ->
-            Log.i(TAG, "AINA connection up=$up source=$source owner=$owner")
-            callbacks.onAinaConnectionChanged(up)
-            if (!up) {
+            if (owner.retired) {
+                // Torn-down reader: its slot already reported the drop.
+                Log.i(TAG, "AINA connection up=$up from retired $owner — ignored")
+            } else {
+                Log.i(TAG, "AINA connection up=$up source=$source owner=$owner")
+                callbacks.onAinaConnectionChanged(up)
+            }
+            if (!up && !owner.retired) {
                 releaseStuckPttOnTransportDrop(source, owner)
             }
         }
@@ -1622,6 +1652,12 @@ class VoicePlant(
         mac: String?,
         name: String?,
         kind: String?,
+    ) = synchronized(externalSlotLock) { connectExternalButtonLocked(mac, name, kind) }
+
+    private fun connectExternalButtonLocked(
+        mac: String?,
+        name: String?,
+        kind: String?,
     ) {
         Log.i(
             TAG,
@@ -1672,6 +1708,11 @@ class VoicePlant(
         // is already pumping on this MAC.
         if (AinaSppReader.shouldKeepLiveReader(externalButtonSpp?.isConnectedTo(device.address) == true, resolvedKind)) {
             Log.i(TAG, "connectExternalButton: SPP reader already live on this device — keeping it")
+            try {
+                callbacks.onExternalButtonConnectionChanged(true)
+            } catch (t: Throwable) {
+                Log.w(TAG, "onExternalButtonConnectionChanged(true) threw", t)
+            }
             return
         }
         disconnectExternalButton()
@@ -1682,7 +1723,11 @@ class VoicePlant(
         // to a handlebar Pryme puck as to a helmet AINA.
         val owner = PttInputOwner("external-$resolvedKind")
         externalPttOwner = owner
-        val onConn: (source: PttSource, up: Boolean) -> Unit = { source, up ->
+        val onConn: (source: PttSource, up: Boolean) -> Unit = onConn@{ source, up ->
+            if (owner.retired) {
+                Log.i(TAG, "External button connection up=$up from retired $owner — ignored")
+                return@onConn
+            }
             Log.i(TAG, "External button connection up=$up source=$source owner=$owner")
             // External button doesn't drive the AINA-connected dot in
             // the UI (that's the primary speakermic's indicator).
@@ -1750,8 +1795,22 @@ class VoicePlant(
         }
     }
 
-    fun disconnectExternalButton() {
+    fun disconnectExternalButton() = synchronized(externalSlotLock) { disconnectExternalButtonLocked() }
+
+    private fun disconnectExternalButtonLocked() {
         connectedExternalButtonMac = null
+        // Retire the owner FIRST so nothing the old reader still emits
+        // during its teardown (late presses, a redundant up=false) can
+        // reach the dispatcher or the UI. Forget by OWNER, not by
+        // source: the primary speaker-mic may be the same reader class
+        // (or share a source), and a re-attach of a sleeping puck must
+        // not cut the speaker-mic's live burst.
+        try {
+            externalPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
+            externalPttOwner = null
+        } catch (t: Throwable) {
+            Log.w(TAG, "forgetOwner on external-button disconnect threw", t)
+        }
         try {
             callbacks.onExternalButtonConnectionChanged(false)
         } catch (t: Throwable) {
@@ -1773,18 +1832,6 @@ class VoicePlant(
         externalButtonPrymeBle = null
         externalButtonBt02?.dispose()
         externalButtonBt02 = null
-        // Clear any held-key bookkeeping the external button left
-        // behind mid-burst — otherwise the OR-gate would think a press
-        // is still in flight on a now-disconnected reader. Forget by
-        // OWNER, not by source: the primary speaker-mic may be the
-        // same reader class (or share a source), and a re-attach of a
-        // sleeping puck must not cut the speaker-mic's live burst.
-        try {
-            externalPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
-            externalPttOwner = null
-        } catch (t: Throwable) {
-            Log.w(TAG, "forgetOwner on external-button disconnect threw", t)
-        }
     }
 
     fun isExternalButtonConnected(): Boolean =
@@ -1793,8 +1840,13 @@ class VoicePlant(
             externalButtonPrymeBle != null ||
             externalButtonBt02 != null
 
-    fun disconnectAina() {
-        disconnectAinaReaderOnly()
+    fun disconnectAina() =
+        synchronized(primarySlotLock) {
+            disconnectAinaReaderOnlyLocked()
+            disconnectAinaRouteLocked()
+        }
+
+    private fun disconnectAinaRouteLocked() {
         // Drop the BT routing hint — no AINA selected means no implicit
         // BT preference. Operator's explicit override (if any) still wins.
         router.preferredBtMacHint = null
@@ -1821,8 +1873,23 @@ class VoicePlant(
      * sites drop the same reader fields and clear the same held-PTT
      * sources.
      */
-    fun disconnectAinaReaderOnly() {
+    fun disconnectAinaReaderOnly() = synchronized(primarySlotLock) { disconnectAinaReaderOnlyLocked() }
+
+    private fun disconnectAinaReaderOnlyLocked() {
         val hadReader = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
+        // Retire the owner FIRST so the old reader cannot deliver presses,
+        // PTTE / MFB or a redundant up=false while it is being torn down.
+        // If the operator (or a wholesale BT-adapter-off cascade) is
+        // tearing us down mid-burst, forgetting the owner's keys lets the
+        // OR-gate see an empty set and TxController.stop() run. By owner,
+        // so an external button held on the same reader class keeps its
+        // burst.
+        try {
+            primaryPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
+            primaryPttOwner = null
+        } catch (t: Throwable) {
+            Log.w(TAG, "forgetOwner on primary reader teardown threw", t)
+        }
         // dispose() rather than disconnect() — see the analogous
         // block in [disconnectExternalButton] for the rationale.
         ainaBle?.dispose()
@@ -1833,19 +1900,6 @@ class VoicePlant(
         prymeBle = null
         bt02Ble?.dispose()
         bt02Ble = null
-        // Mirror [disconnectExternalButton]: if the operator (or a wholesale
-        // BT-adapter-off cascade) is tearing us down mid-burst, drop any
-        // held button state from the primary source so the OR-gate can
-        // see an empty set and TxController.stop() runs. Idempotent
-        // inside PttDispatcher; safe when nothing was held.
-        // Forget by owner so an external button held on the same
-        // reader class keeps its burst.
-        try {
-            primaryPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
-            primaryPttOwner = null
-        } catch (t: Throwable) {
-            Log.w(TAG, "forgetOwner on primary reader teardown threw", t)
-        }
         // dispose() sets a sticky flag that short-circuits the reader's
         // own onConnectionState(false) dispatch, so the plugin would
         // otherwise never learn the button reader is gone — leaving
@@ -1954,7 +2008,13 @@ class VoicePlant(
         source: PttSource,
         owner: PttInputOwner,
     ): (AinaButton, Boolean) -> Unit =
-        { btn, down ->
+        event@{ btn, down ->
+            if (owner.retired) {
+                // Includes PTTE and MFB: a torn-down speaker-mic must not
+                // raise an emergency or answer / hang up a call.
+                Log.i(TAG, "${logPrefixForPttSource(source)} $btn down=$down from retired $owner — ignored")
+                return@event
+            }
             Log.i(TAG, "${logPrefixForPttSource(source)} $btn down=$down source=$source")
             when (btn) {
                 AinaButton.PTTE -> callbacks.onEmergencyButton(down)
@@ -1977,7 +2037,11 @@ class VoicePlant(
         source: PttSource,
         owner: PttInputOwner,
     ): (AinaButton, Boolean) -> Unit =
-        { btn, down ->
+        event@{ btn, down ->
+            if (owner.retired) {
+                Log.i(TAG, "${logPrefixForPttSource(source)} $btn down=$down from retired $owner — ignored")
+                return@event
+            }
             Log.i(TAG, "${logPrefixForPttSource(source)} $btn down=$down source=$source")
             when (btn) {
                 AinaButton.PTT -> if (down) pttDown(0, source, owner) else pttUp(0, source, owner)

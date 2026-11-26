@@ -2602,10 +2602,12 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun isTransmittingOnSlot(slot: Int): Boolean = txActiveSlot == slot
 
-            override fun stopTx() {
-                // Slot is meaningless on the up-edge in momentary mode
-                // (we just release TX) and ignored in latched mode.
-                dispatchPttUp(slot = 0)
+            override fun stopTx(slot: Int) {
+                // The service's PttDispatcher keys held state by slot:
+                // release the slot that was pressed, or a channel-2
+                // press would never end.
+                Log.i(TAG, "Controller.stopTx(slot=$slot)")
+                dispatchPttUp(slot = slot)
             }
 
             override fun playTptPreview() {
@@ -5940,10 +5942,16 @@ class XvMapComponent : AbstractMapComponent() {
         name: String?,
         kind: String,
     ) {
-        disconnectAinaInternal()
+        // No up-front disconnect: VoicePlant.connectAina owns the
+        // keep-or-teardown decision. Tearing the primary reader down here
+        // first meant its "already live on this device" guard could never
+        // fire, so every ACL_CONNECTED / STATE_ON reconnect pass cut a
+        // live speaker-mic transmission. Plugin-side failures below still
+        // tear down explicitly, as before.
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null) {
             Log.w(TAG, "no Bluetooth adapter")
+            disconnectAinaInternal()
             return
         }
         val device =
@@ -5956,11 +5964,13 @@ class XvMapComponent : AbstractMapComponent() {
                         (it.name ?: "").lowercase().contains(needle)
                     } ?: run {
                         Log.w(TAG, "no bonded device matching name '$name'")
+                        disconnectAinaInternal()
                         return
                     }
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "could not resolve AINA device", t)
+                disconnectAinaInternal()
                 return
             }
         Log.i(TAG, "resolved AINA: ${device.name} ${device.address}")
