@@ -617,9 +617,13 @@ class MeshVoiceManager(
         !speakerOnServer(canonical) && (bridgingSlot(slotForChannel(channelName)) || !bridgeElection.otherBridgeOn(channelName, now))
 
     // The speaker is heard on the server: a Mumble session id, our own uid,
-    // or a peer whose presence says it is server-connected.
+    // or a peer whose presence or own mesh beacon says it is server-
+    // connected. Presence alone missed peers whose session isn't mapped,
+    // and the bridge relayed them onto Mumble a second time (doubled audio).
     private fun speakerOnServer(canonical: String): Boolean =
-        canonical.startsWith("mumble:") || canonical == ourUid || uidMumbleConnected(canonical)
+        canonical.startsWith("mumble:") || canonical == ourUid || peerReportsServer(canonical)
+
+    private fun peerReportsServer(uid: String): Boolean = uidMumbleConnected(uid) || bridgeElection.peerOnServer(uid, nowMs())
 
     private data class VoiceRxAction(
         val play: Boolean,
@@ -724,7 +728,9 @@ class MeshVoiceManager(
         val slot = slotForChannel(channelName)
         // A leg's audio is relayed onto the session of ITS slot (channel 2's
         // leg onto channel 2's session), never onto the other channel.
-        val relay = bridgingSlot(slot) && canonical != ourUid && !serverOriginated && !uidMumbleConnected(canonical)
+        // Never relay a speaker who is on the server themselves (their own
+        // Mumble copy is already there): presence OR their own beacon.
+        val relay = bridgingSlot(slot) && !serverOriginated && !speakerOnServer(canonical)
         var relayBurstStart = false
         if (relay) {
             // A speaker key still in raw "ssrc:" form means we never

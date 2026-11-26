@@ -744,6 +744,20 @@ class MeshVoiceManagerTest {
     }
 
     @Test
+    fun `bridge never relays a speaker whose own beacon says they are on the server`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.beaconFrom("uid-on-server", mumbleConnected = true, bridging = false)
+        h.peerUids += "uid-on-server"
+        h.now += 1_000
+        h.manager.tick() // ssrc -> uid map
+        h.manager.observeMumbleHealth()
+        h.manager.onVoice("ops-1", byteArrayOf(1), ssrcKeyOf("uid-on-server"), seqInBurst = 0)
+        assertTrue("their own Mumble copy is already on the server", h.relayedToMumble.isEmpty())
+        assertTrue("and we hear them over Mumble, not the mesh", h.playedRx.isEmpty())
+    }
+
+    @Test
     fun `a mesh-only speaker plays when nobody is bridging the channel`() {
         val h = Harness()
         h.joinAndTick()
