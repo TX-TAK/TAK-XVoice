@@ -42,10 +42,29 @@ class AinaSppReader(
     // lambda when the type itself is internal).
     private val socketFactory: SocketFactory = DefaultSocketFactory,
 ) {
-    private val parser = AinaAsciiParser()
-
+    // Live, connected socket of the CURRENT generation (null until
+    // connect() succeeds and again once the read loop exits).
     @Volatile
     private var socket: BluetoothSocket? = null
+
+    // Socket of the current generation that is still inside its
+    // blocking connect(). Tracked separately so disconnect() can close
+    // it — closing is the only way to abort BluetoothSocket.connect(),
+    // and before this field existed a disconnect() during the connect
+    // left the attempt running: it would later succeed, hold the
+    // RFCOMM link, and fire connected/disconnected edges into a
+    // replacement reader's state.
+    @Volatile
+    private var pendingSocket: BluetoothSocket? = null
+
+    // Bumped by every connect() and disconnect(). Each read-loop thread
+    // captures the value it was started with; once it no longer
+    // matches, that thread is stale and must not touch shared state,
+    // fire callbacks, or schedule reconnects.
+    @Volatile
+    private var generation: Int = 0
+
+    private val lifecycleLock = Any()
 
     @Volatile
     private var thread: Thread? = null
@@ -65,41 +84,89 @@ class AinaSppReader(
     private val reconnectHandler = Handler(Looper.getMainLooper())
     private val reconnectRunnable =
         Runnable {
-            val dev = targetDevice
-            if (stopRequested || dev == null) return@Runnable
-            Log.i(TAG, "reconnect: re-opening SPP to ${redactMac(dev.address)}")
-            parser.reset()
-            thread = Thread({ runReadLoop(dev) }, "aina-spp-reader").also { it.start() }
+            synchronized(lifecycleLock) {
+                val dev = targetDevice
+                if (stopRequested || dev == null) return@Runnable
+                // Only a thread of the current generation schedules this,
+                // and it has already left its pump loop when it does, so
+                // starting a fresh thread on the same generation is safe.
+                Log.i(TAG, "reconnect: re-opening SPP to ${redactMac(dev.address)}")
+                startReadThread(dev, generation)
+            }
         }
 
     fun connect(device: BluetoothDevice) {
         disconnect()
-        stopRequested = false
-        targetDevice = device
-        reconnectPolicy.reset()
-        parser.reset()
-        Log.i(
-            TAG,
-            "Connecting SPP to AINA at ${redactMac(device.address)} (${device.name ?: "?"})",
-        )
-        thread = Thread({ runReadLoop(device) }, "aina-spp-reader").also { it.start() }
+        synchronized(lifecycleLock) {
+            stopRequested = false
+            targetDevice = device
+            reconnectPolicy.reset()
+            val gen = ++generation
+            Log.i(
+                TAG,
+                "Connecting SPP to AINA at ${redactMac(device.address)} (${device.name ?: "?"}) gen=$gen",
+            )
+            startReadThread(device, gen)
+        }
+    }
+
+    private fun startReadThread(
+        device: BluetoothDevice,
+        gen: Int,
+    ) {
+        thread = Thread({ runReadLoop(device, gen) }, "aina-spp-reader").also { it.start() }
     }
 
     fun isConnecting(): Boolean = thread?.isAlive == true
 
+    /** True when an RFCOMM socket to [mac] is open and pumping. Lets
+     *  the respawn path skip tearing down a working link (ACL_CONNECTED,
+     *  STATE_ON and config-change triggers all re-run connect). */
+    fun isConnectedTo(mac: String?): Boolean {
+        if (mac.isNullOrBlank() || stopRequested) return false
+        val target = targetDevice?.address ?: return false
+        return socket != null && target.equals(mac, ignoreCase = true)
+    }
+
     fun disconnect() {
-        stopRequested = true
-        targetDevice = null
-        reconnectHandler.removeCallbacks(reconnectRunnable)
-        reconnectPolicy.reset()
+        val toClose: List<BluetoothSocket?>
+        synchronized(lifecycleLock) {
+            stopRequested = true
+            generation++
+            targetDevice = null
+            reconnectHandler.removeCallbacks(reconnectRunnable)
+            reconnectPolicy.reset()
+            toClose = listOf(pendingSocket, socket)
+            pendingSocket = null
+            socket = null
+            thread?.interrupt()
+            thread = null
+        }
+        // Close outside the lock: BluetoothSocket.close() can block
+        // briefly, and closing the pending socket is what unblocks a
+        // read thread parked in connect().
+        toClose.forEach { closeQuietly(it) }
+        notifyConnection(false)
+    }
+
+    private fun isCurrent(gen: Int): Boolean = !stopRequested && gen == generation
+
+    private fun closeQuietly(sock: BluetoothSocket?) {
         try {
-            socket?.close()
+            sock?.close()
         } catch (_: Throwable) {
         }
-        socket = null
-        thread?.interrupt()
-        thread = null
-        onConnectionState(false)
+    }
+
+    // Callbacks run on the reader thread. A throw from the plugin side
+    // must neither kill the thread (leaking the socket) nor escape to
+    // the default uncaught-exception handler (crashing ATAK).
+    private fun notifyConnection(up: Boolean) {
+        try {
+            onConnectionState(up)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onConnectionState($up) handler threw", t)
+        }
     }
 
     // Schedule the next reconnect attempt using the shared
@@ -108,8 +175,11 @@ class AinaSppReader(
     // gives up its in-burst attempts. The policy decides delay; we
     // post on the main looper so it doesn't pile up on the read
     // thread that's about to exit.
-    private fun scheduleReconnect(reason: String) {
-        if (stopRequested) return
+    private fun scheduleReconnect(
+        gen: Int,
+        reason: String,
+    ) {
+        if (!isCurrent(gen)) return
         if (targetDevice == null) return
         reconnectHandler.removeCallbacks(reconnectRunnable)
         val delay = reconnectPolicy.nextDelayMs()
@@ -120,7 +190,28 @@ class AinaSppReader(
         reconnectHandler.postDelayed(reconnectRunnable, delay)
     }
 
-    private fun runReadLoop(device: BluetoothDevice) {
+    private fun runReadLoop(
+        device: BluetoothDevice,
+        gen: Int,
+    ) {
+        try {
+            runReadLoopInner(device, gen)
+        } catch (t: Throwable) {
+            // Anything unexpected (RuntimeException from the BT stack,
+            // a bug in the parser) lands here instead of the thread's
+            // uncaught-exception handler, which would take ATAK down.
+            Log.e(TAG, "SPP reader thread failed unexpectedly (gen=$gen)", t)
+            if (isCurrent(gen)) {
+                notifyConnection(false)
+                scheduleReconnect(gen, "reader thread exception")
+            }
+        }
+    }
+
+    private fun runReadLoopInner(
+        device: BluetoothDevice,
+        gen: Int,
+    ) {
         // BluetoothSocket contract: cancel discovery before connect or it may block.
         try {
             BluetoothAdapter.getDefaultAdapter()?.cancelDiscovery()
@@ -133,54 +224,92 @@ class AinaSppReader(
         // retries up to 3 times — we do the same plus a small backoff
         // and an insecure-socket fallback on the final attempt for
         // devices whose service discovery is unreliable on Android 14+.
-        val result = openSppSocketWithRetry(device)
+        val result = openSppSocketWithRetry(device, gen)
         when (result) {
             is OpenResult.Success -> {
-                socket = result.socket
-                Log.i(TAG, "SPP connected")
+                val sock = result.socket
+                // Publish under the lock so a racing disconnect() either
+                // sees this socket (and closes it) or has already bumped
+                // the generation (and we close it here).
+                val published =
+                    synchronized(lifecycleLock) {
+                        if (isCurrent(gen)) {
+                            socket = sock
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                if (!published) {
+                    Log.i(TAG, "SPP connect finished after disconnect (gen=$gen) — closing stale socket")
+                    closeQuietly(sock)
+                    return
+                }
+                Log.i(TAG, "SPP connected (gen=$gen)")
                 // Successful open — reset backoff so the next drop starts
                 // from the short end of the schedule again.
                 reconnectPolicy.reset()
-                onConnectionState(true)
-                pumpInputStream(result.socket)
+                // pumpInputStream owns the socket from here and closes
+                // it in its finally block; notifyConnection never throws.
+                notifyConnection(true)
+                pumpInputStream(sock, gen)
             }
             is OpenResult.Fatal -> {
                 Log.e(TAG, "SPP open FATAL — not scheduling retry: ${result.reason}")
-                onConnectionState(false)
-                onFatal(result.reason)
+                if (!isCurrent(gen)) return
+                notifyConnection(false)
+                try {
+                    onFatal(result.reason)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "onFatal handler threw", t)
+                }
                 return
             }
             is OpenResult.Exhausted -> {
-                onConnectionState(false)
+                if (!isCurrent(gen)) return
+                notifyConnection(false)
                 // Initial connect burst exhausted. Stay in the reconnect
                 // loop so the operator doesn't have to dig into Settings
                 // when the AINA finally finishes booting / comes into
                 // range.
-                if (!stopRequested) scheduleReconnect("initial connect burst exhausted")
+                scheduleReconnect(gen, "initial connect burst exhausted")
+                return
+            }
+            is OpenResult.Cancelled -> {
+                Log.i(TAG, "SPP connect cancelled by disconnect (gen=$gen)")
                 return
             }
         }
     }
 
-    private fun pumpInputStream(sock: BluetoothSocket) {
+    private fun pumpInputStream(
+        sock: BluetoothSocket,
+        gen: Int,
+    ) {
         val buf = ByteArray(64)
+        // Parser per read loop, not per reader: a stale thread still
+        // draining must not interleave bytes into the live one's state.
+        val parser = AinaAsciiParser()
         try {
             val input = sock.inputStream
-            while (!stopRequested) {
+            while (isCurrent(gen)) {
                 val n =
                     try {
                         input.read(buf)
                     } catch (t: IOException) {
-                        if (!stopRequested) Log.w(TAG, "SPP read error: ${t.message}")
+                        if (isCurrent(gen)) Log.w(TAG, "SPP read error: ${t.message}")
                         -1
                     }
-                if (n <= 0) break
+                if (n <= 0 || !isCurrent(gen)) break
                 Log.i(
                     TAG,
                     "rx ${n}B: ascii='${printable(buf, n)}' hex=${hex(buf, n)}",
                 )
                 for ((button, isDown) in parser.process(buf, n)) {
                     Log.i(TAG, "parsed: $button down=$isDown")
+                    // A disconnect() may land between frames; never hand
+                    // a superseded reader's edges to the plugin.
+                    if (!isCurrent(gen)) break
                     try {
                         onEvent(button, isDown)
                     } catch (t: Throwable) {
@@ -188,21 +317,26 @@ class AinaSppReader(
                     }
                 }
             }
+        } catch (t: IOException) {
+            if (isCurrent(gen)) Log.w(TAG, "SPP input stream unavailable: ${t.message}")
         } finally {
-            Log.i(TAG, "SPP read loop exiting")
-            try {
-                sock.close()
-            } catch (_: Throwable) {
+            Log.i(TAG, "SPP read loop exiting (gen=$gen)")
+            closeQuietly(sock)
+            val current =
+                synchronized(lifecycleLock) {
+                    if (socket === sock) socket = null
+                    isCurrent(gen)
+                }
+            // A stale generation already had its disconnect edge
+            // delivered by disconnect(); firing another here would
+            // release a burst held on the replacement reader.
+            if (current) {
+                notifyConnection(false)
+                // Read-loop exit while still current means out-of-range
+                // / socket dropped: reconnect so the operator's PTT
+                // works again when they walk back into range.
+                scheduleReconnect(gen, "read loop exit")
             }
-            socket = null
-            parser.reset()
-            onConnectionState(false)
-            // Read-loop exit reason: stopRequested means operator
-            // disconnected (no retry); anything else is an out-of-range
-            // / socket-dropped event that should trigger reconnect so
-            // the operator's PTT works again when they walk back into
-            // range.
-            if (!stopRequested) scheduleReconnect("read loop exit")
         }
     }
 
@@ -224,9 +358,16 @@ class AinaSppReader(
         // ReconnectPolicy delay. This is the "AINA hasn't finished
         // booting / is out of range" case.
         object Exhausted : OpenResult()
+
+        // disconnect() (or a newer connect()) superseded this attempt.
+        // No callbacks, no retry — the newer generation owns the slot.
+        object Cancelled : OpenResult()
     }
 
-    private fun openSppSocketWithRetry(device: BluetoothDevice): OpenResult {
+    private fun openSppSocketWithRetry(
+        device: BluetoothDevice,
+        gen: Int,
+    ): OpenResult {
         var lastErr: Throwable? = null
         // Initially follow the legacy attempt-3-uses-insecure schedule.
         // Flipped early to true the moment we see a SecurityException
@@ -236,7 +377,7 @@ class AinaSppReader(
         // jumping straight to the insecure fallback.
         var forceInsecureForBurst = false
         for (attempt in 1..MAX_CONNECT_ATTEMPTS) {
-            if (stopRequested) return OpenResult.Exhausted
+            if (!isCurrent(gen)) return OpenResult.Cancelled
             // Log bond state at each connect attempt — distinguishing
             // "AINA wasn't pre-bonded" from "AINA bonded but service
             // not advertising yet" is one of the field-recurring
@@ -326,8 +467,32 @@ class AinaSppReader(
                 sleepBackoff(attempt)
                 continue
             }
+            // Expose the socket to disconnect() before blocking in
+            // connect(); if a disconnect already ran, bail out now.
+            val stillCurrent =
+                synchronized(lifecycleLock) {
+                    if (isCurrent(gen)) {
+                        pendingSocket = sock
+                        true
+                    } else {
+                        false
+                    }
+                }
+            if (!stillCurrent) {
+                closeQuietly(sock)
+                return OpenResult.Cancelled
+            }
             try {
                 sock.connect()
+                synchronized(lifecycleLock) {
+                    if (pendingSocket === sock) pendingSocket = null
+                }
+                // disconnect() may have run while connect() was in
+                // flight on a stack that ignored the close. Recheck.
+                if (!isCurrent(gen)) {
+                    closeQuietly(sock)
+                    return OpenResult.Cancelled
+                }
                 if (useInsecure) {
                     // Insecure-socket fallback succeeded. The connection
                     // skipped SDP lookup and is using fixed channel 1
@@ -357,21 +522,24 @@ class AinaSppReader(
                     "SPP connect attempt $attempt threw SecurityException — perm=${permissionStatus()}",
                     se,
                 )
-                try {
-                    sock.close()
-                } catch (_: Throwable) {
+                synchronized(lifecycleLock) {
+                    if (pendingSocket === sock) pendingSocket = null
                 }
+                closeQuietly(sock)
                 return OpenResult.Fatal(
                     "BLUETOOTH_CONNECT runtime permission revoked " +
                         "(SecurityException on RFCOMM connect)",
                 )
             } catch (t: IOException) {
+                synchronized(lifecycleLock) {
+                    if (pendingSocket === sock) pendingSocket = null
+                }
+                closeQuietly(sock)
+                // IOException is also how a disconnect()-initiated close
+                // surfaces; don't log it as a failure or back off.
+                if (!isCurrent(gen)) return OpenResult.Cancelled
                 Log.w(TAG, "SPP connect attempt $attempt failed: ${t.message}")
                 lastErr = t
-                try {
-                    sock.close()
-                } catch (_: Throwable) {
-                }
                 sleepBackoff(attempt)
             }
         }
@@ -475,5 +643,16 @@ class AinaSppReader(
         private const val MAX_CONNECT_ATTEMPTS = 3
 
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+
+        /**
+         * Respawn guard: true when a connect request should leave the
+         * existing SPP reader alone because it is already pumping on the
+         * requested device and the request still resolves to the SPP
+         * (V1) protocol. A protocol change (e.g. to "v2") always respawns.
+         */
+        fun shouldKeepLiveReader(
+            liveOnSameMac: Boolean,
+            resolvedKind: String?,
+        ): Boolean = liveOnSameMac && (resolvedKind == "v1" || resolvedKind == "spp")
     }
 }

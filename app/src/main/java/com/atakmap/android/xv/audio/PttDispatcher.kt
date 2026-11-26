@@ -68,11 +68,25 @@ class PttDispatcher(
     @Volatile
     private var latchedSlot: Int = 0
 
-    // Set of sources currently holding the PTT down. TX is engaged
-    // iff this set is non-empty (momentary mode); in latched mode it
-    // tracks held sources for forgetSource() bookkeeping but TX
-    // engagement is driven by latchedActive instead.
-    private val heldButtons: MutableSet<PttSource> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+    // Set of inputs currently holding the PTT down, keyed by
+    // (owner, source, slot) — see [PttHoldKey]. TX is engaged iff this
+    // set is non-empty (momentary mode); in latched mode it tracks held
+    // inputs for forget bookkeeping but TX engagement is driven by
+    // latchedActive instead.
+    //
+    // Keying on the reader instance (owner) and slot rather than on
+    // [PttSource] alone matters because the primary speaker-mic and
+    // the external button can be the same reader class (two AINA V2s,
+    // two SPP V1s), and PTT1 / PTT2 on one speaker-mic share a source.
+    // Source-only keying let an external-button re-attach, or a PTTS
+    // tap during a held PTT1, silently end a live burst.
+    private val heldButtons: MutableSet<PttHoldKey> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    // Guards "is the owner retired?" + "add its key" against
+    // forgetOwner()'s "retire + remove its keys", so a down edge racing
+    // a reader teardown either lands before the forget (and is removed
+    // by it) or is rejected — never left behind.
+    private val heldLock = Any()
 
     // The source that ENGAGED the current burst — used by the trailing-
     // click-trim decision when the burst finally ends. The first
@@ -115,11 +129,18 @@ class PttDispatcher(
         down(slot, PttSource.DEFAULT)
     }
 
-    /** PTT button went down on [slot] from [source]. */
+    /** PTT button went down on [slot] from [source], held by reader
+     *  instance [owner] (defaults to the source itself for inputs with
+     *  a single process-wide instance — on-screen card, Active Key). */
     fun down(
         slot: Int,
         source: PttSource,
+        owner: Any = source,
     ) {
+        if (owner is PttInputOwner && owner.retired) {
+            Log.i(TAG, "down($source, slot=$slot) from retired reader $owner — ignored")
+            return
+        }
         // Latched-mode toggle-off MUST be evaluated BEFORE the OR-gate
         // wasEmpty check. Otherwise: latched press 1 starts TX and
         // leaves latchedActive=true; up() is a no-op in latched mode
@@ -136,8 +157,15 @@ class PttDispatcher(
             txController.stop()
             return
         }
-        val wasEmpty = heldButtons.isEmpty()
-        heldButtons.add(source)
+        val wasEmpty: Boolean
+        synchronized(heldLock) {
+            if (owner is PttInputOwner && owner.retired) {
+                Log.i(TAG, "down($source, slot=$slot) raced teardown of $owner — ignored")
+                return
+            }
+            wasEmpty = heldButtons.isEmpty()
+            heldButtons.add(PttHoldKey(owner, source, slot))
+        }
         if (!wasEmpty && !latchedModeEnabled()) {
             // Concurrent press from a second source — TX is already
             // in flight. Record the held source so up() bookkeeping is
@@ -179,18 +207,22 @@ class PttDispatcher(
     fun up(
         slot: Int,
         source: PttSource?,
+        owner: Any? = source,
     ) {
         if (latchedModeEnabled()) {
-            // Latched bookkeeping: drop the source so a forgetSource()
-            // from a disconnect path doesn't see a stale entry, but
-            // don't change TX state.
-            if (source == null) heldButtons.clear() else heldButtons.remove(source)
+            // Latched bookkeeping: drop the key so a forget from a
+            // disconnect path doesn't see a stale entry, but don't
+            // change TX state.
+            if (source == null) heldButtons.clear() else heldButtons.remove(PttHoldKey(owner ?: source, source, slot))
             return
         }
         if (source == null) {
             heldButtons.clear()
         } else {
-            heldButtons.remove(source)
+            // Exact (owner, source, slot) match only. Releasing PTTS
+            // must not release a still-held PTT1 on the same device,
+            // and one reader's release must not release another's.
+            heldButtons.remove(PttHoldKey(owner ?: source, source, slot))
         }
         if (heldButtons.isNotEmpty()) {
             Log.i(TAG, "up(slot=$slot, $source) — others still held: $heldButtons (owner=$burstOwnerSource)")
@@ -214,9 +246,41 @@ class PttDispatcher(
      * Idempotent: safe to call for a source not in the set.
      */
     fun forgetSource(source: PttSource) {
-        if (heldButtons.remove(source)) {
+        if (heldButtons.removeIf { it.source == source }) {
             Log.i(TAG, "forgetSource($source) — held={$heldButtons} owner=$burstOwnerSource")
         }
+        endBurstIfNothingHeld()
+    }
+
+    /**
+     * Drop every key held by reader instance [owner] — the disconnect
+     * path for a single reader. Unlike [forgetSource], this leaves a
+     * different reader of the same [PttSource] untouched, so an
+     * external-button reattach (or a stale reader's late disconnect
+     * edge) cannot cut a burst held on the primary speaker-mic.
+     * Idempotent.
+     *
+     * [retire] = true is for reader TEARDOWN: the owner is marked
+     * retired so any down edge it still delivers is rejected. Leave it
+     * false for a transport drop — the same reader instance reconnects
+     * and its later presses are real.
+     */
+    fun forgetOwner(
+        owner: Any,
+        retire: Boolean = false,
+    ) {
+        val removed =
+            synchronized(heldLock) {
+                if (retire && owner is PttInputOwner) owner.retired = true
+                heldButtons.removeIf { it.owner == owner }
+            }
+        if (removed) {
+            Log.i(TAG, "forgetOwner($owner) — held={$heldButtons} owner=$burstOwnerSource")
+        }
+        endBurstIfNothingHeld()
+    }
+
+    private fun endBurstIfNothingHeld() {
         if (heldButtons.isEmpty() && burstOwnerSource != null && !latchedActive) {
             // The forgotten source was the only thing keeping the
             // burst alive — end it. Use a synthetic up() to land

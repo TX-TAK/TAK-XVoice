@@ -19,6 +19,12 @@ enum class PttSource(val dropsTrailingClick: Boolean) {
     AINA_V2(dropsTrailingClick = true),
     PRYME_BLE(dropsTrailingClick = true),
 
+    // Inrico BT02 Zello speaker-mic (companion BLE button peripheral).
+    // Its own source rather than PRYME_BLE so a Pryme puck in the
+    // External Button slot and a BT02 in the primary slot are
+    // distinguishable in logs and in forgetSource() cascades.
+    INRICO_BT02(dropsTrailingClick = true),
+
     // Samsung ruggedized-device programmable Active Key (Tab Active5,
     // XCover6 Pro / 7, etc.). Emits `HARD_KEY_REPORT` broadcasts that
     // [com.atakmap.android.xv.ptt.SamsungHardKeyReceiver] converts into
@@ -58,6 +64,35 @@ fun logPrefixForPttSource(source: PttSource): String =
         PttSource.AINA_V1 -> "primary AINA V1 button"
         PttSource.AINA_V2 -> "primary AINA V2 button"
         PttSource.PRYME_BLE -> "external button"
+        PttSource.INRICO_BT02 -> "primary Inrico BT02 button"
         PttSource.SAMSUNG_ACTIVE_KEY -> "Samsung Active Key"
         PttSource.DEBUG -> "debug PTT"
     }
+
+// Identity of one physical input currently holding PTT down.
+// [owner] is the reader instance (a [PttInputOwner] minted per
+// connect) or, for single-instance inputs like the on-screen card,
+// the [PttSource] itself. [slot] separates PTT1 from PTT2 on the same
+// device. PttDispatcher's OR-gate keys its held set on this triple.
+data class PttHoldKey(
+    val owner: Any,
+    val source: PttSource,
+    val slot: Int,
+)
+
+// Opaque per-reader-instance token. Identity equality on purpose: two
+// connects to the same MAC get two distinct owners, so a stale reader's
+// late disconnect edge can only forget its own held keys.
+class PttInputOwner(
+    private val label: String,
+) {
+    // Set by PttDispatcher.forgetOwner(). A retired owner's reader has
+    // been torn down; any down edge it still delivers (a read thread
+    // that was mid-dispatch when the slot was swapped) is dropped so it
+    // can never strand a held key that nothing will release.
+    @Volatile
+    var retired: Boolean = false
+        internal set
+
+    override fun toString(): String = "$label#${Integer.toHexString(System.identityHashCode(this))}"
+}

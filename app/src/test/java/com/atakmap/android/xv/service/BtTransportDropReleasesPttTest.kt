@@ -167,5 +167,6 @@ class BtTransportDropReleasesPttTest {
         forgetSource(PttSource.AINA_V1)
         forgetSource(PttSource.AINA_V2)
         forgetSource(PttSource.PRYME_BLE)
+        forgetSource(PttSource.INRICO_BT02)
     }
 }

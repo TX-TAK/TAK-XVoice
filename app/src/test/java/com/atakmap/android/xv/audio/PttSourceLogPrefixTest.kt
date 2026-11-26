@@ -32,6 +32,11 @@ class PttSourceLogPrefixTest {
     }
 
     @Test
+    fun `Inrico BT02 source maps to primary Inrico BT02 button`() {
+        assertEquals("primary Inrico BT02 button", logPrefixForPttSource(PttSource.INRICO_BT02))
+    }
+
+    @Test
     fun `Samsung Active Key source maps to Samsung Active Key`() {
         assertEquals("Samsung Active Key", logPrefixForPttSource(PttSource.SAMSUNG_ACTIVE_KEY))
     }
