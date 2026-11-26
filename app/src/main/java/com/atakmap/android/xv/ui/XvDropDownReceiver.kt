@@ -866,14 +866,28 @@ class XvDropDownReceiver(
     override fun onDropDownSelectionRemoved() = Unit
 
     override fun onDropDownClose() {
+        // The old pane's PTT buttons are gone either way.
         releaseAnyOnScreenPtt("panel closed")
-        mapHud?.setPanelOpen(false)
-        stopRefreshLoop()
-        // Don't keep (or later repaint) a detached channel list, and don't
-        // carry an old search into the next visit.
-        openPickerSlot = null
-        channelListRoot = null
-        channelListQuery = ""
+        // XV moving between its own panes (panel → channel list, list →
+        // Settings) also closes the pane being replaced, AFTER the new
+        // one recorded its state. Clearing then nulled channelListRoot
+        // and stopped the refresh loop, so the open list never repainted
+        // (channel 2 add/remove looked like it didn't take). Decide once
+        // the transition settles: only a real close clears.
+        mainHandler.post {
+            if (isClosed()) {
+                mapHud?.setPanelOpen(false)
+                stopRefreshLoop()
+                // Don't keep (or later repaint) a detached channel list,
+                // and don't carry an old search into the next visit.
+                openPickerSlot = null
+                channelListRoot = null
+                channelListQuery = ""
+            } else {
+                mapHud?.setPanelOpen(true)
+                startRefreshLoop()
+            }
+        }
     }
 
     override fun onDropDownSizeChanged(
