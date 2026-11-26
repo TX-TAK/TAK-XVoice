@@ -1769,7 +1769,8 @@ class TxController(
         // music, the headset can sleep, and battery isn't drained by
         // a permanently-open SCO link. The next press pays one cold-
         // start cost, then armHotMic re-acquires.
-        private const val HOT_MIC_IDLE_RELEASE_MS = 60_000L
+        // Low latency mode hold (LowLatencyMode is the single source).
+        private const val HOT_MIC_IDLE_RELEASE_MS = LowLatencyMode.HOLD_MS
 
         // Number of mic frames to hold in the trailing buffer before
         // sending. On stop() these queued frames are dropped, swallowing

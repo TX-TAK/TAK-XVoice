@@ -177,4 +177,8 @@ interface IXvVoice {
     // its PTT gate and channel-RX drop use. The panel's "on a phone call"
     // bar reads it. Appended last (transaction order).
     boolean isExternalCallActive();
+
+    // A Bluetooth speaker-mic / headset is the voice (HFP) route. Settings
+    // shows Low latency mode only then. Appended last (transaction order).
+    boolean isBluetoothVoiceRoute();
 }

@@ -2091,6 +2091,11 @@ class XvVoiceService : Service() {
                 return plant().externalCallActive()
             }
 
+            override fun isBluetoothVoiceRoute(): Boolean {
+                assertAuthorizedCaller()
+                return plant().isBluetoothVoiceRoute()
+            }
+
             override fun connectExternalButton(
                 mac: String?,
                 name: String?,

@@ -298,6 +298,8 @@ class XvMapComponent : AbstractMapComponent() {
     private fun onAudioRouteChangedFromService(label: String) {
         val prev = lastAudioRouteLabel
         lastAudioRouteLabel = label
+        // Settings shows Low latency mode only on a Bluetooth voice route.
+        dropDown?.onDeviceConnectivityChanged()
         // Refresh the main view immediately. The dropdown might be on
         // a different screen state right now; refreshNow no-ops in
         // that case.
@@ -2917,6 +2919,8 @@ class XvMapComponent : AbstractMapComponent() {
             // The service's latched verdict: the same one that refuses PTT
             // and drops channel RX, so the bar can't disagree with them.
             override fun phoneCallActive(): Boolean = voiceClient?.query(false) { it.isExternalCallActive } == true
+
+            override fun bluetoothVoiceRoute(): Boolean = voiceClient?.query(false) { it.isBluetoothVoiceRoute } == true
 
             override fun onBluetoothBonded(mac: String) = onDeviceBonded(mac)
 

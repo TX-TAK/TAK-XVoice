@@ -740,6 +740,10 @@ class VoicePlant(
                 } catch (t: Throwable) {
                     Log.w(TAG, "ainaA2dpWiring.reconcileNotification threw", t)
                 }
+                // Low latency mode only applies on a Bluetooth voice
+                // route: arm when one appears (a speaker-mic connecting
+                // after the channel was joined), let go when it leaves.
+                reconcileHotMic()
                 val label = router.currentRouteLabel()
                 if (label == lastPublishedRouteLabel) return
                 lastPublishedRouteLabel = label
@@ -1432,6 +1436,15 @@ class VoicePlant(
      * Mumble session state). Idempotent — TxController.armHotMic /
      * disarmHotMic are safe to call when nothing changes.
      */
+    /** A Bluetooth speaker-mic / headset is the voice (HFP) route. */
+    fun isBluetoothVoiceRoute(): Boolean =
+        try {
+            btPolicy.classify() == com.atakmap.android.xv.audio.BtAudioMode.HFP_ONLY
+        } catch (t: Throwable) {
+            Log.w(TAG, "isBluetoothVoiceRoute: classify threw", t)
+            false
+        }
+
     private fun reconcileHotMic() {
         // Hot mic is a slot-0 (primary) concept — VS2 doesn't have its
         // own SCO. Arm only when the operator has both Hot Mic on AND

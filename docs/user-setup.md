@@ -9,9 +9,9 @@ tones, emergency alerts, and channel sharing.
 TAK-XVoice treats your paired Bluetooth speaker-mic as **XV-exclusive comms
 gear** while leaving the rest of your phone alone:
 
-- **No held audio resources:** HFP/SCO is engaged **only while the mic is
-  actively open** (PTT-down or hot-mic). Loading the plugin or joining a
-  channel does not hijack your audio route.
+- **No held audio resources:** HFP/SCO is engaged **only while you
+  transmit**. Loading the plugin or joining a channel does not hijack your
+  audio route (unless you turn on Low latency mode, below).
 - **Media & navigation keep working:** Spotify, podcasts, GPS turn-by-turn
   prompts, ATAK alerts, and personal headphones continue using their normal
   A2DP / phone audio paths between transmissions.
@@ -135,3 +135,23 @@ When enabled in **XV Settings**:
   profile, RFC 3550 + 7587, for OpenMANET; raw-Opus wire mode for legacy VX
   peers). OpenMANET interop has not yet been verified on-air against a live
   node.
+
+## Low latency mode (not recommended)
+
+**Settings → TX/RX → Low latency mode** appears only while a Bluetooth
+speaker-mic or headset is the voice route. It is off by default.
+
+When on, XV keeps the headset's voice link open for 1 minute after you join
+a channel and after each time you talk, so the next press starts instantly
+instead of after the usual 0.5–1.5 s Bluetooth start-up. While the link is
+open:
+
+- music and other media on the headset stay paused;
+- many headsets hiss or whine;
+- everything else on the headset is call quality;
+- the phone and headset use more battery;
+- some headsets show "on a call";
+- other calling apps may not get the headset until it closes.
+
+Use it only when the first words after a quiet spell must never be clipped.
+It is **not** an open mic: nothing is sent unless you press PTT.

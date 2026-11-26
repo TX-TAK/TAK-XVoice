@@ -307,7 +307,7 @@ flowchart TD
 | Tab | What lives there | Why there |
 |---|---|---|
 | **Devices** (opens first) | Speaker-mic, PTT button, Phone Active key, + Add a PTT button, Audio device, Built-in fallback, Troubleshooting, Help | What keys the radio and where you hear it: touched most often |
-| **TX/RX** | Layout (Left-handed, map PTT buttons and their size), Hot mic, PTT timeout, Talk-permit tone | How transmitting feels |
+| **TX/RX** | Layout (Left-handed, map PTT buttons and their size), Low latency mode (Bluetooth only, not recommended), PTT timeout, Talk-permit tone | How transmitting feels |
 | **Server** | TAK server picker, voice Connect / Disconnect (Disconnect asks first), Mission auto-channels | Server-side behaviour: which server, and which channel a mission drives |
 | **Mesh** | Master switch + status, channel list (Off/Backup/Both), + Add channel, Share channel plan, Interop patch, Security & recovery | Everything that works without a server |
 

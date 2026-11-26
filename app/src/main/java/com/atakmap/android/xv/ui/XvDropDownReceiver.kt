@@ -378,13 +378,16 @@ class XvDropDownReceiver(
 
         fun setLatchedTimeoutSec(seconds: Int)
 
-        // Hot Mic mode: SCO stays warm for the whole channel session
-        // instead of just the 5s post-burst cool-down. Eliminates the
-        // 500-1500 ms BT cold-start on the first PTT after a long
-        // pause. Cost: media apps stay paused for the entire mission.
+        // Low latency mode (internally "hot mic"): keeps the Bluetooth
+        // voice link open for LowLatencyMode.HOLD_MS after joining and
+        // after each TX, so the next press skips the BT start-up. Not an
+        // open mic. Costs media, audio quality and battery while open.
         fun hotMicMode(): Boolean
 
         fun setHotMicMode(enabled: Boolean)
+
+        // A Bluetooth speaker-mic / headset is the voice route.
+        fun bluetoothVoiceRoute(): Boolean = false
 
         // Mesh voice (multicast) master toggle. When ON, every joined
         // channel gets an auto-derived multicast failover leg; the mesh
@@ -753,6 +756,7 @@ class XvDropDownReceiver(
         Runnable {
             val panel = settingsPanelView ?: return@Runnable
             renderInputHealthChips(panel)
+            renderLowLatencyVisibility(panel)
             try {
                 wireAinaPicker(panel)
             } catch (t: Throwable) {
@@ -2832,9 +2836,54 @@ class XvDropDownReceiver(
             },
         )
 
-        val hotMicSw = v.findViewById<Switch>(R.id.xv_switch_hot_mic)
-        hotMicSw.isChecked = controller.hotMicMode()
-        hotMicSw.setOnCheckedChangeListener { _, on -> controller.setHotMicMode(on) }
+        wireLowLatencyMode(v)
+    }
+
+    // Low latency mode ("hot mic" internally). Shown only when a Bluetooth
+    // speaker-mic / headset is the voice route (it does nothing otherwise).
+    // Marked Not recommended; the ⓘ explains the trade-off.
+    private fun wireLowLatencyMode(v: View) {
+        val sw = v.findViewById<Switch>(R.id.xv_switch_hot_mic) ?: return
+        sw.setOnCheckedChangeListener(null)
+        sw.isChecked = controller.hotMicMode()
+        sw.setOnCheckedChangeListener { _, on -> controller.setHotMicMode(on) }
+        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdPhrase()
+        v.findViewById<TextView>(R.id.xv_low_latency_summary)?.text =
+            "Keeps the headset's voice link open for $hold after you join a channel or talk, " +
+            "so the next press has no start-up delay. Pauses music and other media and uses more " +
+            "battery while open. Not an open mic: nothing is sent unless you press PTT."
+        v.findViewById<View>(R.id.xv_low_latency_info)?.setOnClickListener { showLowLatencyInfo() }
+        renderLowLatencyVisibility(v)
+    }
+
+    private fun renderLowLatencyVisibility(v: View) {
+        v.findViewById<View>(R.id.xv_group_low_latency)?.visibility =
+            if (controller.bluetoothVoiceRoute()) View.VISIBLE else View.GONE
+    }
+
+    private fun showLowLatencyInfo() {
+        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdPhrase()
+        android.app.AlertDialog
+            .Builder(mapView.context)
+            .setTitle("Low latency mode — not recommended")
+            .setMessage(
+                "What it does\n" +
+                    "Keeps your Bluetooth headset's voice link open for $hold after you join a channel " +
+                    "and after each time you talk, so the next press starts instantly instead of after " +
+                    "the usual 0.5–1.5 s Bluetooth start-up. Only applies with a Bluetooth speaker-mic or headset.\n\n" +
+                    "Why to leave it off — while the link is open:\n" +
+                    "• Music and other media on the headset stay paused.\n" +
+                    "• Many headsets hiss or whine.\n" +
+                    "• Everything else on the headset is call quality.\n" +
+                    "• More battery use on the phone and the headset.\n" +
+                    "• Some headsets show \"on a call\".\n" +
+                    "• Other calling apps may not get the headset until it closes.\n\n" +
+                    "When it may be worth it\n" +
+                    "When the first words after a quiet spell must never be clipped, and that matters " +
+                    "more than the points above.\n\n" +
+                    "It is not an open mic: nothing is sent unless you press PTT.",
+            ).setPositiveButton("OK", null)
+            .showXv(pluginContext)
     }
 
     // Mesh & Offline tab: server-less voice toggles + live status +

@@ -372,7 +372,7 @@
             </LinearLayout>
 
             <!-- ============================================================
-                 TX/RX: layout (left-handed, map PTT), hot mic, PTT timeout,
+                 TX/RX: layout (left-handed, map PTT), low latency mode, PTT timeout,
                  talk-permit tone.
                  ============================================================ -->
             <LinearLayout
@@ -459,26 +459,60 @@
                         android:text="Large" />
                 </RadioGroup>
 
-                <TextView
-                    style="@style/XV.SectionHeader"
-                    android:text="Hot mic (PTT latency)" />
+                <!-- Low latency mode (internally "hot mic"; ids / pref key
+                     unchanged). Shown only on a Bluetooth voice route;
+                     marked Not recommended with an info dialog. -->
+                <LinearLayout
+                    android:id="@+id/xv_group_low_latency"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                <LinearLayout style="@style/XV.Row">
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            style="@style/XV.SectionHeader"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:text="Low latency mode" />
+
+                        <TextView
+                            style="@style/XV.Chip"
+                            android:text="NOT RECOMMENDED" />
+
+                        <TextView
+                            android:id="@+id/xv_low_latency_info"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:contentDescription="About low latency mode"
+                            android:gravity="center"
+                            android:text="ⓘ"
+                            android:textColor="@color/xv_voice"
+                            android:textSize="20sp" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/XV.Row">
+
+                        <TextView
+                            android:id="@+id/xv_label_hot_mic"
+                            style="@style/XV.Row.Label"
+                            android:labelFor="@+id/xv_switch_hot_mic"
+                            android:text="Low latency mode" />
+
+                        <Switch
+                            android:id="@+id/xv_switch_hot_mic"
+                            style="@style/XV.Switch" />
+                    </LinearLayout>
 
                     <TextView
-                        android:id="@+id/xv_label_hot_mic"
-                        style="@style/XV.Row.Label"
-                        android:labelFor="@+id/xv_switch_hot_mic"
-                        android:text="Hot mic mode (instant PTT)" />
-
-                    <Switch
-                        android:id="@+id/xv_switch_hot_mic"
-                        style="@style/XV.Switch" />
+                        android:id="@+id/xv_low_latency_summary"
+                        style="@style/XV.CaptionBlock" />
                 </LinearLayout>
-
-                <TextView
-                    style="@style/XV.CaptionBlock"
-                    android:text="Keeps the Bluetooth audio link warm while you're in a channel, so the first PTT after a long pause skips the 0.5–1.5 s start-up. Trade-off: music and podcasts stay paused for the whole session, not just while you talk." />
 
                 <TextView
                     style="@style/XV.SectionHeader"
