@@ -4,6 +4,7 @@ import com.atakmap.android.xv.transport.ChannelSwapCoordinator.Step
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -91,9 +92,9 @@ class ChannelSwapCoordinatorTest {
     fun `cancel abandons the swap once and invalidates its deadline`() {
         val c = ChannelSwapCoordinator()
         val t = c.begin(plan, "Bravo")
-        assertTrue(c.cancel())
+        assertEquals(ChannelSwapCoordinator.Cancelled("Bravo"), c.cancel())
         assertFalse(c.inFlight())
-        assertFalse(c.cancel())
+        assertNull(c.cancel())
         assertEquals(Step.None, c.evaluate(9, 9, deadlineToken = t))
     }
 
@@ -102,7 +103,7 @@ class ChannelSwapCoordinatorTest {
         val c = ChannelSwapCoordinator()
         val t = c.begin(plan, "Bravo")
         c.evaluate(9, 9, deadlineToken = t)
-        assertTrue(c.cancel())
+        assertEquals("Bravo", c.cancel()?.previousSecondaryName)
         assertFalse(c.inFlight())
     }
 
@@ -110,7 +111,7 @@ class ChannelSwapCoordinatorTest {
     fun `idle coordinator ignores evaluations`() {
         val c = ChannelSwapCoordinator()
         assertEquals(Step.None, c.evaluate(9, 5, deadlineToken = null))
-        assertFalse(c.cancel())
+        assertNull(c.cancel())
     }
 
     @Test
@@ -122,5 +123,15 @@ class ChannelSwapCoordinatorTest {
         assertNotEquals(first, second)
         assertEquals(Step.None, c.evaluate(9, 9, deadlineToken = first))
         assertTrue(c.inFlight())
+    }
+
+    @Test
+    fun `half-swap disconnect hands back VS2's real name`() {
+        // VS1 acked (now on 9), VS2 hasn't (still on 9) when the link drops.
+        val c = ChannelSwapCoordinator()
+        c.begin(plan, "Bravo")
+        assertEquals(Step.None, c.evaluate(9, 9, deadlineToken = null))
+        assertEquals(ChannelSwapCoordinator.Cancelled("Bravo"), c.cancel())
+        assertFalse(c.inFlight())
     }
 }

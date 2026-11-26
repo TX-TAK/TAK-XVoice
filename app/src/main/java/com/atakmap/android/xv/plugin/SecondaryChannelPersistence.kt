@@ -39,4 +39,19 @@ object SecondaryChannelPersistence {
         configured: String,
         persisted: String?,
     ): String = if (firstAttempt) configured else restore(persisted) ?: configured
+
+    /**
+     * Whether a (channel 1, channel 2) pair read after a swap may be
+     * persisted. A half-swap can leave both sessions on one channel; saving
+     * that would start both slots on it at reconnect, where the VS1 != VS2
+     * guard drops channel 2. Channel 2 off (null/blank) is always safe.
+     */
+    fun safeToPersistPair(
+        primary: String?,
+        secondary: String?,
+    ): Boolean {
+        val p = restore(primary)
+        val s = restore(secondary)
+        return p != null && (s == null || !com.atakmap.android.xv.transport.AutoJoinPolicy.sameChannel(p, s))
+    }
 }

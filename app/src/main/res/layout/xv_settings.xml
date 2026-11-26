@@ -168,7 +168,9 @@
                     <Switch
                         android:id="@+id/xv_switch_ptt_left"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:minWidth="48dp"/>
                 </LinearLayout>
 
                 <!-- On-map PTT buttons (map HUD). On by default; shown on
@@ -197,7 +199,9 @@
                     <Switch
                         android:id="@+id/xv_switch_map_ptt"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:minWidth="48dp"/>
                 </LinearLayout>
 
                 <TextView

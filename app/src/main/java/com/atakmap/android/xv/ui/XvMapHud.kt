@@ -59,6 +59,9 @@ class XvMapHud(
     private val renderedKey = mutableMapOf<Int, String>()
     private val iconUris = mutableMapOf<String, String>()
 
+    // Last drawn icon size (px), for slide-off detection.
+    @Volatile private var iconSizePx: Pair<Int, Int> = 0 to 0
+
     @Volatile private var panelOpen = false
 
     // Current hex width in px (from the size setting and screen); main thread.
@@ -98,6 +101,14 @@ class XvMapHud(
                 w.setName("XV PTT ${slot + 1}")
                 w.addOnPressListener(MapWidget.OnPressListener { _, _ -> press(slot) })
                 w.addOnUnpressListener(MapWidget.OnUnpressListener { _, _ -> release(slot) })
+                // Slide-off: release once the finger leaves the hex by more
+                // than the touch slop (don't rely on ATAK sending unpress).
+                w.addOnMoveListener(
+                    MapWidget.OnMoveListener { widget, ev ->
+                        if (heldSlot == slot && slidOff(widget, ev.x, ev.y)) release(slot)
+                        false
+                    },
+                )
                 holder.addWidget(w)
             }
             attached = true
@@ -143,6 +154,17 @@ class XvMapHud(
         Log.i("XV_PTT", ">>> MAP HUD PTT${slot + 1} (slot=$slot) UP <<<")
         pttUp(slot)
         refreshNow()
+    }
+
+    private fun slidOff(
+        widget: MapWidget,
+        x: Float,
+        y: Float,
+    ): Boolean {
+        val pos = widget.absolutePosition
+        val slop = android.view.ViewConfiguration.get(pluginContext).scaledTouchSlop.toFloat()
+        val (bw, bh) = iconSizePx
+        return OnScreenPttGate.slidOff(x - pos.x, y - pos.y, bw, bh, slop)
     }
 
     private fun releaseHeld(why: String) {
@@ -199,6 +221,7 @@ class XvMapHud(
         }
         val bmpW = (hexWidthPx + 2 * MARGIN_DP * density).toInt()
         val bmpH = (hexWidthPx * MapHudPolicy.HEX_ASPECT + 2 * MARGIN_DP * density).toInt()
+        iconSizePx = bmpW to bmpH
         val uri = iconUri(b.copy(label = frame)) ?: return
         val icon =
             Icon
@@ -227,16 +250,12 @@ class XvMapHud(
     // Drawn + written once per slot/look/label/size; later uses are a map hit.
     private fun iconUri(b: MapHudPolicy.Button): String? {
         val key = "${b.slot}|${b.look}|${b.label}|${hexWidthPx.toInt()}"
-        iconUris[key]?.let { return it }
-        val bmp = drawHex(b)
         // ATAK's GL image loader didn't render a base64:// URI on device
         // (widget took touches but drew nothing). Write the PNG into ATAK's
         // own cache dir — same process/UID as the map renderer, readable
         // by it — and hand it a file:// URI. One file per slot+look+label,
         // so a changed state is a new URI (no stale cached texture).
-        val uri = writeIconFile(b, bmp) ?: return null
-        iconUris[key] = uri
-        return uri
+        return iconUris[key] ?: writeIconFile(b, drawHex(b))?.also { iconUris[key] = it }
     }
 
     private fun writeIconFile(

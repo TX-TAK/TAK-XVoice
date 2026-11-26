@@ -20,13 +20,20 @@
   PTT screen): Honey = voice activity, Bluebonnet = system / network,
   Texas Red = you are transmitting.
 
-  No ScrollView — the panel must fit a Surface Duo half (~720×1800 px in
-  book mode) without scrolling.
+  The pane is sized to this content when it opens. The ScrollView is
+  only a safety net: rows that appear while it's open (in-call bar,
+  channel 2, the mesh line) scroll instead of being clipped.
 -->
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
+    android:background="@color/xv_bg"
+    android:fillViewport="true">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
     android:background="@color/xv_bg"
     android:orientation="vertical"
     android:padding="10dp">
@@ -239,11 +246,16 @@
             android:layout_height="72dp"
             android:layout_marginStart="4dp"
             android:layout_weight="0.9"
+            android:autoSizeMaxTextSize="18sp"
+            android:autoSizeMinTextSize="11sp"
+            android:autoSizeStepGranularity="1sp"
+            android:autoSizeTextType="uniform"
             android:background="@drawable/xv_ptt_bg"
             android:letterSpacing="0.2"
+            android:maxLines="1"
+            android:minWidth="88dp"
             android:text="PTT"
             android:textColor="@color/xv_text"
-            android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -338,11 +350,16 @@
             android:layout_height="72dp"
             android:layout_marginStart="4dp"
             android:layout_weight="0.9"
+            android:autoSizeMaxTextSize="18sp"
+            android:autoSizeMinTextSize="11sp"
+            android:autoSizeStepGranularity="1sp"
+            android:autoSizeTextType="uniform"
             android:background="@drawable/xv_ptt_bg"
             android:letterSpacing="0.2"
+            android:maxLines="1"
+            android:minWidth="88dp"
             android:text="PTT"
             android:textColor="@color/xv_text"
-            android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -379,3 +396,4 @@
         android:textSize="11sp"
         android:visibility="gone" />
 </LinearLayout>
+</ScrollView>

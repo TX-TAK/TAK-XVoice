@@ -2624,6 +2624,14 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun startTx(slot: Int) {
                 Log.i(TAG, "Controller.startTx(slot=$slot)")
+                // Both slots are mid-move during a swap (or its rollback):
+                // audio and the end-of-burst terminator could leave on
+                // different slots. Refuse cleanly; the swap settles in ~1 s.
+                if (mumbleTransport()?.isSwapInFlight() == true) {
+                    Log.i(TAG, "startTx(slot=$slot) refused — channel swap in flight")
+                    toast("Swapping channels — key again in a moment")
+                    return
+                }
                 lastRequestedTxSlot = slot
                 dispatchPttDown(slot = slot)
             }
@@ -5700,7 +5708,9 @@ class XvMapComponent : AbstractMapComponent() {
                     // legs stay silent here and onChannelsSwapped plays
                     // the single cue for the whole swap.
                     val swapInFlight = mumbleTransport()?.isSwapInFlight() == true
-                    if (isNewJoin && !swapInFlight) {
+                    // No cue for the transient ServerSync landing either: the
+                    // auto-join to the saved channel plays it.
+                    if (isNewJoin && !swapInFlight && !transientLanding) {
                         statusTones?.play(com.atakmap.android.xv.audio.StatusToneKind.CHANNEL_JOIN)
                     }
                     // Persist only settled positions: not the transient
@@ -5994,7 +6004,9 @@ class XvMapComponent : AbstractMapComponent() {
                 persistCurrentSlots()
                 toastOnMain("Swap failed — server refused both moves; channels unchanged")
             }
-            com.atakmap.android.xv.transport.ChannelSwap.Outcome.Cancelled -> persistCurrentSlots()
+            // Abandoned mid-flight (disconnect, call, another join): the
+            // slots may be half-swapped. Keep the last settled pair.
+            com.atakmap.android.xv.transport.ChannelSwap.Outcome.Cancelled -> {}
         }
         pushSlot1CanSpeak()
         dropDown?.refreshNow()
@@ -6004,6 +6016,13 @@ class XvMapComponent : AbstractMapComponent() {
         primaryName: String?,
         secondaryName: String?,
     ) {
+        // Never save channel 1 == channel 2 (a failed or timed-out
+        // rollback can leave both sessions on one channel).
+        val ch2 = if (lastSecondaryChannel.isNullOrBlank()) null else secondaryName
+        if (!SecondaryChannelPersistence.safeToPersistPair(primaryName, ch2)) {
+            Log.w(TAG, "not persisting swap result: channel 1 '$primaryName' == channel 2 '$ch2'")
+            return
+        }
         SecondaryChannelPersistence.restore(primaryName)?.let { settings.persistPrimaryChannel(it) }
         if (!lastSecondaryChannel.isNullOrBlank()) {
             SecondaryChannelPersistence.restore(secondaryName)?.let { lastSecondaryChannel = it }
@@ -6021,6 +6040,8 @@ class XvMapComponent : AbstractMapComponent() {
         lastSecondaryChannel = null
         selfSuppressedBySlot.remove(1)
         joinedChannelsBySlot.remove(1)
+        // Peers must stop seeing channel 2 in our presence.
+        presencePublisher?.setChannels(joinedChannelsBySlot.entries.sortedBy { it.key }.map { it.value })
         pushSlot1CanSpeak()
         toastOnMain("Channel 2 '$missing' no longer exists on the server — channel 2 is off")
         dropDown?.refreshNow()

@@ -148,4 +148,18 @@ class ChannelListPolicyTest {
     fun `Lobby can't become channel 2 while channel 1 is Root`() {
         assertTrue(ChannelListPolicy.onPillTap(1, lobby, ch1 = "Root", ch2 = null) is Action.Explain)
     }
+
+    // ---- offline with a saved channel 2 ----
+
+    @Test
+    fun `lit 2 on a mesh-only row can still be cleared offline`() {
+        val bravoMesh = Channel(-1, "Bravo", -1, Access.FULL, offline = true)
+        assertEquals(Action.ClearSecondary, ChannelListPolicy.onPillTap(1, bravoMesh, "Alpha", "Bravo", online = false))
+    }
+
+    @Test
+    fun `1 on channel 2 swaps online and explains offline`() {
+        assertEquals(Action.Swap, ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = true))
+        assertTrue(ChannelListPolicy.onPillTap(0, command, "Alpha", "Command", online = false) is Action.Explain)
+    }
 }

@@ -95,4 +95,17 @@ class SecondaryChannelPersistenceTest {
         assertEquals("Alpha", SecondaryChannelPersistence.reconnectPrimary(false, "Alpha", ""))
         assertEquals("Alpha", SecondaryChannelPersistence.reconnectPrimary(false, "Alpha", "TAK PRIVATE - x"))
     }
+
+    @Test
+    fun `a half-swapped pair on one channel is never persisted`() {
+        assertFalse(SecondaryChannelPersistence.safeToPersistPair("Bravo", "Bravo"))
+        assertFalse(SecondaryChannelPersistence.safeToPersistPair("Lobby", "Root"))
+    }
+
+    @Test
+    fun `a distinct pair or channel 2 off is persisted`() {
+        assertTrue(SecondaryChannelPersistence.safeToPersistPair("Alpha", "Bravo"))
+        assertTrue(SecondaryChannelPersistence.safeToPersistPair("Alpha", null))
+        assertFalse(SecondaryChannelPersistence.safeToPersistPair(null, "Bravo"))
+    }
 }

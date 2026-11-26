@@ -147,11 +147,18 @@ object ChannelListPolicy {
         val onCh2 = ch2On && same(name, ch2)
         return when {
             channel.access == Access.NONE -> Action.Explain("No access to $name")
+            // A lit [2] can always be cleared, even on a mesh-only row
+            // while offline (otherwise channel 2 is trapped there).
+            slot == 1 && onCh2 -> Action.ClearSecondary
             channel.offline && slot == 1 -> Action.Explain("Channel 2 needs a server channel — $name is mesh-only")
             channel.offline && online && !onCh1 ->
                 Action.Explain("$name is mesh-only — it carries channel 1 when the server is unreachable")
             slot == 0 && onCh1 -> Action.Explain("Channel 1 is always set — pick another channel to move it")
-            slot == 0 && onCh2 -> Action.Swap
+            // Swap is two server moves: only possible online. Offline, say
+            // how to get there instead of a swap that can only fail.
+            slot == 0 && onCh2 && online -> Action.Swap
+            slot == 0 && onCh2 ->
+                Action.Explain("$name is channel 2 — swapping needs the server; tap its lit 2 to clear it first")
             slot == 0 -> Action.SetPrimary(name)
             onCh2 -> Action.ClearSecondary
             onCh1 && ch2On -> Action.Swap

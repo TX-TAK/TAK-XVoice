@@ -142,17 +142,24 @@ class ChannelSwapCoordinator {
         return Step.Report(outcome, restoreName, restore)
     }
 
+    /** A cancelled swap: what VS2's name was before the swap began. */
+    data class Cancelled(
+        val previousSecondaryName: String?,
+    )
+
     /**
      * Abandon any in-flight swap (secondary torn down, a direct call
-     * started, another join requested, disconnect). Returns true when a
-     * swap was actually cancelled, so the caller reports
-     * [ChannelSwap.Outcome.Cancelled] exactly once.
+     * started, another join requested, disconnect). Returns the swap's
+     * saved secondary name when one was actually cancelled (so the caller
+     * restores it and reports [ChannelSwap.Outcome.Cancelled] exactly
+     * once), or null when idle.
      */
     @Synchronized
-    fun cancel(): Boolean {
-        if (phase == Phase.IDLE) return false
+    fun cancel(): Cancelled? {
+        if (phase == Phase.IDLE) return null
+        val cancelled = Cancelled(prevSecondaryName)
         reset()
-        return true
+        return cancelled
     }
 
     private fun reset() {

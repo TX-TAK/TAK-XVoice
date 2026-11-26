@@ -1416,27 +1416,36 @@ class MumbleTransport(
     // null: can only complete) and when a deadline fires (rollback or
     // give up). A stale deadline token is ignored by the coordinator.
     private fun checkSwap(deadlineToken: Long? = null) {
+        // Evaluate and restore the secondary name under the coordinator's
+        // lock, so a concurrent swap / retarget can't interleave with it.
+        // Joins and callbacks run outside the lock.
         val step =
-            swapCoordinator.evaluate(
-                observedPrimaryId = primary.joinedChannelId,
-                observedSecondaryId = secondary?.joinedChannelId ?: -1,
-                deadlineToken = deadlineToken,
-            )
+            synchronized(swapCoordinator) {
+                swapCoordinator
+                    .evaluate(
+                        observedPrimaryId = primary.joinedChannelId,
+                        observedSecondaryId = secondary?.joinedChannelId ?: -1,
+                        deadlineToken = deadlineToken,
+                    ).also { s ->
+                        when (s) {
+                            is ChannelSwapCoordinator.Step.RollBack -> activeSecondaryName = s.restoreSecondaryName
+                            is ChannelSwapCoordinator.Step.Report -> if (s.restore) activeSecondaryName = s.restoreSecondaryName
+                            ChannelSwapCoordinator.Step.None -> {}
+                        }
+                    }
+            }
         when (step) {
             ChannelSwapCoordinator.Step.None -> {}
             is ChannelSwapCoordinator.Step.RollBack -> applyRollback(step)
-            is ChannelSwapCoordinator.Step.Report -> {
-                if (step.restore) activeSecondaryName = step.restoreSecondaryName
-                reportSwap(step.outcome)
-            }
+            is ChannelSwapCoordinator.Step.Report -> reportSwap(step.outcome)
         }
     }
 
     private fun applyRollback(step: ChannelSwapCoordinator.Step.RollBack) {
         // The swap failed on one leg; the other leg moved, so both
         // sessions may now share a channel. Send the moved slot home and
-        // stay in flight until its ack lands (or the next deadline).
-        activeSecondaryName = step.restoreSecondaryName
+        // stay in flight until its ack lands (or the next deadline). The
+        // secondary name was restored under the lock in checkSwap.
         val slot = slotFor(step.slot)
         val refused = if (step.slot == 0) "VS2" else "VS1"
         Log.w(TAG, "swapChannels: $refused join refused — rolling VS${step.slot + 1} back to ${step.toId}")
@@ -1465,7 +1474,14 @@ class MumbleTransport(
 
     // Abandon an in-flight swap (no rollback joins); reports Cancelled once.
     private fun cancelSwap(reason: String) {
-        if (swapCoordinator.cancel()) {
+        // Restore VS2's pre-swap name under the lock: VS2 never confirmed
+        // the swap target, so collision guards and a private-call snapshot
+        // must see where it really is.
+        val cancelled =
+            synchronized(swapCoordinator) {
+                swapCoordinator.cancel()?.also { activeSecondaryName = it.previousSecondaryName }
+            }
+        if (cancelled != null) {
             Log.i(TAG, "swapChannels cancelled: $reason")
             reportSwap(ChannelSwap.Outcome.Cancelled)
         }

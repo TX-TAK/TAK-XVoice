@@ -827,6 +827,7 @@ class XvDropDownReceiver(
     override fun onDropDownSelectionRemoved() {}
 
     override fun onDropDownClose() {
+        releaseAnyOnScreenPtt("panel closed")
         mapHud?.setPanelOpen(false)
         stopRefreshLoop()
         // Don't keep (or later repaint) a detached channel list, and don't
@@ -844,6 +845,7 @@ class XvDropDownReceiver(
     override fun onDropDownVisible(visible: Boolean) {
         // Panel open hides the map PTT buttons (and releases a held one).
         mapHud?.setPanelOpen(visible)
+        if (!visible) releaseAnyOnScreenPtt("panel hidden")
         if (visible) startRefreshLoop() else stopRefreshLoop()
     }
 
@@ -879,8 +881,20 @@ class XvDropDownReceiver(
         }
         // On-screen PTT: button 1 is fixed to channel 1 (slot 0), button 2
         // to channel 2 (slot 1) — the same fixed mapping as the speaker-mic.
-        v.findViewById<Button>(R.id.xv_btn_ptt).setOnTouchListener(pttListener(slot = 0, label = "PTT1"))
-        v.findViewById<Button>(R.id.xv_btn_ptt2).setOnTouchListener(pttListener(slot = 1, label = "PTT2"))
+        for ((id, slot) in listOf(R.id.xv_btn_ptt to 0, R.id.xv_btn_ptt2 to 1)) {
+            val btn = v.findViewById<Button>(id)
+            btn.setOnTouchListener(pttListener(slot = slot, label = "PTT${slot + 1}"))
+            excludeFromSystemGestures(btn)
+            btn.addOnAttachStateChangeListener(
+                object : View.OnAttachStateChangeListener {
+                    override fun onViewAttachedToWindow(view: View) = Unit
+
+                    override fun onViewDetachedFromWindow(view: View) {
+                        releaseOnScreenPtt(slot, "PTT${slot + 1} detached")
+                    }
+                },
+            )
+        }
         // Tapping a row's name (or the add-channel-2 pill) opens the
         // unified channel list, where both slots and Swap live.
         v.findViewById<View>(R.id.xv_ptt_header_1).setOnClickListener { showChannelList() }
@@ -911,42 +925,94 @@ class XvDropDownReceiver(
         return v
     }
 
+    // On-screen PTT state: one held button at a time (OnScreenPttGate).
+    private val onScreenPtt = OnScreenPttGate()
+    private var heldPttButton: View? = null
+
     // PTT touch handler factory. Slot is fixed at the time the listener
     // is wired (one per button), so a stray slot-1 press while VS2 is
-    // unregistered still calls startTx(1) — the transport's resolveTarget
-    // falls back to primary, which is the desired graceful behavior.
+    // unregistered still calls startTx(1) — the transport falls back to
+    // primary, which is the desired graceful behavior.
+    //
+    // Anti-stuck: the other button is ignored while one is held; release
+    // is matched to the pressing slot; sliding off past touch slop, CANCEL,
+    // panel hide/close, view detach, and disabling a held button all
+    // release. performClick only on a real UP.
     private fun pttListener(
         slot: Int,
         label: String,
     ): View.OnTouchListener =
         View.OnTouchListener { btn, ev ->
-            when (ev.action) {
-                MotionEvent.ACTION_DOWN -> {
-                    android.util.Log.i("XV_PTT", ">>> ON-SCREEN $label (slot=$slot) DOWN <<<")
-                    // Manually flip the pressed state so xv_button_bg's
-                    // state_pressed selector fires immediately. Returning
-                    // true below consumes the event and prevents Android
-                    // from setting isPressed via the View's own touch
-                    // dispatch, so without this the operator sees no red
-                    // feedback until refreshMain() eventually swaps the
-                    // background to xv_button_bg_transmitting — a lag of
-                    // up to ~700 ms while mic priming, TPT playback, and
-                    // Telecom-call transition all serialize. That looks
-                    // like a broken button. Field-observed 2026-07-07.
-                    btn.isPressed = true
-                    controller.startTx(slot)
-                    true
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> pttDown(btn, slot, label)
+                MotionEvent.ACTION_MOVE -> {
+                    val slop = android.view.ViewConfiguration.get(btn.context).scaledTouchSlop.toFloat()
+                    if (OnScreenPttGate.slidOff(ev.x, ev.y, btn.width, btn.height, slop)) {
+                        releaseOnScreenPtt(slot, "$label slide-off")
+                    }
                 }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                    android.util.Log.i("XV_PTT", ">>> ON-SCREEN $label (slot=$slot) UP <<<")
-                    btn.isPressed = false
-                    controller.stopTx()
-                    btn.performClick()
-                    true
+                MotionEvent.ACTION_UP -> {
+                    if (releaseOnScreenPtt(slot, "$label UP")) btn.performClick()
                 }
-                else -> false
+                MotionEvent.ACTION_CANCEL -> releaseOnScreenPtt(slot, "$label CANCEL")
             }
+            true
         }
+
+    private fun pttDown(
+        btn: View,
+        slot: Int,
+        label: String,
+    ) {
+        if (!onScreenPtt.down(slot)) {
+            android.util.Log.i("XV_PTT", ">>> ON-SCREEN $label (slot=$slot) ignored — another PTT is held <<<")
+            return
+        }
+        android.util.Log.i("XV_PTT", ">>> ON-SCREEN $label (slot=$slot) DOWN <<<")
+        // Keep the gesture: a parent (or ATAK's pane) must not steal the
+        // touch stream mid-transmission.
+        btn.parent?.requestDisallowInterceptTouchEvent(true)
+        heldPttButton = btn
+        // Flip the pressed state by hand so the red selector shows now,
+        // not after mic priming / TPT / Telecom serialize (~700 ms).
+        btn.isPressed = true
+        controller.startTx(slot)
+    }
+
+    // Release the on-screen PTT if [slot] is the held one. True if released.
+    private fun releaseOnScreenPtt(
+        slot: Int,
+        why: String,
+    ): Boolean {
+        val released = onScreenPtt.release(slot) ?: return false
+        endOnScreenTx(released, why)
+        return true
+    }
+
+    // Release whatever on-screen PTT is held (panel hidden/closed/detached).
+    private fun releaseAnyOnScreenPtt(why: String) {
+        onScreenPtt.releaseAny()?.let { endOnScreenTx(it, why) }
+    }
+
+    private fun endOnScreenTx(
+        slot: Int,
+        why: String,
+    ) {
+        android.util.Log.i("XV_PTT", ">>> ON-SCREEN PTT${slot + 1} (slot=$slot) UP ($why) <<<")
+        heldPttButton?.isPressed = false
+        heldPttButton = null
+        // Becomes stopTx(slot) when #145 (slot-keyed PttDispatcher) merges.
+        controller.stopTx()
+    }
+
+    // Edge-docked PTT buttons sit inside Android 10+'s back-gesture zone;
+    // exclude them so a thumb drifting inward doesn't fire system Back.
+    private fun excludeFromSystemGestures(btn: View) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        btn.addOnLayoutChangeListener { v, l, t, r, b, _, _, _, _ ->
+            v.systemGestureExclusionRects = listOf(android.graphics.Rect(0, 0, r - l, b - t))
+        }
+    }
 
     private fun refreshMain() {
         val v = mainView ?: return
@@ -1108,6 +1174,9 @@ class XvDropDownReceiver(
         val ids = slotViews(slot)
         val listenOnly = live && !controller.canSpeakOnSlot(slot)
         renderSlotHeader(v, ids, slot, channel, live)
+        // TalkBack: the slot badge is decorative, so the header names the slot.
+        v.findViewById<View>(if (slot == 0) R.id.xv_ptt_header_1 else R.id.xv_ptt_header_2).contentDescription =
+            "Channel ${slot + 1}: ${channel?.let { MumbleTransport.lobbyLabel(it) } ?: "none"}. Opens the channel list."
         renderSlotActivity(
             v.findViewById(ids.activity),
             speakers = if (live) controller.activeSpeakers(slot) else emptyList(),
@@ -1189,7 +1258,10 @@ class XvDropDownReceiver(
         listenOnly: Boolean,
         transmitting: Boolean,
     ) {
-        ptt.isEnabled = live || slot == 0
+        val enabled = live || slot == 0
+        // A disabled view gets no UP/CANCEL: release before disabling it.
+        if (!enabled) releaseOnScreenPtt(slot, "PTT${slot + 1} disabled while held")
+        ptt.isEnabled = enabled
         ptt.text =
             when {
                 listenOnly -> "LISTEN"
@@ -4033,19 +4105,39 @@ class XvDropDownReceiver(
     // (plus slack for the in-call bar) instead of half the screen. The
     // channel list and Settings keep the larger panes.
     private fun showMainDropDown(v: View) {
-        showDropDown(v, THIRD_WIDTH, FULL_HEIGHT, FULL_WIDTH, mainPanelPortraitHeight(v), this)
+        showDropDown(v, mainPanelLandscapeWidth(), FULL_HEIGHT, FULL_WIDTH, mainPanelPortraitHeight(v), this)
+    }
+
+    // The map view's long / short sides in px: the space ATAK actually
+    // lays panes into (excludes ATAK's action bar and the system bars).
+    // Display metrics only until the map has been laid out.
+    private fun mapSidesPx(): Pair<Int, Int> {
+        val mv = mapView
+        val (w, h) =
+            if (mv.width > 0 && mv.height > 0) {
+                mv.width to mv.height
+            } else {
+                pluginContext.resources.displayMetrics.let { it.widthPixels to it.heightPixels }
+            }
+        return maxOf(w, h) to minOf(w, h)
     }
 
     private fun mainPanelPortraitHeight(v: View): Double {
-        val dm = pluginContext.resources.displayMetrics
-        val portraitHeight = maxOf(dm.heightPixels, dm.widthPixels).toDouble()
-        val portraitWidth = minOf(dm.heightPixels, dm.widthPixels)
+        val (longSide, shortSide) = mapSidesPx()
         v.measure(
-            View.MeasureSpec.makeMeasureSpec(portraitWidth, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(shortSide, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
         )
-        val fraction = v.measuredHeight / portraitHeight + MAIN_PANEL_HEIGHT_SLACK
+        val fraction = v.measuredHeight / longSide.toDouble() + MAIN_PANEL_HEIGHT_SLACK
         return fraction.coerceIn(QUARTER_SCREEN, HALF_HEIGHT)
+    }
+
+    // A third of the width, but never narrower than the rows need
+    // (badge + name + member count + an 88dp PTT).
+    private fun mainPanelLandscapeWidth(): Double {
+        val longSide = mapSidesPx().first.toDouble()
+        val floor = MAIN_PANEL_MIN_WIDTH_DP * pluginContext.resources.displayMetrics.density / longSide
+        return maxOf(THIRD_WIDTH, floor).coerceAtMost(HALF_WIDTH)
     }
 
     companion object {
@@ -4059,6 +4151,9 @@ class XvDropDownReceiver(
         // Extra portrait height for the main panel beyond its measured
         // content: room for the in-call bar without clipping a row.
         private const val MAIN_PANEL_HEIGHT_SLACK = 0.06
+
+        // Narrowest landscape pane that still fits a full channel row.
+        private const val MAIN_PANEL_MIN_WIDTH_DP = 340.0
 
         // Debounce for connectivity-driven Settings-picker rebuilds. Long
         // enough to swallow the connect/disconnect churn of a BT power-
