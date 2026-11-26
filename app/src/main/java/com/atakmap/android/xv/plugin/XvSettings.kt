@@ -280,6 +280,14 @@ class XvSettings(
         prefs()?.edit()?.putBoolean(PREF_MAP_PTT, enabled)?.apply()
     }
 
+    // Map PTT button size: SMALL / MEDIUM / LARGE (share of the screen's
+    // shorter side). Default MEDIUM.
+    fun persistedMapPttSize(): String = prefs()?.getString(PREF_MAP_PTT_SIZE, "MEDIUM") ?: "MEDIUM"
+
+    fun persistMapPttSize(size: String) {
+        prefs()?.edit()?.putString(PREF_MAP_PTT_SIZE, size)?.apply()
+    }
+
     // Snapshot of the server's channel directory, refreshed while
     // Mumble is connected (1 Hz tick, write-on-change). This is what
     // makes registration configure EVERY channel for offline use: when
@@ -546,6 +554,7 @@ class XvSettings(
 
         // On-map PTT overlay (default on).
         private const val PREF_MAP_PTT = "map_ptt_enabled"
+        private const val PREF_MAP_PTT_SIZE = "map_ptt_size"
 
         // Mesh-voice (multicast) master toggle + per-channel overrides.
         // See persistedMeshVoiceEnabled / channelMulticastConfigs.

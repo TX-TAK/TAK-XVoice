@@ -48,8 +48,8 @@ class MapHudPolicyTest {
     fun `label is the short channel name, TX while transmitting`() {
         assertEquals("ALPHA", MapHudPolicy.button(slot(0)).label)
         assertEquals("TX", MapHudPolicy.button(slot(0).copy(transmitting = true)).label)
-        assertEquals("LOGIST…", MapHudPolicy.shortName("Logistics"))
-        assertEquals("—", MapHudPolicy.shortName(null))
+        assertEquals("TEXAS TAK TEAM", MapHudPolicy.labelName(" Texas TAK Team "))
+        assertEquals("—", MapHudPolicy.labelName(null))
     }
 
     @Test
@@ -73,5 +73,80 @@ class MapHudPolicyTest {
     fun `nothing to release while still drawn or not held`() {
         assertNull(MapHudPolicy.releaseOnChange(heldSlot = 0, nowVisible = true, drawnSlots = setOf(0)))
         assertNull(MapHudPolicy.releaseOnChange(heldSlot = null, nowVisible = false, drawnSlots = emptySet()))
+    }
+
+    // ---- size ----
+
+    @Test
+    fun `sizes are a share of the short side`() {
+        // 640dp tablet short side: 8% / 10% / 12%.
+        assertEquals(51.2f, MapHudPolicy.hexWidthDp(MapHudPolicy.Size.SMALL, 640f), 0.01f)
+        assertEquals(64f, MapHudPolicy.hexWidthDp(MapHudPolicy.Size.MEDIUM, 640f), 0.01f)
+        assertEquals(76.8f, MapHudPolicy.hexWidthDp(MapHudPolicy.Size.LARGE, 640f), 0.01f)
+    }
+
+    @Test
+    fun `size never drops below a gloved touch target or blows up`() {
+        assertEquals(48f, MapHudPolicy.hexWidthDp(MapHudPolicy.Size.SMALL, 360f), 0.01f)
+        assertEquals(96f, MapHudPolicy.hexWidthDp(MapHudPolicy.Size.LARGE, 2000f), 0.01f)
+    }
+
+    @Test
+    fun `unknown saved size falls back to medium`() {
+        assertEquals(MapHudPolicy.Size.MEDIUM, MapHudPolicy.Size.parse(null))
+        assertEquals(MapHudPolicy.Size.MEDIUM, MapHudPolicy.Size.parse("huge"))
+        assertEquals(MapHudPolicy.Size.LARGE, MapHudPolicy.Size.parse("large"))
+    }
+
+    // ---- press feedback ----
+
+    @Test
+    fun `held button is red before the service reports TX`() {
+        assertEquals(Look.TRANSMITTING, MapHudPolicy.button(slot(0), held = true).look)
+        assertEquals(listOf(Look.IDLE, Look.TRANSMITTING), MapHudPolicy.buttons(slot(0), slot(1), heldSlot = 1).map { it.look })
+    }
+
+    // ---- long names ----
+
+    // Fake text measure: 6px per character per sp-unit of 10.
+    private val measure: (String, Float) -> Float = { t, sp -> t.length * 6f * sp / 10f }
+
+    @Test
+    fun `short name fits on one line at the largest size`() {
+        val l = MapHudPolicy.layoutLabel("ALPHA", maxWidth = 60f, measure = measure)!!
+        assertEquals(listOf("ALPHA"), l.lines)
+        assertEquals(13f, l.sizeSp, 0.01f)
+    }
+
+    @Test
+    fun `two-word name wraps to two lines instead of truncating`() {
+        val l = MapHudPolicy.layoutLabel("TEXAS TAK TEAM", maxWidth = 60f, measure = measure)!!
+        assertEquals(2, l.lines.size)
+        assertEquals("TEXAS TAK TEAM", l.lines.joinToString(" "))
+    }
+
+    @Test
+    fun `too long for two lines falls back to scrolling`() {
+        assertNull(MapHudPolicy.layoutLabel("NORTH COUNTY FIRE RESCUE", maxWidth = 50f, measure = measure))
+        assertNull(MapHudPolicy.layoutLabel("SUPERCALIFRAGILISTIC", maxWidth = 50f, measure = measure))
+    }
+
+    @Test
+    fun `fitChars counts the leading characters that fit`() {
+        assertEquals(5, MapHudPolicy.fitChars("ABCDEFGH", 30f) { it.length * 6f })
+        assertEquals(1, MapHudPolicy.fitChars("ABC", 1f) { it.length * 6f })
+    }
+
+    @Test
+    fun `scroll rests at start, steps one char per tick, rests at end, repeats`() {
+        val label = "ABCDEFG" // window 4 → travel 3
+        val frames = (0L until 9L).map { MapHudPolicy.scrollWindow(label, 4, it) }
+        assertEquals(listOf("ABCD", "ABCD", "ABCD", "ABCD", "BCDE", "CDEF", "DEFG", "DEFG", "DEFG"), frames)
+        assertEquals("ABCD", MapHudPolicy.scrollWindow(label, 4, 9L)) // cycle = 3 + 2*3
+    }
+
+    @Test
+    fun `scroll window wider than the name shows it whole`() {
+        assertEquals("ABC", MapHudPolicy.scrollWindow("ABC", 5, 7L))
     }
 }

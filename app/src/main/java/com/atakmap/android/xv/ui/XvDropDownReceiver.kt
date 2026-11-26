@@ -209,6 +209,11 @@ class XvDropDownReceiver(
 
         fun setMapPttEnabled(enabled: Boolean) {}
 
+        // Map PTT size: "SMALL" / "MEDIUM" / "LARGE".
+        fun mapPttSize(): String = "MEDIUM"
+
+        fun setMapPttSize(size: String) {}
+
         // ---- AINA speakermic picker (Settings → Preferences) ----
         // Bonded devices whose name looks like an AINA. Each entry's
         // generation is derived from BluetoothDevice.getType() so the UI
@@ -661,6 +666,7 @@ class XvDropDownReceiver(
         return XvMapHud.Snapshot(
             enabled = controller.mapPttEnabled(),
             leftHanded = controller.pttOnLeft(),
+            size = MapHudPolicy.Size.parse(controller.mapPttSize()),
             slot1 = hudSlot(0, controller.currentChannelName(), controller.currentChannelName() != null),
             slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
         )
@@ -2306,6 +2312,19 @@ class XvDropDownReceiver(
             isChecked = controller.mapPttEnabled()
             setOnCheckedChangeListener { _, on ->
                 controller.setMapPttEnabled(on)
+                mapHud?.refreshNow()
+            }
+        }
+        val sizeIds =
+            mapOf(
+                MapHudPolicy.Size.SMALL to R.id.xv_map_ptt_size_s,
+                MapHudPolicy.Size.MEDIUM to R.id.xv_map_ptt_size_m,
+                MapHudPolicy.Size.LARGE to R.id.xv_map_ptt_size_l,
+            )
+        v.findViewById<android.widget.RadioGroup>(R.id.xv_map_ptt_size).apply {
+            check(sizeIds.getValue(MapHudPolicy.Size.parse(controller.mapPttSize())))
+            setOnCheckedChangeListener { _, id ->
+                sizeIds.entries.firstOrNull { it.value == id }?.let { controller.setMapPttSize(it.key.name) }
                 mapHud?.refreshNow()
             }
         }

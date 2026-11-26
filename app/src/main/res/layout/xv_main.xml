@@ -5,6 +5,8 @@
   One row per channel: [hex slot badge] [name + who's talking] [👥 N] [PTT].
   The PTT is large (about half the row, 72dp tall) so it's easy to find
   with a gloved thumb; a left-handed setting moves it to the row start.
+  Long channel names shrink to fit, then wrap to a second line (cut only
+  past two lines); no marquee.
     - Channel 1 is never blank while XV is in use; channel 2 is optional.
     - Speaker-mic PTT1 always keys channel 1, PTT2 always keys channel 2
       (both key channel 1 when channel 2 is off). The mapping is fixed;
@@ -195,7 +197,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:fontFamily="monospace"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:textColor="@color/xv_text"
                 android:textSize="16sp"
                 android:textStyle="bold"
@@ -294,7 +296,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:fontFamily="monospace"
-                android:singleLine="true"
+                android:maxLines="2"
                 android:textColor="@color/xv_text"
                 android:textSize="16sp"
                 android:textStyle="bold"

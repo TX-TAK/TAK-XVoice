@@ -17,6 +17,36 @@ package com.atakmap.android.xv.ui
 object MapHudPolicy {
     enum class Side { RIGHT, LEFT }
 
+    /**
+     * Operator size choice. Each is a share of the screen's shorter side,
+     * so buttons scale with the device; [minDp] keeps every size a usable
+     * (gloved) touch target and [maxDp] stops a huge display from
+     * producing a hex that hides the map.
+     */
+    enum class Size(
+        val fraction: Float,
+    ) {
+        SMALL(0.08f),
+        MEDIUM(0.10f),
+        LARGE(0.12f),
+        ;
+
+        companion object {
+            fun parse(name: String?): Size = entries.firstOrNull { it.name.equals(name, ignoreCase = true) } ?: MEDIUM
+        }
+    }
+
+    const val MIN_HEX_WIDTH_DP = 48f
+    const val MAX_HEX_WIDTH_DP = 96f
+
+    /** Hex aspect from the brand badge (width : height = 72 : 82). */
+    const val HEX_ASPECT = 82f / 72f
+
+    fun hexWidthDp(
+        size: Size,
+        shortSideDp: Float,
+    ): Float = (shortSideDp * size.fraction).coerceIn(MIN_HEX_WIDTH_DP, MAX_HEX_WIDTH_DP)
+
     enum class Look {
         /** Ready to key (Honey outline). */
         IDLE,
@@ -57,12 +87,22 @@ object MapHudPolicy {
     fun buttons(
         slot1: SlotState,
         slot2: SlotState?,
-    ): List<Button> = listOfNotNull(button(slot1), slot2?.let { button(it) })
+        heldSlot: Int? = null,
+    ): List<Button> = listOfNotNull(button(slot1, heldSlot == 0), slot2?.let { button(it, heldSlot == 1) })
 
-    fun button(s: SlotState): Button {
+    /**
+     * [held] = the operator's finger is on this button right now. It turns
+     * red immediately, like the panel PTT's pressed state, instead of
+     * waiting for the service to report audio on the air (which lags the
+     * talk-permit tone by the mic warm-up).
+     */
+    fun button(
+        s: SlotState,
+        held: Boolean = false,
+    ): Button {
         val look =
             when {
-                s.transmitting -> Look.TRANSMITTING
+                s.transmitting || held -> Look.TRANSMITTING
                 !s.live || s.listenOnly -> Look.UNAVAILABLE
                 s.talkers.isNotEmpty() -> Look.RECEIVING
                 else -> Look.IDLE
@@ -70,7 +110,7 @@ object MapHudPolicy {
         val label =
             when (look) {
                 Look.TRANSMITTING -> "TX"
-                else -> shortName(s.channel)
+                else -> labelName(s.channel)
             }
         return Button(s.slot, look, label)
     }
@@ -84,17 +124,85 @@ object MapHudPolicy {
         return "${speaking.slot + 1} · ${speaking.talkers.joinToString(", ")}"
     }
 
-    /** Fits a 72dp hex: upper-case, at most [max] characters. */
-    fun shortName(
-        channel: String?,
-        max: Int = 7,
-    ): String {
-        val n = channel?.trim().orEmpty().uppercase()
-        return when {
-            n.isEmpty() -> "—"
-            n.length <= max -> n
-            else -> n.take(max - 1) + "…"
+    /** Full upper-case channel name (never truncated; long names scroll). */
+    fun labelName(channel: String?): String = channel?.trim().orEmpty().uppercase().ifEmpty { "—" }
+
+    /** Label text sizes tried, largest first, before falling back to scrolling. */
+    val LABEL_SIZES_SP = listOf(13f, 12f, 11f, 10f, 9f)
+
+    /** Text size for a scrolling label. */
+    const val SCROLL_SIZE_SP = 11f
+
+    /** Ticks a scrolling label rests at its start and at its end. */
+    const val SCROLL_PAUSE_TICKS = 3
+
+    data class LabelLayout(
+        val lines: List<String>,
+        val sizeSp: Float,
+    )
+
+    /**
+     * Fit [label] inside [maxWidth] on at most two lines, word-wrapped,
+     * trying [LABEL_SIZES_SP] from largest down. Null when it doesn't fit
+     * even at the smallest size — the caller then scrolls it instead of
+     * cutting it off. [measure] returns the drawn width of a string at a
+     * size (injected so this stays testable).
+     */
+    fun layoutLabel(
+        label: String,
+        maxWidth: Float,
+        measure: (text: String, sizeSp: Float) -> Float,
+    ): LabelLayout? =
+        LABEL_SIZES_SP.firstNotNullOfOrNull { size ->
+            wrapTwoLines(label, maxWidth) { measure(it, size) }?.let { LabelLayout(it, size) }
         }
+
+    private fun wrapTwoLines(
+        label: String,
+        maxWidth: Float,
+        width: (String) -> Float,
+    ): List<String>? {
+        val words = label.split(' ').filter { it.isNotEmpty() }
+        val lines = mutableListOf<String>()
+        var current = ""
+        for (word in words) {
+            val candidate = if (current.isEmpty()) word else "$current $word"
+            when {
+                width(candidate) <= maxWidth -> current = candidate
+                current.isNotEmpty() && width(word) <= maxWidth -> {
+                    lines += current
+                    current = word
+                }
+                else -> return null // a single word wider than the hex
+            }
+        }
+        if (current.isNotEmpty()) lines += current
+        return lines.takeIf { it.size <= 2 }
+    }
+
+    /** How many leading characters of [label] fit in [maxWidth] (at least 1). */
+    fun fitChars(
+        label: String,
+        maxWidth: Float,
+        measure: (String) -> Float,
+    ): Int = (label.length downTo 1).firstOrNull { measure(label.take(it)) <= maxWidth } ?: 1
+
+    /**
+     * The visible slice of a scrolling label at [tick]: rests at the start
+     * for [SCROLL_PAUSE_TICKS], steps one character per tick to the end,
+     * rests there, then starts over. [window] = characters that fit.
+     */
+    fun scrollWindow(
+        label: String,
+        window: Int,
+        tick: Long,
+    ): String {
+        val travel = (label.length - window).coerceAtLeast(0)
+        if (travel == 0) return label
+        val cycle = travel + 2 * SCROLL_PAUSE_TICKS
+        val phase = (tick % cycle).toInt()
+        val offset = (phase - SCROLL_PAUSE_TICKS).coerceIn(0, travel)
+        return label.substring(offset, offset + window)
     }
 
     /**

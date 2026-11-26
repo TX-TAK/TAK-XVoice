@@ -2734,6 +2734,10 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun setMapPttEnabled(enabled: Boolean) = settings.persistMapPttEnabled(enabled)
 
+            override fun mapPttSize(): String = settings.persistedMapPttSize()
+
+            override fun setMapPttSize(size: String) = settings.persistMapPttSize(size)
+
             override fun availableAinaDevices(): List<com.atakmap.android.xv.aina.AinaDeviceInfo> {
                 // Speaker-mic slot = audio-carrying PTT hardware only
                 // (AINA V1 SPP + V2 BLE, and — as they land — wired

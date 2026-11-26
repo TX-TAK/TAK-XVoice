@@ -208,6 +208,40 @@
                     android:textColor="@color/xv_text_dim"
                     android:textSize="11sp"/>
 
+                <!-- Map PTT size: a share of the screen's shorter side, so it
+                     scales per device (never below 48dp). -->
+                <RadioGroup
+                    android:id="@+id/xv_map_ptt_size"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/xv_map_ptt_size_s"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Small"
+                        android:textColor="@color/xv_text"/>
+
+                    <RadioButton
+                        android:id="@+id/xv_map_ptt_size_m"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Medium"
+                        android:textColor="@color/xv_text"/>
+
+                    <RadioButton
+                        android:id="@+id/xv_map_ptt_size_l"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Large"
+                        android:textColor="@color/xv_text"/>
+                </RadioGroup>
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

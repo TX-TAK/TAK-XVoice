@@ -10,6 +10,7 @@
     - Tapping a filled [2] clears channel 2. A filled [1] can't be
       cleared (channel 1 is never blank).
     - No-access channels show grey, non-tappable pills.
+  Long channel names wrap to a second line (cut only past two lines).
   Long-press the row for mesh options. Subchannel indent is applied in
   code via paddingStart. Pills are 52x48dp (48dp minimum touch target);
   their contentDescription / selected state are set per row in code.
@@ -17,7 +18,10 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="64dp"
+    android:layout_height="wrap_content"
+    android:minHeight="64dp"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp"
     android:background="?android:attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -37,7 +41,7 @@
             android:layout_height="wrap_content"
             android:ellipsize="end"
             android:fontFamily="monospace"
-            android:singleLine="true"
+            android:maxLines="2"
             android:textColor="@color/xv_text"
             android:textSize="16sp"
             android:textStyle="bold"

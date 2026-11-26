@@ -43,6 +43,7 @@ class XvMapHud(
     data class Snapshot(
         val enabled: Boolean,
         val leftHanded: Boolean,
+        val size: MapHudPolicy.Size,
         val slot1: MapHudPolicy.SlotState,
         val slot2: MapHudPolicy.SlotState?,
     )
@@ -56,16 +57,24 @@ class XvMapHud(
     private val talkerPill = TextWidget("")
     private val buttons = mapOf(0 to MarkerIconWidget(), 1 to MarkerIconWidget())
     private val renderedKey = mutableMapOf<Int, String>()
+    private val iconUris = mutableMapOf<String, String>()
 
     @Volatile private var panelOpen = false
+
+    // Current hex width in px (from the size setting and screen); main thread.
+    private var hexWidthPx = MapHudPolicy.MIN_HEX_WIDTH_DP * density
 
     @Volatile private var heldSlot: Int? = null
 
     @Volatile private var attached = false
 
+    // Advances once per TICK_MS; drives long-name scrolling.
+    private var scrollTick = 0L
+
     private val ticker =
         object : Runnable {
             override fun run() {
+                scrollTick++
                 refresh()
                 if (attached) main.postDelayed(this, TICK_MS)
             }
@@ -122,8 +131,10 @@ class XvMapHud(
         if (heldSlot != null) return
         heldSlot = slot
         Log.i("XV_PTT", ">>> MAP HUD PTT${slot + 1} (slot=$slot) DOWN <<<")
+        // Red first (jump the queue), then key: the visual must not wait
+        // on mic warm-up / the talk-permit tone.
+        main.postAtFrontOfQueue { refresh() }
         pttDown(slot)
-        refreshNow()
     }
 
     private fun release(slot: Int) {
@@ -145,7 +156,8 @@ class XvMapHud(
         if (!attached) return
         val snap = state()
         val visible = MapHudPolicy.visible(snap.enabled, panelOpen)
-        val drawn = MapHudPolicy.buttons(snap.slot1, snap.slot2)
+        val drawn = MapHudPolicy.buttons(snap.slot1, snap.slot2, heldSlot)
+        hexWidthPx = MapHudPolicy.hexWidthDp(snap.size, shortSideDp()) * density
         MapHudPolicy.releaseOnChange(heldSlot, visible, drawn.map { it.slot }.toSet())?.let {
             releaseHeld(if (visible) "button removed" else "overlay hidden")
         }
@@ -176,26 +188,55 @@ class XvMapHud(
         w: MarkerIconWidget,
         b: MapHudPolicy.Button,
     ) {
-        val key = "${b.look}|${b.label}"
+        val frame = labelFrame(b.label)
+        val key = "${b.look}|$frame|${hexWidthPx.toInt()}"
         if (renderedKey[b.slot] == key) return
         renderedKey[b.slot] = key
+        // Make sure this slot's red (TX) image exists too, so the press
+        // feedback is a cached file, not a draw + PNG encode on the press.
+        if (b.look != MapHudPolicy.Look.TRANSMITTING) {
+            iconUri(b.copy(look = MapHudPolicy.Look.TRANSMITTING, label = "TX"))
+        }
+        val bmpW = (hexWidthPx + 2 * MARGIN_DP * density).toInt()
+        val bmpH = (hexWidthPx * MapHudPolicy.HEX_ASPECT + 2 * MARGIN_DP * density).toInt()
+        val uri = iconUri(b.copy(label = frame)) ?: return
+        val icon =
+            Icon
+                .Builder()
+                .setImageUri(0, uri)
+                .setSize(bmpW, bmpH)
+                .setAnchor(0, 0)
+                .build()
+        w.setIcon(icon)
+        // Whole hex is the touch target (never below 48dp: gloves).
+        w.setMarkerHitBounds(0, 0, bmpW, bmpH)
+    }
+
+    // Shorter side of the map view in dp (display metrics until laid out).
+    private fun shortSideDp(): Float {
+        val dm = pluginContext.resources.displayMetrics
+        val shortPx =
+            if (mapView.width > 0 && mapView.height > 0) {
+                minOf(mapView.width, mapView.height)
+            } else {
+                minOf(dm.widthPixels, dm.heightPixels)
+            }
+        return shortPx / density
+    }
+
+    // Drawn + written once per slot/look/label/size; later uses are a map hit.
+    private fun iconUri(b: MapHudPolicy.Button): String? {
+        val key = "${b.slot}|${b.look}|${b.label}|${hexWidthPx.toInt()}"
+        iconUris[key]?.let { return it }
         val bmp = drawHex(b)
         // ATAK's GL image loader didn't render a base64:// URI on device
         // (widget took touches but drew nothing). Write the PNG into ATAK's
         // own cache dir — same process/UID as the map renderer, readable
         // by it — and hand it a file:// URI. One file per slot+look+label,
         // so a changed state is a new URI (no stale cached texture).
-        val uri = writeIconFile(b, bmp) ?: return
-        val icon =
-            Icon
-                .Builder()
-                .setImageUri(0, uri)
-                .setSize(bmp.width, bmp.height)
-                .setAnchor(0, 0)
-                .build()
-        w.setIcon(icon)
-        // Whole hex is the touch target (72x82dp: works with gloves).
-        w.setMarkerHitBounds(0, 0, bmp.width, bmp.height)
+        val uri = writeIconFile(b, bmp) ?: return null
+        iconUris[key] = uri
+        return uri
     }
 
     private fun writeIconFile(
@@ -204,7 +245,7 @@ class XvMapHud(
     ): String? =
         try {
             val dir = File(mapView.context.cacheDir, "xv_map_ptt").apply { mkdirs() }
-            val safe = "${b.slot}_${b.look}_${b.label}".replace(Regex("[^A-Za-z0-9_]"), "_")
+            val safe = "${b.slot}_${b.look}_${b.label}_${hexWidthPx.toInt()}".replace(Regex("[^A-Za-z0-9_]"), "_")
             val f = File(dir, "ptt_$safe.png")
             if (!f.exists()) {
                 FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
@@ -219,8 +260,8 @@ class XvMapHud(
     // top and the channel (or TX) below. Transparent margin keeps the two
     // buttons apart and off the screen edge.
     private fun drawHex(b: MapHudPolicy.Button): Bitmap {
-        val w = (HEX_W_DP * density).toInt()
-        val h = (HEX_H_DP * density).toInt()
+        val w = hexWidthPx.toInt()
+        val h = (hexWidthPx * MapHudPolicy.HEX_ASPECT).toInt()
         val m = (MARGIN_DP * density)
         val bmp = Bitmap.createBitmap(w + (2 * m).toInt(), h + (2 * m).toInt(), Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
@@ -262,18 +303,66 @@ class XvMapHud(
         p.color = fg
         p.textAlign = Paint.Align.CENTER
         p.isFakeBoldText = true
-        p.textSize = 22f * density
-        c.drawText("${b.slot + 1}", m + w / 2f, m + h * 0.48f, p)
-        p.textSize = 11f * density
-        c.drawText(b.label, m + w / 2f, m + h * 0.72f, p)
+        // Slot number: a small badge at the top; the channel name gets the body.
+        p.textSize = 13f * density * scale()
+        c.drawText("${b.slot + 1}", m + w / 2f, m + h * 0.27f, p)
+        drawLabel(c, p, b.label, m + w / 2f, m + h * 0.58f)
         return bmp
+    }
+
+    // Labels are sized for the 72dp reference hex and scale with the size setting.
+    private fun scale(): Float = hexWidthPx / (REFERENCE_HEX_DP * density)
+
+    // Usable label width inside the hex body (its side walls slope in).
+    private fun labelMaxWidth(): Float = hexWidthPx * LABEL_WIDTH_FRACTION
+
+    private val measurePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFakeBoldText = true }
+
+    private fun measure(
+        text: String,
+        sizeSp: Float,
+    ): Float {
+        measurePaint.textSize = sizeSp * density * scale()
+        return measurePaint.measureText(text)
+    }
+
+    // The label text drawn this tick: the whole name when it fits on up to
+    // two lines, else the current slice of a slow scroll ("\u0001" marks
+    // a scroll frame so it's drawn on one line at the scroll size).
+    private fun labelFrame(label: String): String {
+        if (MapHudPolicy.layoutLabel(label, labelMaxWidth(), ::measure) != null) return label
+        val window = MapHudPolicy.fitChars(label, labelMaxWidth()) { measure(it, MapHudPolicy.SCROLL_SIZE_SP) }
+        return SCROLL_MARK + MapHudPolicy.scrollWindow(label, window, scrollTick)
+    }
+
+    private fun drawLabel(
+        c: Canvas,
+        p: Paint,
+        frame: String,
+        cx: Float,
+        cy: Float,
+    ) {
+        if (frame.startsWith(SCROLL_MARK)) {
+            p.textSize = MapHudPolicy.SCROLL_SIZE_SP * density * scale()
+            c.drawText(frame.removePrefix(SCROLL_MARK), cx, cy + p.textSize / 3f, p)
+            return
+        }
+        val layout = MapHudPolicy.layoutLabel(frame, labelMaxWidth(), ::measure) ?: return
+        p.textSize = layout.sizeSp * density * scale()
+        val lineH = p.textSize * 1.15f
+        var y = cy - (layout.lines.size - 1) * lineH / 2f + p.textSize / 3f
+        for (line in layout.lines) {
+            c.drawText(line, cx, y, p)
+            y += lineH
+        }
     }
 
     companion object {
         private const val TAG = "XvMapHud"
-        private const val HEX_W_DP = 72f
-        private const val HEX_H_DP = 82f
         private const val MARGIN_DP = 4f
+        private const val REFERENCE_HEX_DP = 72f
+        private const val LABEL_WIDTH_FRACTION = 0.84f
+        private const val SCROLL_MARK = "\u0001"
         private const val TALKER_TEXT_SIZE = 14
 
         // Talker / TX state while the panel is collapsed (the panel's own
