@@ -3,6 +3,7 @@ package com.atakmap.android.xv.plugin
 import android.content.SharedPreferences
 import com.atakmap.android.xv.audio.TptTone
 import com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
+import com.atakmap.android.xv.transport.multicast.LegacyCryptoPolicyMigration
 import com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
 
 // Persistent settings for the XV plugin. Wraps a SharedPreferences
@@ -419,23 +420,33 @@ class XvSettings(
         }
     }
 
-    fun channelCryptoPolicyFor(channelName: String): com.atakmap.android.xv.transport.multicast.CryptoPolicy {
-        val canonical = MulticastGroupDerivation.canonicalChannelName(channelName)
-        val name = prefs()?.getString("xv_crypto_policy_$canonical", null)
-        return try {
-            if (name != null) {
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.valueOf(name)
-            } else {
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-            }
-        } catch (_: Exception) {
-            com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-        }
-    }
+    // The config a channel actually runs on: its stored override, else the
+    // auto-derived default. Its cryptoPolicy is the ONLY per-channel crypto
+    // posture — UI, interop prompt and the multicast leg all read it here.
+    fun effectiveChannelMulticastConfig(channelName: String): ChannelMulticastConfig =
+        channelMulticastConfigFor(channelName) ?: ChannelMulticastConfig.defaultFor(channelName)
 
-    fun persistCryptoPolicy(channelName: String, policy: com.atakmap.android.xv.transport.multicast.CryptoPolicy) {
-        val canonical = MulticastGroupDerivation.canonicalChannelName(channelName)
-        prefs()?.edit()?.putString("xv_crypto_policy_$canonical", policy.name)?.apply()
+    // One-time fold of the retired `xv_crypto_policy_<channel>` prefs into
+    // the per-channel configs (see LegacyCryptoPolicyMigration for the
+    // rules), then delete them. Idempotent: once the keys are gone there
+    // is nothing left to fold. Returns the number of configs corrected.
+    fun migrateLegacyCryptoPolicyPrefs(): Int {
+        val p = prefs() ?: return 0
+        val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
+        val legacy =
+            p.all
+                .filterKeys { it.startsWith(prefix) }
+                .mapNotNull { (k, v) -> (v as? String)?.let { k.removePrefix(prefix) to it } }
+                .toMap()
+        val legacyKeys = p.all.keys.filter { it.startsWith(prefix) }
+        if (legacyKeys.isEmpty()) return 0
+        val fixes = LegacyCryptoPolicyMigration.plan(legacy, channelMulticastConfigs())
+        fixes.forEach { persistChannelMulticastConfig(it) }
+        p.edit().apply {
+            legacyKeys.forEach { remove(it) }
+            apply()
+        }
+        return fixes.size
     }
 
     // Sealed per-channel key vault. The bytes stored here are the output

@@ -115,16 +115,21 @@ class XvSettingsMultiServerCollisionTest {
     fun `CURRENT (incorrect) - crypto policy for the same channel name is overwritten by the second server`() {
         // Server 1 demands encryption for "ops"; server 2's "ops" is a
         // cleartext interop channel of the same name.
-        settings.persistCryptoPolicy(CHANNEL, CryptoPolicy.REQUIRED)
-        assertEquals(CryptoPolicy.REQUIRED, settings.channelCryptoPolicyFor(CHANNEL))
+        // The per-channel config is the single source of crypto posture.
+        settings.persistChannelMulticastConfig(
+            ChannelMulticastConfig(channelName = CHANNEL, cryptoPolicy = CryptoPolicy.REQUIRED),
+        )
+        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig(CHANNEL).cryptoPolicy)
 
-        settings.persistCryptoPolicy(CHANNEL, CryptoPolicy.CLEARTEXT)
+        settings.persistChannelMulticastConfig(
+            ChannelMulticastConfig(channelName = CHANNEL, cryptoPolicy = CryptoPolicy.CLEARTEXT),
+        )
 
         // CURRENT (incorrect): server 2's cleartext posture now applies to
         // BOTH servers' "ops" — a crypto-posture bleed across deployments,
         // the most safety-relevant facet of this collision.
-        assertEquals(CryptoPolicy.CLEARTEXT, settings.channelCryptoPolicyFor(CHANNEL))
-        assertNotEquals(CryptoPolicy.REQUIRED, settings.channelCryptoPolicyFor(CHANNEL))
+        assertEquals(CryptoPolicy.CLEARTEXT, settings.effectiveChannelMulticastConfig(CHANNEL).cryptoPolicy)
+        assertNotEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig(CHANNEL).cryptoPolicy)
     }
 
     companion object {

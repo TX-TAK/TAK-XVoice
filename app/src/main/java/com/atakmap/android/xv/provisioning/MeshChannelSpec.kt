@@ -94,4 +94,68 @@ object MeshChannelSpec {
 
         return Result.ok(config, autoKey = cryptoPolicy != CryptoPolicy.CLEARTEXT)
     }
+
+    /**
+     * Edit an EXISTING channel from the same form. Unlike [build], which
+     * mints a brand-new channel, an edit must not silently re-key the
+     * channel or reset settings the form doesn't show:
+     *
+     *  - [ChannelMulticastConfig.mode] and every patch-leg field are kept.
+     *  - The wire format is kept unless the chosen policy forces a change:
+     *    an encrypted policy needs [WireFormat.XV_NATIVE] (interop formats
+     *    have no crypto layer); moving an encrypted channel to CLEARTEXT
+     *    takes the same VX-compat format [build] would choose. A channel
+     *    that was already CLEARTEXT keeps its format (XV-native cleartext,
+     *    VX_COMPAT or OPENMANET_RTP) untouched.
+     *  - [Result.autoKey] is true ONLY when a cleartext channel becomes
+     *    encrypted and no key is held. An encrypted channel that is still
+     *    awaiting its key is left to the key election — a freshly minted
+     *    pre-shared key there would fork the channel from the peers that
+     *    already hold one. Explicit rotation stays a separate action.
+     *
+     * @param existing the channel's stored config, or its
+     *   [ChannelMulticastConfig.defaultFor] when none is stored.
+     * @param hasKey whether a channel key is currently held (live or
+     *   provisioned) for this channel.
+     */
+    fun edit(
+        existing: ChannelMulticastConfig,
+        group: String?,
+        port: String?,
+        cryptoPolicy: CryptoPolicy,
+        hasKey: Boolean,
+    ): Result {
+        val groupTrim = group?.trim().orEmpty()
+        val portTrim = port?.trim().orEmpty()
+        val pinGroup = groupTrim.isNotEmpty()
+        val pinPort = portTrim.isNotEmpty()
+        if (pinGroup != pinPort) {
+            return Result.err("Pin the group and port together, or leave both blank to derive them automatically.")
+        }
+        var pinnedGroup: String? = null
+        var pinnedPort: Int? = null
+        if (pinGroup) {
+            pinnedPort = portTrim.toIntOrNull() ?: return Result.err("Port “$portTrim” is not a number.")
+            pinnedGroup = groupTrim
+        }
+
+        val wireFormat =
+            when {
+                cryptoPolicy != CryptoPolicy.CLEARTEXT -> WireFormat.XV_NATIVE
+                existing.cryptoPolicy == CryptoPolicy.CLEARTEXT -> existing.wireFormat
+                else -> WireFormat.VX_COMPAT
+            }
+        val config =
+            existing.copy(
+                wireFormat = wireFormat,
+                cryptoPolicy = cryptoPolicy,
+                pinnedGroup = pinnedGroup,
+                pinnedPort = pinnedPort,
+            )
+        config.validate()?.let { return Result.err(it) }
+
+        val becameEncrypted =
+            existing.cryptoPolicy == CryptoPolicy.CLEARTEXT && cryptoPolicy != CryptoPolicy.CLEARTEXT
+        return Result.ok(config, autoKey = becameEncrypted && !hasKey)
+    }
 }

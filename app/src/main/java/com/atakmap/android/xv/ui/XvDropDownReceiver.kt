@@ -461,12 +461,15 @@ class XvDropDownReceiver(
         fun previewEndpoint(channelName: String): String?
 
         fun saveChannelConfig(config: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig): String?
-        fun channelCryptoPolicy(name: String): com.atakmap.android.xv.transport.multicast.CryptoPolicy?
+
+        // editing = true re-saves an existing channel: keeps its key, mode,
+        // patch leg and primary selection; false provisions a new channel.
         fun saveMeshChannel(
             name: String,
             group: String?,
             port: String?,
             channelCryptoPolicy: com.atakmap.android.xv.transport.multicast.CryptoPolicy,
+            editing: Boolean,
         ): String? = "not supported"
 
         fun applyPatchToCurrentChannel(group: String, port: String): String?
@@ -1423,16 +1426,13 @@ class XvDropDownReceiver(
             val adapter = android.widget.ArrayAdapter(
                 ctx,
                 android.R.layout.simple_spinner_item,
-                arrayOf("Encrypted (Preferred)", "Cleartext (Disabled)")
+                CRYPTO_POLICY_LABELS.toTypedArray()
             )
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
             this.adapter = adapter
-            val modeIndex = when (existingConfig.cryptoPolicy) {
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED -> 0
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED -> 0 // Treat as preferred in UI
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT -> 1
-            }
-            setSelection(modeIndex)
+            // Faithful round-trip: every policy has its own row, so saving
+            // without touching the spinner never changes the posture.
+            setSelection(cryptoPolicyIndex(existingConfig.cryptoPolicy))
         }
         view.addView(cryptoSpinner)
 
@@ -1477,10 +1477,7 @@ class XvDropDownReceiver(
                     1 -> com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS
                     else -> com.atakmap.android.xv.transport.multicast.MulticastMode.OFF
                 }
-                val cryptoMode = when (cryptoSpinner.selectedItemPosition) {
-                    0 -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED
-                    else -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT
-                }
+                val cryptoMode = cryptoPolicyAt(cryptoSpinner.selectedItemPosition)
                 val pg = patchGroup.text.toString().trim().ifEmpty { null }
                 val pp = patchPort.text.toString().trim().ifEmpty { null }?.toIntOrNull()
 
@@ -2701,7 +2698,13 @@ class XvDropDownReceiver(
     // the automatic derivation, so "name it myself" needs no address
     // entry; the interop fields exist only to match an external system.
     private fun showChannelConfigDialog(section: View, existingName: String? = null) {
-        val existingConfig = existingName?.let { controller.meshChannelConfig(it) }
+        // Editing a channel with no stored override still has a real
+        // config — the auto-derived default — so the form reflects it.
+        val existingConfig =
+            existingName?.let {
+                controller.meshChannelConfig(it)
+                    ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig.defaultFor(it)
+            }
         val ctx = mapView.context
         val density = ctx.resources.displayMetrics.density
         fun dp(n: Int) = (n * density).toInt()
@@ -2724,13 +2727,16 @@ class XvDropDownReceiver(
         val groupField =
             android.widget.EditText(ctx).apply {
                 hint = "Multicast group (blank = automatic)"
-                setText(existingConfig?.pinnedGroup ?: existingConfig?.patchGroup ?: "")
+                // The PRIMARY pin only. The patch leg is a separate endpoint
+                // (gear dialog); prefilling it here pinned the channel itself
+                // to the patch address on save.
+                setText(existingConfig?.pinnedGroup ?: "")
                 setSingleLine(true)
             }
         val portField =
             android.widget.EditText(ctx).apply {
                 hint = "Port (blank = automatic)"
-                setText(existingConfig?.pinnedPort?.toString() ?: existingConfig?.patchPort?.toString() ?: "")
+                setText(existingConfig?.pinnedPort?.toString() ?: "")
                 inputType = android.text.InputType.TYPE_CLASS_NUMBER
                 setSingleLine(true)
             }
@@ -2740,16 +2746,16 @@ class XvDropDownReceiver(
                     ArrayAdapter(
                         ctx,
                         android.R.layout.simple_spinner_dropdown_item,
-                        listOf("Encrypted Only", "Prefer Encryption (VX interop)", "Cleartext (VX compat)"),
+                        CRYPTO_POLICY_LABELS,
                     )
-                val p = controller.channelCryptoPolicy(existingConfig?.channelName ?: "")
-                    ?: com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-                val idx = when (p) {
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED -> 0
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED -> 1
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT -> 2
-                }
-                setSelection(idx)
+                // The channel's config is the one source of truth; a brand
+                // new channel defaults to Encrypted only.
+                setSelection(
+                    cryptoPolicyIndex(
+                        existingConfig?.cryptoPolicy
+                            ?: com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED,
+                    ),
+                )
             }
 
         // Read-only echo of the group:port the entered name resolves to.
@@ -2836,18 +2842,14 @@ class XvDropDownReceiver(
             .setTitle("Configure a channel")
             .setView(android.widget.ScrollView(ctx).apply { addView(container) })
             .setPositiveButton("Save") { _, _ ->
-                val channelCryptoPolicy =
-                    when (cryptoSpinner.selectedItemPosition) {
-                        1 -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED
-                        2 -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT
-                        else -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-                    }
+                val channelCryptoPolicy = cryptoPolicyAt(cryptoSpinner.selectedItemPosition)
                 val err =
                     controller.saveMeshChannel(
                         name = nameField.text?.toString().orEmpty(),
                         group = groupField.text?.toString(),
                         port = portField.text?.toString(),
                         channelCryptoPolicy = channelCryptoPolicy,
+                        editing = existingName != null,
                     )
                 if (err == null) {
                     meshToast("Channel saved.")
