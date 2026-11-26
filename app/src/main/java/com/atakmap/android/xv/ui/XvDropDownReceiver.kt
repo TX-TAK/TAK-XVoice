@@ -167,7 +167,10 @@ class XvDropDownReceiver(
         // slot 0 = VS1 (primary, current channel), slot 1 = VS2 (secondary).
         fun startTx(slot: Int)
 
-        fun stopTx()
+        // Release must name the same slot the press used: the service's
+        // PTT dispatcher keys held state by slot, so a slot-1 press
+        // released as slot 0 would leave channel 2 transmitting.
+        fun stopTx(slot: Int)
 
         fun playTptPreview()
 
@@ -839,7 +842,7 @@ class XvDropDownReceiver(
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                     android.util.Log.i("XV_PTT", ">>> ON-SCREEN $label (slot=$slot) UP <<<")
                     btn.isPressed = false
-                    controller.stopTx()
+                    controller.stopTx(slot)
                     btn.performClick()
                     true
                 }
