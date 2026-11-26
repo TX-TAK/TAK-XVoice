@@ -2997,12 +2997,13 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun missionChannelsEnabled(): Boolean = settings.persistedMissionChannelsEnabled()
 
-            override fun missionDrivesChannel1(): Boolean {
-                if (!settings.persistedMissionChannelsEnabled()) return false
-                val target = missionChannelProvisioner?.currentTarget() ?: return false
-                val ch1 = currentChannelName() ?: return false
-                return com.atakmap.android.xv.transport.AutoJoinPolicy.sameChannel(target, ch1)
-            }
+            // sameChannel is false when either side is null.
+            override fun missionDrivesChannel1(): Boolean =
+                settings.persistedMissionChannelsEnabled() &&
+                    com.atakmap.android.xv.transport.AutoJoinPolicy.sameChannel(
+                        missionChannelProvisioner?.currentTarget(),
+                        currentChannelName(),
+                    )
 
             override fun setMissionChannelsEnabled(enabled: Boolean) {
                 Log.i(TAG, "Controller.setMissionChannelsEnabled($enabled)")
@@ -6377,6 +6378,28 @@ class XvMapComponent : AbstractMapComponent() {
         }
     }
 
+    // [config] with the endpoint a peer beacon advertises for its channel,
+    // when it has no pin of its own; otherwise [config] unchanged (same
+    // instance). A beacon-only channel has no server identity to derive
+    // from, so without this pin its leg lands on the wrong group.
+    private fun withDiscoveredPin(
+        config: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig,
+    ): com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig {
+        val discovered = if (config.pinnedGroup.isNullOrBlank()) discoveredEndpointFor(config.channelName) else null
+        return discovered?.let { config.copy(pinnedGroup = it.group, pinnedPort = it.port) } ?: config
+    }
+
+    // The beacon-advertised entry for [name], matched on the canonical name.
+    private fun discoveredEndpointFor(name: String) =
+        com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
+            .canonicalChannelName(name)
+            .let { canonical ->
+                meshVoiceManager?.discoveredChannels()?.firstOrNull {
+                    com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
+                        .canonicalChannelName(it.name) == canonical
+                }
+            }
+
     /**
      * Offline / mesh-only channel switch. [joinMumbleChannelInternal] is a
      * no-op without a live Mumble transport, so [Controller.setPrimaryChannel]
@@ -6387,27 +6410,6 @@ class XvMapComponent : AbstractMapComponent() {
      * the live mesh leg. Also the body behind the [Controller.selectMeshChannel]
      * override.
      */
-    // [config] with the endpoint a peer beacon advertises for its channel,
-    // when it has no pin of its own; otherwise [config] unchanged (same
-    // instance). A beacon-only channel has no server identity to derive
-    // from, so without this pin its leg lands on the wrong group.
-    private fun withDiscoveredPin(
-        config: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig,
-    ): com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig {
-        if (!config.pinnedGroup.isNullOrBlank()) return config
-        val canonical =
-            com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
-                .canonicalChannelName(config.channelName)
-        val discovered =
-            meshVoiceManager
-                ?.discoveredChannels()
-                ?.firstOrNull {
-                    com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation
-                        .canonicalChannelName(it.name) == canonical
-                } ?: return config
-        return config.copy(pinnedGroup = discovered.group, pinnedPort = discovered.port)
-    }
-
     private fun selectMeshChannelInternal(name: String) {
         // A channel known only from peer beacons (fully offline: no server
         // identity to derive from) must be pinned to the ADVERTISED endpoint
