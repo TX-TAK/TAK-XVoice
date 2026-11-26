@@ -1493,7 +1493,16 @@ class XvDropDownReceiver(
                     mode = mode,
                     cryptoPolicy = cryptoMode,
                     patchGroup = pg,
-                    patchPort = pp
+                    patchPort = pp,
+                    // A newly pinned/changed patch endpoint defaults to the
+                    // OpenMANET RTP profile (raw Opus is dropped by
+                    // openmanetd); an unchanged endpoint keeps its format.
+                    patchWireFormat =
+                    if (pg != null && (pg != existingConfig.patchGroup || pp != existingConfig.patchPort)) {
+                        com.atakmap.android.xv.transport.multicast.WireFormat.OPENMANET_RTP
+                    } else {
+                        existingConfig.patchWireFormat
+                    },
                 )
 
                 val err = controller.saveChannelConfig(newConfig)

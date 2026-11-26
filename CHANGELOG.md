@@ -9,6 +9,8 @@ All notable user-visible and operationally significant changes to TAK-XVoice are
 - OpenMANET leg packs two consecutive 10 ms Opus frames into one 20 ms packet (RFC 6716 code 1/2, no re-encode), matching openmanetd's 20 ms cadence. When the encoder changes Opus config between two frames they can't share a packet; the older one is sent alone as a 10 ms packet rather than dropped. The Mumble path still encodes and sends 10 ms frames. The RTP timestamp now advances by the actual packet duration instead of a fixed 960.
 - OpenMANET leg keeps RTP sequence/timestamp monotonic across PTT bursts (random initial values) so rapid re-keys are not discarded by openmanetd's jitter buffer, which only re-syncs on an SSRC change or ~2 s idle.
 - Multicast TTL raised 8 → 32 (multi-hop batman-adv / overlay paths) and DSCP EF (`0xB8`) is requested on mesh sockets, best-effort (failure is logged, not fatal).
+- Patch legs are now reset on every PTT-down (a half-pair held by the OpenMANET codec could previously leak into the next burst), are rebuilt when a patch is re-applied on the same group:port with a different wire format, and are validated before being persisted (an invalid patch could previously take the channel's primary mesh leg down). The channel-config dialog's patch fields also default to `OPENMANET_RTP`.
+- Relay TX on a leg is now serialized (it is reachable from both the Mumble and multicast receive threads), and merged 20 ms packets are capped at openmanetd's 1275-byte payload limit.
 - Applying a patch to a channel that uses the auto-derived default config no longer fails with "Channel config not found."
 
 ### Notes

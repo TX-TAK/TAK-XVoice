@@ -126,6 +126,13 @@ class MulticastMeshLeg(
         return true
     }
 
+    // sendRelayOpus is entered from the Mumble RX thread AND the multicast RX
+    // thread (MeshVoiceManager.onVoice deliberately runs outside the manager
+    // lock), and it mutates the plain-HashMap relayCodecs plus per-speaker
+    // stateful codecs (pending half-pair, seq/timestamp). Serialize it with
+    // clearRelayState()/close() on this leg's monitor. The only call made
+    // under the lock is the transport's non-blocking executor hand-off.
+    @Synchronized
     override fun sendRelayOpus(
         speakerUid: String,
         opus: ByteArray,
@@ -172,11 +179,13 @@ class MulticastMeshLeg(
     // relayed speaker with no eviction until close(), so a device that
     // bridges, yields, and re-acquires the role across a long session
     // accumulates codecs for every speaker it ever relayed.
+    @Synchronized
     override fun clearRelayState() {
         relayCodecs.clear()
         relayedSpeakerLastMs.clear()
     }
 
+    @Synchronized
     override fun close() {
         relayCodecs.clear()
         relayedSpeakerLastMs.clear()

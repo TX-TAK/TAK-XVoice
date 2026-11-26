@@ -67,6 +67,7 @@ class MeshVoiceManagerTest {
         var meshOn = true
         var mumbleUp = true
         val legs = mutableMapOf<String, FakeLeg>()
+        val created = mutableListOf<FakeLeg>() // every leg ever built, patch legs included
         val playedRx = mutableListOf<String>() // speaker labels forwarded to service
         val relayedToMumble = mutableListOf<Boolean>() // burstStart flags
         val meshTxStateChanges = mutableListOf<Boolean>()
@@ -88,7 +89,10 @@ class MeshVoiceManagerTest {
                 serverIdentity = { ServerIdentity.fromHostname("tak.example.com") },
                 mumbleConnected = { mumbleUp },
                 legFactory = { cfg, endpoint, registry, _ ->
-                    FakeLeg(cfg, endpoint, registry).also { legs[cfg.channelName] = it }
+                    FakeLeg(cfg, endpoint, registry).also {
+                        legs[cfg.channelName] = it
+                        created += it
+                    }
                 },
                 onRxOpus = { _, label -> playedRx += label },
                 relayToMumble = { _, burstStart -> relayedToMumble += burstStart },
@@ -256,6 +260,43 @@ class MeshVoiceManagerTest {
         h.joinAndTick()
         h.manager.beginTxBurst()
         assertEquals(1, h.channelLeg().bursts)
+    }
+
+    private fun patched(
+        wire: WireFormat,
+        crypto: CryptoPolicy = CryptoPolicy.CLEARTEXT,
+        port: Int = 5009,
+    ) = { channel: String ->
+        ChannelMulticastConfig.defaultFor(channel).copy(
+            patchGroup = "239.255.0.9",
+            patchPort = port,
+            patchWireFormat = wire,
+            patchCryptoPolicy = crypto,
+        )
+    }
+
+    @Test
+    fun `beginTxBurst also resets patch legs`() {
+        val h = Harness(configOverride = patched(WireFormat.OPENMANET_RTP))
+        h.joinAndTick()
+        val patch = h.created.single { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+        h.manager.beginTxBurst()
+        h.manager.beginTxBurst()
+        assertEquals(2, patch.bursts)
+    }
+
+    @Test
+    fun `re-applying a patch on the same endpoint with a new wire format rebuilds the live leg`() {
+        var wire = WireFormat.VX_COMPAT
+        val h = Harness(configOverride = { patched(wire)(it) })
+        h.joinAndTick()
+        val old = h.created.single { it.config.wireFormat == WireFormat.VX_COMPAT }
+
+        wire = WireFormat.OPENMANET_RTP
+        h.manager.tick()
+
+        assertTrue(old.closed)
+        assertEquals(1, h.created.count { it.config.wireFormat == WireFormat.OPENMANET_RTP })
     }
 
     // ---- RX merge + dedup ----

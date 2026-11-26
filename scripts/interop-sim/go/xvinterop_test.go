@@ -24,9 +24,23 @@ import (
 )
 
 const (
-	bursts         = 3
-	framesPerBurst = 30 // 10 ms frames => 300 ms of speech per PTT press
+	bursts = 3
+	// playoutSlice is the PCM slice the daemon decodes into per tick
+	// (receive.go playoutOneFrame): one 20 ms period at 48 kHz mono.
+	playoutSlice = 960
 )
+
+// 10 ms frames per PTT press. Odd counts on purpose: each leaves a stranded
+// half-pair at release, exercising the codec's burst-boundary handling.
+var burstFrames = [bursts]int{31, 29, 31}
+
+func totalFrames() int {
+	n := 0
+	for _, f := range burstFrames {
+		n += f
+	}
+	return n
+}
 
 func TestGenerateFrames(t *testing.T) {
 	out := os.Getenv("XV_FRAMES_OUT")
@@ -42,7 +56,7 @@ func TestGenerateFrames(t *testing.T) {
 	defer f.Close()
 	phase := 0.0
 	for b := 0; b < bursts; b++ {
-		for i := 0; i < framesPerBurst; i++ {
+		for i := 0; i < burstFrames[b]; i++ {
 			pcm := make([]int16, 480) // 10 ms @ 48 kHz, what XV's capture emits
 			for k := range pcm {
 				pcm[k] = int16(8000 * math.Sin(phase))
@@ -61,6 +75,7 @@ func TestGenerateFrames(t *testing.T) {
 type result struct {
 	sent, parseErrs, pushed, rejected, popped int
 	decodedSamples, decodeErrs                int
+	full20ms                                  int // packets that filled the daemon's 960-sample slice
 	peak                                      int16
 	ssrcResets, idleResets                    int64
 }
@@ -73,7 +88,7 @@ func replay(t *testing.T, lines []string) result {
 	jb := rtp.NewJitterBuffer(rtp.PrebufferPackets, rtp.MaxDepth)
 	var r result
 	var pkt pionrtp.Packet
-	pcm := make([]int16, 5760)
+	pcm := make([]int16, playoutSlice) // same slice size the daemon decodes into
 	lastBurst := -1
 	for _, ln := range lines {
 		var b int
@@ -106,6 +121,9 @@ func replay(t *testing.T, lines []string) result {
 				continue
 			}
 			r.decodedSamples += n
+			if n == playoutSlice {
+				r.full20ms++
+			}
 			for _, s := range pcm[:n] {
 				if s > r.peak {
 					r.peak = s
@@ -143,8 +161,8 @@ func TestReplay(t *testing.T) {
 	for _, n := range names {
 		r := replay(t, byScn[n])
 		res[n] = r
-		t.Logf("%-22s sent=%3d parseErr=%3d pushed=%3d rejected=%3d popped=%3d decodedMs=%4d decErr=%d peak=%5d ssrcRst=%d idleRst=%d",
-			n, r.sent, r.parseErrs, r.pushed, r.rejected, r.popped, r.decodedSamples/48, r.decodeErrs, r.peak, r.ssrcResets, r.idleResets)
+		t.Logf("%-18s sent=%3d parseErr=%3d pushed=%3d rejected=%3d popped=%3d full20ms=%3d decodedMs=%4d decErr=%d peak=%5d ssrcRst=%d idleRst=%d",
+			n, r.sent, r.parseErrs, r.pushed, r.rejected, r.popped, r.full20ms, r.decodedSamples/48, r.decodeErrs, r.peak, r.ssrcResets, r.idleResets)
 	}
 
 	// The fix: every datagram is RTP, accepted, in order, and decodes. Audio
@@ -153,7 +171,7 @@ func TestReplay(t *testing.T) {
 	if !ok {
 		t.Fatal("no openmanet_rtp scenario in input")
 	}
-	totalMs := bursts * framesPerBurst * 10
+	totalMs := totalFrames() * 10
 	gotMs := om.decodedSamples / 48
 	if om.parseErrs != 0 || om.rejected != 0 || om.decodeErrs != 0 {
 		t.Errorf("openmanet_rtp: parseErr=%d rejected=%d decErr=%d, want all 0", om.parseErrs, om.rejected, om.decodeErrs)
@@ -163,6 +181,16 @@ func TestReplay(t *testing.T) {
 	}
 	if gotMs > totalMs || gotMs < totalMs-10*bursts {
 		t.Errorf("openmanet_rtp: decoded %d ms, want within [%d, %d]", gotMs, totalMs-10*bursts, totalMs)
+	}
+	// Packing must really produce 20 ms packets: roughly half as many datagrams
+	// as input frames, nearly all filling the daemon's playout slice. A codec
+	// that stopped packing would still decode and pass the checks above while
+	// the daemon zero-pads every tick.
+	if om.sent > totalFrames()*6/10 {
+		t.Errorf("openmanet_rtp: %d datagrams for %d frames; frames are not being packed into 20 ms", om.sent, totalFrames())
+	}
+	if om.full20ms*10 < om.sent*9 {
+		t.Errorf("openmanet_rtp: only %d of %d packets are full 20 ms", om.full20ms, om.sent)
 	}
 	if om.peak < 2000 {
 		t.Errorf("openmanet_rtp: decoded audio is silent (peak %d)", om.peak)

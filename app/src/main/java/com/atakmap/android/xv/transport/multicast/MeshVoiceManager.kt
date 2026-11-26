@@ -350,6 +350,10 @@ class MeshVoiceManager(
     fun beginTxBurst() {
         lastLocalTxMs = nowMs()
         legs.values.forEach { it.beginVoiceBurst() }
+        // Patch legs carry stateful codecs too (OPENMANET_RTP holds a
+        // half-pair and arms the RTP marker per burst); without this a
+        // stranded frame leaks into the next PTT press.
+        patchLegs.values.forEach { it.beginVoiceBurst() }
     }
 
     /**
@@ -955,7 +959,12 @@ class MeshVoiceManager(
             val cfg = desired[channel] ?: return@filter true
             if (cfg.patchGroup == null || cfg.patchPort == null) return@filter true
             val endpoint = MulticastEndpoint(cfg.patchGroup, cfg.patchPort)
-            endpoint != patchLeg.endpoint
+            // Re-applying a patch on the SAME group:port with a different
+            // wire format / crypto policy (e.g. VX_COMPAT -> OPENMANET_RTP)
+            // must rebuild the live leg, or the old codec keeps running.
+            endpoint != patchLeg.endpoint ||
+                cfg.patchWireFormat != patchLeg.config.wireFormat ||
+                cfg.patchCryptoPolicy != patchLeg.config.cryptoPolicy
         }.keys
         stalePatch.forEach { channel ->
             patchLegs.remove(channel)?.let { runCatching { it.close() } }

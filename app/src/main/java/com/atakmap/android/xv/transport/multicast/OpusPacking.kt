@@ -84,9 +84,22 @@ object OpusPacking {
         return (tocA and 0x03) == 0 &&
             (tocB and 0x03) == 0 &&
             (tocA and 0xFC) == (tocB and 0xFC) &&
-            first.size - 1 <= MAX_FRAME_BYTES &&
-            second.size - 1 <= MAX_FRAME_BYTES
+            mergedPayloadBytes(first.size - 1, second.size - 1) <= MAX_FRAME_BYTES
     }
+
+    // TOC + (length bytes for code 2) + both frames. openmanetd's jitter
+    // buffer rejects any RTP payload over 1275 bytes (MaxOpusPayloadSize),
+    // so a merged packet must fit that, not just each frame; relayed
+    // high-bitrate Mumble frames can otherwise exceed it.
+    private fun mergedPayloadBytes(
+        lenA: Int,
+        lenB: Int,
+    ): Int =
+        when {
+            lenA == lenB -> 1 + lenA + lenB
+            lenA < 252 -> 2 + lenA + lenB
+            else -> 3 + lenA + lenB
+        }
 
     private fun merge(
         first: ByteArray,

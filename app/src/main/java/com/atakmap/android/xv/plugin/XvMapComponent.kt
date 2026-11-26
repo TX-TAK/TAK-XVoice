@@ -3063,6 +3063,11 @@ class XvMapComponent : AbstractMapComponent() {
                 )
                 if (patchGroup != null && updated.patchPort == null) return "Invalid port number."
 
+                // An invalid patch persisted here would also take the
+                // channel's PRIMARY leg down (reconcileLegs gates on
+                // validate()), so reject it before it is stored.
+                updated.validate()?.let { return it }
+
                 settings.persistChannelMulticastConfig(updated)
                 return null
             }

@@ -44,7 +44,7 @@ class OpusPackingTest {
 
     @Test
     fun `code 2 uses the two-byte length form at 252 bytes and above`() {
-        for (len in intArrayOf(252, 253, 254, 255, 256, 600, 1275)) {
+        for (len in intArrayOf(252, 253, 254, 255, 256, 600)) {
             val a = tenMsOfSize(len)
             val b = tenMsOfSize(len - 1)
             val p = OpusPacking.pack(a, b)!!
@@ -57,6 +57,17 @@ class OpusPackingTest {
             assertArrayEquals(a.copyOfRange(1, a.size), p.copyOfRange(3, 3 + len))
             assertArrayEquals(b.copyOfRange(1, b.size), p.copyOfRange(3 + len, p.size))
         }
+    }
+
+    @Test
+    fun `a merged packet may not exceed openmanetd's 1275 byte payload limit`() {
+        // 1 TOC + 637 + 637 = 1275: exactly at the limit, packs (code 1).
+        assertNotNull(OpusPacking.pack(tenMsOfSize(637), tenMsOfSize(637)))
+        // One byte over, in both the code 1 and code 2 shapes.
+        assertNull(OpusPacking.pack(tenMsOfSize(638), tenMsOfSize(638)))
+        assertNull(OpusPacking.pack(tenMsOfSize(700), tenMsOfSize(600)))
+        // Individually legal frames that only overflow once merged.
+        assertNull(OpusPacking.pack(tenMsOfSize(1275), tenMsOfSize(1275)))
     }
 
     @Test
