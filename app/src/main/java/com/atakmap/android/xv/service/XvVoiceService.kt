@@ -2086,6 +2086,11 @@ class XvVoiceService : Service() {
                 return plant().isAinaConnected()
             }
 
+            override fun isExternalCallActive(): Boolean {
+                assertAuthorizedCaller()
+                return plant().externalCallActive()
+            }
+
             override fun connectExternalButton(
                 mac: String?,
                 name: String?,

@@ -2859,14 +2859,9 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun pttInputIssue(card: com.atakmap.android.xv.ui.PttInputHealth.Card) = pttInputHealth.issue(card)
 
-            override fun phoneCallActive(): Boolean =
-                try {
-                    val am = heldPluginContext?.getSystemService(Context.AUDIO_SERVICE) as? android.media.AudioManager
-                    com.atakmap.android.xv.service.CallRxPolicy.phoneCallActive(am?.mode ?: android.media.AudioManager.MODE_NORMAL)
-                } catch (t: Throwable) {
-                    Log.w(TAG, "phoneCallActive: audio mode read failed — assuming no call", t)
-                    false
-                }
+            // The service's latched verdict: the same one that refuses PTT
+            // and drops channel RX, so the bar can't disagree with them.
+            override fun phoneCallActive(): Boolean = voiceClient?.query(false) { it.isExternalCallActive } == true
 
             override fun onBluetoothBonded(mac: String) {
                 // The operator re-paired a device: clear the card it backs.

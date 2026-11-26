@@ -171,4 +171,10 @@ interface IXvVoice {
     // unload to release SCO, focus, etc). The Service itself stays
     // alive until stopService.
     void teardown();
+
+    // Somebody else's call is up (cellular, ringing, or another app's
+    // VoIP call): the service's single latched verdict, the same one
+    // its PTT gate and channel-RX drop use. The panel's "on a phone call"
+    // bar reads it. Appended last (transaction order).
+    boolean isExternalCallActive();
 }

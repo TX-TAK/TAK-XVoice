@@ -310,6 +310,20 @@ class XvVoiceClient(
      */
     fun isBound(): Boolean = voice != null
 
+    /** Synchronous read from the bound service, or [default] when unbound / on error. */
+    fun <T> query(
+        default: T,
+        read: (IXvVoice) -> T,
+    ): T {
+        val v = voice ?: return default
+        return try {
+            read(v)
+        } catch (t: Throwable) {
+            Log.w(TAG, "query threw", t)
+            default
+        }
+    }
+
     /**
      * Run [action] once, on the AIDL bind. If the binder is already
      * bound, [action] runs synchronously on the caller's thread. If

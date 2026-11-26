@@ -270,7 +270,7 @@ flowchart LR
 - On the earpiece route, the screen turns off when the phone is at your ear.
 - Channel 2's audio is paused for the call (the bar reads **● IN CALL · channel 2 paused**).
 
-**Phone calls (cellular).** During any phone call, ringing included, channel audio is ignored: nothing plays and nothing is kept for later. The panel shows **On a phone call · channel audio paused** (no End Call button; hang up on the phone). PTT is refused with a toast. Channel audio resumes when the call ends.
+**Phone calls (cellular or another app's call).** During any phone call, ringing included, channel audio is ignored: nothing plays and nothing is kept for later. The panel shows **On a phone call · channel audio paused** (no End Call button; hang up on the phone). PTT is refused with a toast. Channel audio resumes when the call ends.
 - When the call ends, you return to your channels as they were.
 
 ---
@@ -332,4 +332,4 @@ Other screens:
 10. **Texas Red text contrast.** Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.
 11. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
 12. **Map PTT buttons aren't reachable with TalkBack.** They're ATAK map widgets, which aren't in the Android accessibility tree. TalkBack users key from the panel PTT or a hardware button.
-13. **Other apps' VoIP calls don't pause channel audio.** The phone-call rule reads the system audio mode; a VoIP call in another app uses the same mode as XV's own audio, so it can't be told apart. Cellular calls and ringing are covered. Replaying channel audio missed during a call is a backlog item.
+13. **One VoIP case isn't detected.** The phone-call rule covers ringing, cellular calls (including VoLTE calls, which run in the same audio mode as XV's own audio, once answered or placed), and another app's VoIP call that starts while XV is quiet. It can't see a VoIP call another app starts while XV is already playing or transmitting, because the audio mode doesn't change. Replaying channel audio missed during a call is a backlog item.

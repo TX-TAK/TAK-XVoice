@@ -176,11 +176,12 @@ class VoicePlant(
                             graceMs = com.atakmap.android.xv.telecom.ActiveCallRegistry
                                 .RECENT_OWN_CALL_GRACE_MS,
                         )
-            cellularCallStateFromAudioMode(
-                audioMode = am?.mode ?: AudioManager.MODE_NORMAL,
-                xvHasActiveTelecomCall = xvOwnCallOrGrace,
-                suppressInCommunicationDefensiveBlock = false,
-            )
+            // One latched verdict for gate, RX drop and the panel bar
+            // (ExternalCallDetector): an answered VoLTE call stays a call
+            // after RINGTONE becomes IN_COMMUNICATION, and audio XV
+            // dropped during a call never counts as XV's own.
+            val external = externalCall.sample(am?.mode ?: AudioManager.MODE_NORMAL, xvOwnCallOrGrace)
+            cellularCallStateFromExternalCall(external, ringing = externalCall.ringing())
         } catch (t: Throwable) {
             android.util.Log.w(
                 TAG,
@@ -2059,6 +2060,9 @@ class VoicePlant(
     private val perSpeakerDecoders: MutableMap<String, OpusDecoder> =
         java.util.concurrent.ConcurrentHashMap()
 
+    /** Somebody else's call is up (ExternalCallDetector verdict, sampled now). */
+    fun externalCallActive(): Boolean = cellularCallStateProvider() != android.telephony.TelephonyManager.CALL_STATE_IDLE
+
     // Audio mode is a binder call; RX frames arrive ~50/s, so re-read it
     // at most every PHONE_CALL_POLL_MS.
     @Volatile private var phoneCallCheckedAtMs = 0L
@@ -2071,7 +2075,7 @@ class VoicePlant(
             phoneCallCheckedAtMs = now
             val active =
                 try {
-                    CallRxPolicy.phoneCallActive(audioManager.mode)
+                    externalCallActive()
                 } catch (t: Throwable) {
                     Log.w(TAG, "phone-call check: audio mode read failed — assuming no call", t)
                     false
@@ -2217,6 +2221,9 @@ class VoicePlant(
         // the speaker route so the SCO suppression couldn't catch it).
         @Volatile
         internal var lastRxPlaybackElapsedMs: Long = 0L
+
+        // The one "somebody else's call" latch (see ExternalCallDetector).
+        internal val externalCall = ExternalCallDetector()
 
         // How recently RX must have played for comm-mode to count as
         // ours. Covers inter-burst gaps; after this much true RX

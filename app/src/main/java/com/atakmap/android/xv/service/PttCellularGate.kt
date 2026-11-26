@@ -260,3 +260,19 @@ fun cellularCallStateFromAudioMode(
             }
         else -> TelephonyManager.CALL_STATE_IDLE
     }
+
+/**
+ * The cellular-gate state for [ExternalCallDetector]'s verdict — what the
+ * live gate uses. [cellularCallStateFromAudioMode] is the stateless
+ * per-sample mapping it replaced (it couldn't keep an answered VoLTE
+ * call, which moves RINGTONE to IN_COMMUNICATION, latched as a call).
+ */
+fun cellularCallStateFromExternalCall(
+    externalCallActive: Boolean,
+    ringing: Boolean,
+): Int =
+    when {
+        !externalCallActive -> TelephonyManager.CALL_STATE_IDLE
+        ringing -> TelephonyManager.CALL_STATE_RINGING
+        else -> TelephonyManager.CALL_STATE_OFFHOOK
+    }
