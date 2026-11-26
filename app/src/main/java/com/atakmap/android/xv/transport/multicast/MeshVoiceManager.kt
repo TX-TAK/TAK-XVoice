@@ -887,10 +887,14 @@ class MeshVoiceManager(
         if (bridgingSecondary != wasBridgingSecondary) {
             logDiag("bridge role (channel 2) -> ${if (bridgingSecondary) "ON" else "OFF"}")
         }
+        // Server connectivity goes into the bridge CoT on every tick (the
+        // setter is a no-op when unchanged). It used to update only when
+        // the bridge role flipped, so a device that connected without ever
+        // changing role kept advertising mumbleConnected=false.
+        bridgeCotPublisher?.setMumbleSession(if (mumbleConnected()) 0 else null)
         if (bridging != wasBridging) {
             // Notify local-mesh peers of our bridge role change via CoT.
             bridgeCotPublisher?.setBridging(bridging)
-            bridgeCotPublisher?.setMumbleSession(if (mumbleConnected()) 0 else null)
             logDiag(
                 "bridge role -> ${if (bridging) "ON" else "OFF"} " +
                     "(mumbleConnected=${mumbleConnected()}, legs=${legs.size})",
