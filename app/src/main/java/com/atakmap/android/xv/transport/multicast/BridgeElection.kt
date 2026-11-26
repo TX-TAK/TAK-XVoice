@@ -97,15 +97,6 @@ class BridgeElection(
         return connectedUids.min() == ourUid
     }
 
-    /** A fresh beacon from [uid] says it is connected to the server. */
-    fun peerOnServer(
-        uid: String,
-        nowMs: Long,
-    ): Boolean {
-        pruneStale(nowMs)
-        return peers[uid]?.mumbleConnected == true
-    }
-
     /** Another fresh peer reports it is bridging [channel]. */
     fun otherBridgeOn(
         channel: String,
