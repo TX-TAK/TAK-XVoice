@@ -35,7 +35,8 @@ import java.io.FileOutputStream
 class XvMapHud(
     private val mapView: MapView,
     private val pluginContext: Context,
-    private val pttDown: (slot: Int) -> Unit,
+    // Returns false when the press was refused (drawn as DENIED briefly).
+    private val pttDown: (slot: Int) -> Boolean,
     private val pttUp: (slot: Int) -> Unit,
     private val state: () -> Snapshot,
 ) {
@@ -46,6 +47,9 @@ class XvMapHud(
         val size: MapHudPolicy.Size,
         val slot1: MapHudPolicy.SlotState,
         val slot2: MapHudPolicy.SlotState?,
+        // One-line notice under the buttons when nobody is talking:
+        // "Voice offline", or "PTT1 → <channel>" right after a swap.
+        val notice: String? = null,
     )
 
     private val main = Handler(Looper.getMainLooper())
@@ -68,6 +72,11 @@ class XvMapHud(
     private var hexWidthPx = MapHudPolicy.MIN_HEX_WIDTH_DP * density
 
     @Volatile private var heldSlot: Int? = null
+
+    // Slot whose press was just refused, until deniedUntil (uptime ms).
+    @Volatile private var deniedSlot: Int? = null
+
+    @Volatile private var deniedUntil = 0L
 
     @Volatile private var attached = false
 
@@ -142,10 +151,14 @@ class XvMapHud(
         if (heldSlot != null) return
         heldSlot = slot
         Log.i("XV_PTT", ">>> MAP HUD PTT${slot + 1} (slot=$slot) DOWN <<<")
-        // Red first (jump the queue), then key: the visual must not wait
-        // on mic warm-up / the talk-permit tone.
+        // Pressed look first (jump the queue), then key: the visual must
+        // not wait on mic warm-up. Red only once the service confirms TX.
         main.postAtFrontOfQueue { refresh() }
-        pttDown(slot)
+        if (!pttDown(slot)) {
+            deniedSlot = slot
+            deniedUntil = android.os.SystemClock.uptimeMillis() + DENY_FLASH_MS
+            main.postDelayed({ refresh() }, DENY_FLASH_MS + 50)
+        }
     }
 
     private fun release(slot: Int) {
@@ -178,7 +191,8 @@ class XvMapHud(
         if (!attached) return
         val snap = state()
         val visible = MapHudPolicy.visible(snap.enabled, panelOpen)
-        val drawn = MapHudPolicy.buttons(snap.slot1, snap.slot2, heldSlot)
+        val denied = deniedSlot?.takeIf { android.os.SystemClock.uptimeMillis() < deniedUntil }
+        val drawn = MapHudPolicy.buttons(snap.slot1, snap.slot2, heldSlot, denied)
         hexWidthPx = MapHudPolicy.hexWidthDp(snap.size, shortSideDp()) * density
         MapHudPolicy.releaseOnChange(heldSlot, visible, drawn.map { it.slot }.toSet())?.let {
             releaseHeld(if (visible) "button removed" else "overlay hidden")
@@ -186,7 +200,10 @@ class XvMapHud(
         redock(MapHudPolicy.side(snap.leftHanded))
         holder.setVisible(visible)
         if (!visible) return
-        val pill = MapHudPolicy.talkerPill(snap.slot1, snap.slot2)
+        val talkers = MapHudPolicy.talkerPill(snap.slot1, snap.slot2)
+        val pill = talkers ?: snap.notice
+        val res = pluginContext.resources
+        talkerPill.setColor(res.getColor(if (talkers != null) R.color.xv_voice else R.color.xv_text, null))
         talkerPill.setText(pill.orEmpty())
         talkerPill.setVisible(pill != null)
         for ((slot, w) in buttons) {
@@ -214,8 +231,9 @@ class XvMapHud(
         val key = "${b.look}|$frame|${hexWidthPx.toInt()}"
         if (renderedKey[b.slot] == key) return
         renderedKey[b.slot] = key
-        // Make sure this slot's red (TX) image exists too, so the press
-        // feedback is a cached file, not a draw + PNG encode on the press.
+        // Pre-draw this slot's PRESSED and TX images, so press feedback is
+        // a cached file, not a draw + PNG encode on the press.
+        if (b.look != MapHudPolicy.Look.PRESSED) iconUri(b.copy(look = MapHudPolicy.Look.PRESSED, label = frame))
         if (b.look != MapHudPolicy.Look.TRANSMITTING) {
             iconUri(b.copy(look = MapHudPolicy.Look.TRANSMITTING, label = "TX"))
         }
@@ -286,6 +304,7 @@ class XvMapHud(
         val c = Canvas(bmp)
         val res = pluginContext.resources
         val honey = res.getColor(R.color.xv_voice, null)
+        val grey = res.getColor(R.color.xv_surface_alt, null)
         val red = res.getColor(R.color.xv_ptt_active, null)
         val black = res.getColor(R.color.xv_bg, null)
         val dim = res.getColor(R.color.xv_text_dim, null)
@@ -303,6 +322,8 @@ class XvMapHud(
         val (fill, stroke, fg) =
             when (b.look) {
                 MapHudPolicy.Look.TRANSMITTING -> Triple(red, red, text)
+                MapHudPolicy.Look.PRESSED -> Triple(grey, honey, text)
+                MapHudPolicy.Look.DENIED -> Triple(black, red, red)
                 MapHudPolicy.Look.RECEIVING -> Triple(honey, honey, black)
                 MapHudPolicy.Look.UNAVAILABLE -> Triple(black, dim, dim)
                 MapHudPolicy.Look.IDLE -> Triple(black, honey, text)
@@ -383,6 +404,7 @@ class XvMapHud(
         private const val LABEL_WIDTH_FRACTION = 0.84f
         private const val SCROLL_MARK = "\u0001"
         private const val TALKER_TEXT_SIZE = 14
+        private const val DENY_FLASH_MS = 700L
 
         // Talker / TX state while the panel is collapsed (the panel's own
         // refresh loop stops then).

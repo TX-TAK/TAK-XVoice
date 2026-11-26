@@ -54,8 +54,14 @@ object MapHudPolicy {
         /** Someone is talking on this channel (Honey fill). */
         RECEIVING,
 
-        /** You are transmitting on this slot (Texas Red). */
+        /** Finger down, not yet confirmed on the air (neutral, no red). */
+        PRESSED,
+
+        /** You are transmitting on this slot (Texas Red) — service-confirmed only. */
         TRANSMITTING,
+
+        /** The press was refused (listen-only, channel 2 not live, swap in flight). */
+        DENIED,
 
         /** Server has you listen-only, or the slot isn't live (dim). */
         UNAVAILABLE,
@@ -88,21 +94,30 @@ object MapHudPolicy {
         slot1: SlotState,
         slot2: SlotState?,
         heldSlot: Int? = null,
-    ): List<Button> = listOfNotNull(button(slot1, heldSlot == 0), slot2?.let { button(it, heldSlot == 1) })
+        deniedSlot: Int? = null,
+    ): List<Button> =
+        listOfNotNull(
+            button(slot1, heldSlot == 0, deniedSlot == 0),
+            slot2?.let { button(it, heldSlot == 1, deniedSlot == 1) },
+        )
 
     /**
-     * [held] = the operator's finger is on this button right now. It turns
-     * red immediately, like the panel PTT's pressed state, instead of
-     * waiting for the service to report audio on the air (which lags the
-     * talk-permit tone by the mic warm-up).
+     * [held] = the operator's finger is on this button right now: a
+     * neutral PRESSED look, never red. Red + "TX" only once the service
+     * confirms audio is on the air ([SlotState.transmitting]), so a
+     * refused or still-priming press never looks like a transmission.
+     * [denied] = the press was refused; shown briefly by the caller.
      */
     fun button(
         s: SlotState,
         held: Boolean = false,
+        denied: Boolean = false,
     ): Button {
         val look =
             when {
-                s.transmitting || held -> Look.TRANSMITTING
+                s.transmitting -> Look.TRANSMITTING
+                denied -> Look.DENIED
+                held -> Look.PRESSED
                 !s.live || s.listenOnly -> Look.UNAVAILABLE
                 s.talkers.isNotEmpty() -> Look.RECEIVING
                 else -> Look.IDLE
@@ -110,19 +125,24 @@ object MapHudPolicy {
         val label =
             when (look) {
                 Look.TRANSMITTING -> "TX"
+                Look.DENIED -> "DENIED"
                 else -> labelName(s.channel)
             }
         return Button(s.slot, look, label)
     }
 
-    /** Talker pill text ("1 · Bravo-2"), or null when nobody is talking. */
+    /**
+     * Talker pill text: every talking slot, e.g. "1 · Bravo-2   2 · Charlie-1";
+     * null when nobody is talking.
+     */
     fun talkerPill(
         slot1: SlotState,
         slot2: SlotState?,
-    ): String? {
-        val speaking = listOfNotNull(slot1, slot2).firstOrNull { it.talkers.isNotEmpty() } ?: return null
-        return "${speaking.slot + 1} · ${speaking.talkers.joinToString(", ")}"
-    }
+    ): String? =
+        listOfNotNull(slot1, slot2)
+            .filter { it.talkers.isNotEmpty() }
+            .joinToString("   ") { "${it.slot + 1} · ${it.talkers.joinToString(", ")}" }
+            .ifEmpty { null }
 
     /** Full upper-case channel name (never truncated; long names scroll). */
     fun labelName(channel: String?): String = channel?.trim().orEmpty().uppercase().ifEmpty { "—" }

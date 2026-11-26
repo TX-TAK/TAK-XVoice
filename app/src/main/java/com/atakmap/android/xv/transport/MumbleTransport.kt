@@ -1499,7 +1499,7 @@ class MumbleTransport(
             Log.w(TAG, "sendFrame dropped — primary not connected")
             return
         }
-        val slot = pickSlotForSend(frame.targetSlot)
+        val slot = pickSlotForSend(frame.targetSlot) ?: return
         val s = slot.session
         if (s == null) {
             Log.e(TAG, "sendFrame slot=${slot.idx} dropped — session null")
@@ -1513,53 +1513,35 @@ class MumbleTransport(
     }
 
     /**
-     * Resolve which Slot a TX frame for [requested] should go through.
-     * Slot 0 always uses primary. Slot 1 uses secondary if it's live,
-     * otherwise falls back to primary so PTTS still keys *something*
-     * rather than going silent (a UI state will already show VS2 is
-     * not active).
+     * Resolve which Slot a TX frame for [requested] goes out on, or null
+     * to drop it (SlotRouting): slot 1 falls back to primary only while
+     * channel 2 is OFF; configured-but-not-live drops instead of leaking
+     * onto channel 1.
      */
-    private fun pickSlotForSend(requested: Int): Slot {
-        if (requested <= 0) return primary
+    private fun pickSlotForSend(requested: Int): Slot? {
         val sec = secondary
-        val reason: SlotFallbackReason? =
-            when {
-                sec == null -> SlotFallbackReason.NO_SECONDARY
-                !sec.connected || sec.joinedChannelId < 0 -> SlotFallbackReason.SECONDARY_NOT_JOINED
-                sec.joinedChannelId == primary.joinedChannelId && primary.joinedChannelId >= 0 ->
-                    SlotFallbackReason.SAME_CHANNEL
-                else -> null
-            }
-        if (reason == null) {
-            if (lastSlotFallbackReason != null) {
-                Log.i(TAG, "sendFrame slot=$requested: secondary now usable — routing to VS2")
-                lastSlotFallbackReason = null
-            }
-            return sec!!
+        val route =
+            SlotRouting.route(
+                requestedSlot = requested,
+                secondaryConfigured = !activeSecondaryName.isNullOrBlank(),
+                secondaryPresent = sec != null,
+                secondaryJoined = sec != null && sec.connected && sec.joinedChannelId >= 0,
+                sameChannelAsPrimary =
+                sec != null && primary.joinedChannelId >= 0 && sec.joinedChannelId == primary.joinedChannelId,
+            )
+        // Per-frame at audio rates: log only on route changes.
+        if (requested > 0 && route != lastSlotRoute) {
+            Log.i(TAG, "sendFrame slot=$requested route → $route")
+            lastSlotRoute = route
         }
-        // Fires per-frame at audio rates (~100/s) on a slot-1 burst when
-        // the secondary isn't routable — so log only on reason transitions
-        // (start of fallback + reason flip) to keep the buffer readable.
-        // Reverts to silence once a clean send happens above.
-        if (lastSlotFallbackReason != reason) {
-            val msg =
-                when (reason) {
-                    SlotFallbackReason.NO_SECONDARY ->
-                        "sendFrame slot=$requested but no secondary slot — falling back to primary"
-                    SlotFallbackReason.SECONDARY_NOT_JOINED ->
-                        "sendFrame slot=$requested but secondary not yet joined — falling back to primary"
-                    SlotFallbackReason.SAME_CHANNEL ->
-                        "sendFrame slot=$requested but VS1==VS2 channel id — falling back to primary"
-                }
-            Log.w(TAG, msg)
-            lastSlotFallbackReason = reason
+        return when (route) {
+            SlotRouting.Route.PRIMARY -> primary
+            SlotRouting.Route.SECONDARY -> sec
+            SlotRouting.Route.DROP -> null
         }
-        return primary
     }
 
-    private enum class SlotFallbackReason { NO_SECONDARY, SECONDARY_NOT_JOINED, SAME_CHANNEL }
-
-    @Volatile private var lastSlotFallbackReason: SlotFallbackReason? = null
+    @Volatile private var lastSlotRoute: SlotRouting.Route? = null
 
     /**
      * End-of-utterance terminator. Slot must match the burst's slot or
@@ -1568,7 +1550,7 @@ class MumbleTransport(
      */
     fun sendTerminator(targetSlot: Int = 0) {
         if (!primary.connected) return
-        val slot = pickSlotForSend(targetSlot)
+        val slot = pickSlotForSend(targetSlot) ?: return
         // Terminator over channel target — matches the burst it ends.
         slot.session?.sendVoice(ByteArray(0), target = 0, terminator = true)
     }

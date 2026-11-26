@@ -12,12 +12,17 @@ package com.atakmap.android.xv.plugin
 object PttSlotGate {
     /**
      * @param channel2On whether channel 2 is configured.
+     * @param channel2Live whether channel 2's session is joined and keyable.
      * @param slot0Suppressed server suppress (listen-only) on channel 1.
      * @param slot1Suppressed server suppress on channel 2 (ignored when off).
+     *
+     * Channel 2 configured but not live (joining / reconnecting / down for
+     * a call) is a refusal: PTT2 must NOT silently key channel 1 then.
      */
     fun canSpeakSlot1(
         channel2On: Boolean,
+        channel2Live: Boolean,
         slot0Suppressed: Boolean,
         slot1Suppressed: Boolean,
-    ): Boolean = if (channel2On) !slot1Suppressed else !slot0Suppressed
+    ): Boolean = if (channel2On) channel2Live && !slot1Suppressed else !slot0Suppressed
 }

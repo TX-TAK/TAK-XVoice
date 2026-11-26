@@ -689,6 +689,11 @@ class XvMapComponent : AbstractMapComponent() {
                     Log.w(TAG, "mumble liveness feed threw", t)
                 }
                 try {
+                    refreshSlot1GateIfChanged()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "slot-1 gate refresh threw", t)
+                }
+                try {
                     meshVoiceManager?.tick()
                 } catch (t: Throwable) {
                     Log.w(TAG, "mesh tick threw", t)
@@ -900,10 +905,11 @@ class XvMapComponent : AbstractMapComponent() {
                         // (the VS2 button is hidden / disabled when
                         // secondaryConnected() is false). Keeps the UI
                         // in sync with the wire behavior.
-                        val secondaryLive =
-                            mumbleTransport()?.secondaryConnected() == true
+                        // PTT2 keys channel 1 only while channel 2 is OFF;
+                        // configured-but-not-live never transmits (gate +
+                        // SlotRouting), so only that case maps to row 1.
                         txActiveSlot =
-                            if (slot == 1 && !secondaryLive) 0 else slot
+                            if (slot == 1 && lastSecondaryChannel.isNullOrBlank()) 0 else slot
                     } else {
                         txActiveSlot = -1
                     }
@@ -2639,7 +2645,7 @@ class XvMapComponent : AbstractMapComponent() {
                 voiceClient?.setPersistent("outputBtOverride") { it.setOutputBtOverride(mac ?: "") }
             }
 
-            override fun startTx(slot: Int) {
+            override fun startTx(slot: Int): Boolean {
                 Log.i(TAG, "Controller.startTx(slot=$slot)")
                 // Both slots are mid-move during a swap (or its rollback):
                 // audio and the end-of-burst terminator could leave on
@@ -2647,10 +2653,14 @@ class XvMapComponent : AbstractMapComponent() {
                 if (mumbleTransport()?.isSwapInFlight() == true) {
                     Log.i(TAG, "startTx(slot=$slot) refused — channel swap in flight")
                     toast("Swapping channels — key again in a moment")
-                    return
+                    return false
                 }
                 lastRequestedTxSlot = slot
+                // Always hand the press to the service: its gate plays the
+                // deny tone when it refuses. The return value only drives
+                // the on-screen deny flash.
                 dispatchPttDown(slot = slot)
+                return pressWillKey(slot)
             }
 
             override fun isTransmittingOnSlot(slot: Int): Boolean = txActiveSlot == slot
@@ -3042,8 +3052,10 @@ class XvMapComponent : AbstractMapComponent() {
                     }
                 return XvDropDownReceiver.MeshStatus(
                     label = label,
-                    cleartext = snap.cleartext || snap.keyNeeded,
+                    cleartext = snap.cleartext,
                     groupEndpoint = endpointStr,
+                    active = snap.active,
+                    keyNeeded = snap.keyNeeded,
                 )
             }
 
@@ -6587,6 +6599,20 @@ class XvMapComponent : AbstractMapComponent() {
     // raw input edge (covers hardware PTT while it is still priming).
     private val pttInputsHeld: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
 
+    // Whether a press on [slot] can key right now (same rules as the
+    // service gate): channel 2 configured needs channel 2 live and not
+    // listen-only; otherwise channel 1 needs a voice link (server or an
+    // active mesh leg) and not listen-only.
+    private fun pressWillKey(slot: Int): Boolean {
+        val t = mumbleTransport()
+        return if (slot == 1 && !lastSecondaryChannel.isNullOrBlank()) {
+            slot1CanSpeak()
+        } else {
+            val linked = t?.isConnected == true || meshCarrying()
+            linked && selfSuppressedBySlot[0] != true
+        }
+    }
+
     // Transmitting for the swap gate: on the air, an on-screen PTT held,
     // or any service-owned PTT input held / priming.
     private fun keyedForSwap(): Boolean = txActiveSlot >= 0 || onScreenPttHeld || pttInputsHeld.isNotEmpty()
@@ -6610,14 +6636,32 @@ class XvMapComponent : AbstractMapComponent() {
     // Push slot 1's can-speak to the service. With channel 2 off it
     // mirrors channel 1 so PTT2 keys channel 1 (PttSlotGate).
     private fun pushSlot1CanSpeak() {
-        val canSpeak =
-            PttSlotGate.canSpeakSlot1(
-                channel2On = !lastSecondaryChannel.isNullOrBlank(),
-                slot0Suppressed = selfSuppressedBySlot[0] == true,
-                slot1Suppressed = selfSuppressedBySlot[1] == true,
-            )
+        val canSpeak = slot1CanSpeak()
+        lastPushedSlot1CanSpeak = canSpeak
         voiceClient?.ifBound { it.setCanSpeakOnSlot(1, canSpeak) }
     }
+
+    private fun slot1CanSpeak(): Boolean =
+        PttSlotGate.canSpeakSlot1(
+            channel2On = !lastSecondaryChannel.isNullOrBlank(),
+            channel2Live = mumbleTransport()?.secondaryConnected() == true,
+            slot0Suppressed = selfSuppressedBySlot[0] == true,
+            slot1Suppressed = selfSuppressedBySlot[1] == true,
+        )
+
+    // Channel 2 going live / dropping changes the PTT2 gate without any
+    // channel event; the 1 Hz tick re-pushes it when it flips (not mid-swap,
+    // where the gate is deliberately closed).
+    @Volatile
+    private var lastPushedSlot1CanSpeak: Boolean? = null
+
+    private fun refreshSlot1GateIfChanged() {
+        if (mumbleTransport()?.isSwapInFlight() == true) return
+        if (slot1CanSpeak() != lastPushedSlot1CanSpeak) pushSlot1CanSpeak()
+    }
+
+    // Mesh leg currently carrying voice (server down, failover active).
+    private fun meshCarrying(): Boolean = meshVoiceManager?.statusSnapshot()?.active == true
 
     private fun disconnectAinaInternal() {
         // Service owns the reader now; tell it to drop. ainaBle/ainaSpp

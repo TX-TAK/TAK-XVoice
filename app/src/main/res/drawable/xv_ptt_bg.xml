@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- On-screen PTT button: Honey outline on Hive Black at rest; Texas Red
-     while the finger is down (the receiver also flips isPressed by hand
-     so this fires before the TX edge lands). -->
+<!-- On-screen PTT button: Honey outline on Hive Black at rest; a neutral
+     raised grey while the finger is down (instant feedback, set by hand
+     before the TX edge). Texas Red (xv_ptt_bg_tx) only once the service
+     confirms the transmission, so a refused press never looks like TX. -->
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:state_pressed="true">
         <shape android:shape="rectangle">
-            <solid android:color="@color/xv_ptt_active"/>
+            <solid android:color="@color/xv_surface_alt"/>
+            <stroke android:width="1.5dp" android:color="@color/xv_voice"/>
             <corners android:radius="8dp"/>
         </shape>
     </item>

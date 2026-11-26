@@ -64,6 +64,10 @@ class XvDropDownReceiver(
         // an operator can read/copy it to interoperate with OpenManet or
         // legacy-VX peers who can't run the XV derivation themselves.
         val groupEndpoint: String? = null,
+        // A mesh leg is carrying voice right now (server down / failover).
+        val active: Boolean = false,
+        // Peers are encrypted and we hold no key: we can't hear them.
+        val keyNeeded: Boolean = false,
     )
 
     interface Controller {
@@ -165,7 +169,9 @@ class XvDropDownReceiver(
         fun setOutputBtOverrideMac(mac: String?)
 
         // slot 0 = VS1 (primary, current channel), slot 1 = VS2 (secondary).
-        fun startTx(slot: Int)
+        // True when the press can key now; false = refused (the caller
+        // flashes a deny state). The service plays its own deny tone.
+        fun startTx(slot: Int): Boolean
 
         // Release must name the same slot the press used: the service's
         // PTT dispatcher keys held state by slot, so a slot-1 press
@@ -669,12 +675,14 @@ class XvDropDownReceiver(
 
     private fun mapHudSnapshot(): XvMapHud.Snapshot {
         val ch2 = controller.secondaryChannelName()?.takeIf { it.isNotBlank() }
+        val linked = controller.isMumbleConnected() || controller.meshStatus()?.active == true
         return XvMapHud.Snapshot(
             enabled = controller.mapPttEnabled(),
             leftHanded = controller.pttOnLeft(),
             size = MapHudPolicy.Size.parse(controller.mapPttSize()),
-            slot1 = hudSlot(0, controller.currentChannelName(), controller.currentChannelName() != null),
+            slot1 = hudSlot(0, controller.currentChannelName(), controller.currentChannelName() != null && linked),
             slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
+            notice = ptt1Hint(0) ?: if (linked) null else "Voice offline",
         )
     }
 
@@ -984,7 +992,20 @@ class XvDropDownReceiver(
         // Flip the pressed state by hand so the red selector shows now,
         // not after mic priming / TPT / Telecom serialize (~700 ms).
         btn.isPressed = true
-        controller.startTx(slot)
+        if (!controller.startTx(slot)) flashDeny(btn as Button, slot)
+    }
+
+    // Brief "DENIED" on a refused press (listen-only, channel 2 not live,
+    // swap in flight). The service plays the deny tone; this is the
+    // visual half. The next refresh restores the normal label.
+    private fun flashDeny(
+        btn: Button,
+        slot: Int,
+    ) {
+        btn.text = "DENIED"
+        btn.setBackgroundResource(R.drawable.xv_ptt_bg_deny)
+        btn.contentDescription = "Push to talk on channel ${slot + 1}: refused"
+        mainHandler.postDelayed({ refreshNow() }, DENY_FLASH_MS)
     }
 
     // Release the on-screen PTT if [slot] is the held one. True if released.
@@ -1083,7 +1104,7 @@ class XvDropDownReceiver(
             meshStatusView.visibility = View.GONE
         } else {
             meshStatusView.visibility = View.VISIBLE
-            val meshColor = if (mesh.cleartext) R.color.xv_err else R.color.xv_net
+            val meshColor = meshStatusColor(mesh)
             meshStatusView.text = mesh.label
             XvGlyphs.setLeadingIcon(
                 meshStatusView,
@@ -1114,11 +1135,14 @@ class XvDropDownReceiver(
         // blank); slot 1 renders only when channel 2 is on, otherwise
         // the "+ Add channel 2" pill takes its place.
         val primary = controller.currentChannelName()
+        // A remembered channel name isn't a live link: channel 1 is live
+        // only with the server up or a mesh leg carrying voice.
+        val meshCarrying = controller.meshStatus()?.active == true
         renderSlotRow(
             v,
             slot = 0,
             channel = primary,
-            live = primary != null,
+            live = primary != null && (connected || meshCarrying),
             connected = connected,
         )
         val secondaryName = controller.secondaryChannelName()
@@ -1139,6 +1163,15 @@ class XvDropDownReceiver(
             )
         }
     }
+
+    // Red only for CLEAR (we'd send unencrypted); KEY NEEDED (we can't
+    // hear encrypted peers yet) is a Honey caution; otherwise Bluebonnet.
+    private fun meshStatusColor(mesh: MeshStatus): Int =
+        when {
+            mesh.cleartext -> R.color.xv_err
+            mesh.keyNeeded -> R.color.xv_warn
+            else -> R.color.xv_net
+        }
 
     // Per-slot view ids for the compact main panel.
     private class SlotViews(
@@ -1186,10 +1219,12 @@ class XvDropDownReceiver(
         // TalkBack: the slot badge is decorative, so the header names the slot.
         v.findViewById<View>(if (slot == 0) R.id.xv_ptt_header_1 else R.id.xv_ptt_header_2).contentDescription =
             "Channel ${slot + 1}: ${channel?.let { MumbleTransport.lobbyLabel(it) } ?: "none"}. Opens the channel list."
+        val idle = slotIdle(slot, live, connected, listenOnly)
         renderSlotActivity(
             v.findViewById(ids.activity),
             speakers = if (live) controller.activeSpeakers(slot) else emptyList(),
-            idleText = slotIdleText(live, connected, listenOnly),
+            idleText = ptt1Hint(slot) ?: idle.first,
+            idleColor = if (ptt1Hint(slot) != null) R.color.xv_voice else idle.second,
         )
         renderSlotPtt(
             v.findViewById(ids.ptt),
@@ -1227,16 +1262,20 @@ class XvDropDownReceiver(
     }
 
     // What the activity line says when nobody is talking.
-    private fun slotIdleText(
+    // Idle line text + colour. Mesh carrying voice with the server down
+    // reads "mesh" in Bluebonnet (system state) and the row stays usable.
+    private fun slotIdle(
+        slot: Int,
         live: Boolean,
         connected: Boolean,
         listenOnly: Boolean,
-    ): String =
+    ): Pair<String, Int> =
         when {
-            !connected -> "not connected"
-            !live -> "joining…"
-            listenOnly -> "listen only"
-            else -> "quiet"
+            !connected && live && slot == 0 -> "mesh" to R.color.xv_net
+            !connected -> "not connected" to R.color.xv_text_dim
+            !live -> "joining…" to R.color.xv_text_dim
+            listenOnly -> "listen only" to R.color.xv_text_dim
+            else -> "quiet" to R.color.xv_text_dim
         }
 
     // Activity line: talkers in Honey with the waveform glyph, else the
@@ -1245,10 +1284,11 @@ class XvDropDownReceiver(
         activity: TextView,
         speakers: List<String>,
         idleText: String,
+        idleColor: Int,
     ) {
         val talking = speakers.isNotEmpty()
         activity.text = if (talking) speakers.joinToString(", ") else idleText
-        activity.setTextColor(pluginContext.resources.getColor(if (talking) R.color.xv_voice else R.color.xv_text_dim, null))
+        activity.setTextColor(pluginContext.resources.getColor(if (talking) R.color.xv_voice else idleColor, null))
         activity.setTypeface(
             android.graphics.Typeface.MONOSPACE,
             if (talking) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL,
@@ -1279,7 +1319,7 @@ class XvDropDownReceiver(
             }
         ptt.alpha =
             when {
-                !live && slot == 1 -> 0.4f
+                !live -> 0.4f
                 listenOnly -> 0.5f
                 else -> 1.0f
             }
@@ -1288,7 +1328,7 @@ class XvDropDownReceiver(
             when {
                 transmitting -> ", transmitting"
                 listenOnly -> ", listen only"
-                !live && slot == 1 -> ", not available"
+                !live -> ", not available"
                 else -> ""
             }
         ptt.contentDescription = "Push to talk on channel ${slot + 1}$state"
@@ -1325,7 +1365,7 @@ class XvDropDownReceiver(
             mainHandler.post { inflateMainAndShow() }
         }
         v.findViewById<Button>(R.id.xv_channels_swap).setOnClickListener {
-            controller.swapChannels()
+            swapWithUndo(v)
             // The swap lands asynchronously (two server acks); the
             // refresh loop repaints when the assignment flips.
             populateChannelList(v)
@@ -1344,6 +1384,74 @@ class XvDropDownReceiver(
         openPickerSlot = CHANNEL_LIST_OPEN
         populateChannelList(v)
         showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+    }
+
+    // ---- Undo (no confirm dialogs: one tap acts, 5 s to take it back) ----
+
+    private var undoToken = 0
+
+    private fun showUndo(
+        list: View,
+        text: String,
+        undo: () -> Unit,
+    ) {
+        val bar = list.findViewById<View>(R.id.xv_undo_bar) ?: return
+        val token = ++undoToken
+        list.findViewById<TextView>(R.id.xv_undo_text).text = text
+        list.findViewById<Button>(R.id.xv_undo_action).setOnClickListener {
+            bar.visibility = View.GONE
+            undo()
+            mainHandler.postDelayed({ if (channelListRoot === list) populateChannelList(list) }, 400L)
+        }
+        bar.visibility = View.VISIBLE
+        mainHandler.postDelayed({ if (token == undoToken) bar.visibility = View.GONE }, UNDO_MS)
+    }
+
+    private fun swapWithUndo(list: View) {
+        if (controller.swapUnavailableReason() != null) {
+            controller.swapChannels() // toasts the reason
+            return
+        }
+        controller.swapChannels()
+        armPtt1Hint()
+        showUndo(list, "Channels 1 and 2 swapped") {
+            controller.swapChannels()
+            armPtt1Hint()
+        }
+    }
+
+    private fun clearChannel2WithUndo(
+        list: View,
+        previous: String?,
+    ) {
+        controller.setSecondaryChannel("")
+        if (previous.isNullOrBlank()) return
+        showUndo(list, "Channel 2 off") { controller.setSecondaryChannel(previous) }
+    }
+
+    // After a swap, show "PTT1 → <new channel 1>" for a few seconds on the
+    // panel row and the map buttons, so the operator knows what PTT1 keys.
+    private var ptt1HintArmedAt = 0L
+    private var ptt1HintChannel: String? = null
+    private var ptt1HintUntil = 0L
+
+    private fun armPtt1Hint() {
+        ptt1HintArmedAt = System.currentTimeMillis()
+        ptt1HintChannel = controller.currentChannelName()
+    }
+
+    private fun ptt1Hint(slot: Int): String? {
+        if (slot != 0) return null
+        val now = System.currentTimeMillis()
+        val ch1 = controller.currentChannelName()
+        // Armed and channel 1 has changed since: start the hint window.
+        if (ptt1HintArmedAt > 0 && ch1 != null && ch1 != ptt1HintChannel) {
+            ptt1HintArmedAt = 0
+            ptt1HintUntil = now + PTT1_HINT_MS
+            mainHandler.postDelayed({ refreshNow() }, PTT1_HINT_MS + 100)
+        }
+        if (ptt1HintArmedAt > 0 && now - ptt1HintArmedAt > UNDO_MS) ptt1HintArmedAt = 0
+        return if (now < ptt1HintUntil && ch1 != null) "PTT1 → ${MumbleTransport.lobbyLabel(ch1)}" else null
     }
 
     private fun channelListInput(): List<ChannelListPolicy.Channel> {
@@ -1597,8 +1705,8 @@ class XvDropDownReceiver(
         when (val action = ChannelListPolicy.onPillTap(slot, ch, ch1, ch2, online = controller.isMumbleConnected())) {
             is ChannelListPolicy.Action.SetPrimary -> controller.setPrimaryChannel(action.name)
             is ChannelListPolicy.Action.SetSecondary -> controller.setSecondaryChannel(action.name)
-            ChannelListPolicy.Action.ClearSecondary -> controller.setSecondaryChannel("")
-            ChannelListPolicy.Action.Swap -> controller.swapChannels()
+            ChannelListPolicy.Action.ClearSecondary -> clearChannel2WithUndo(v, ch2)
+            ChannelListPolicy.Action.Swap -> swapWithUndo(v)
             is ChannelListPolicy.Action.Explain ->
                 android.widget.Toast.makeText(pluginContext, action.message, android.widget.Toast.LENGTH_SHORT).show()
         }
@@ -3153,7 +3261,7 @@ class XvDropDownReceiver(
             statusView.setCompoundDrawablesRelative(null, null, null, null)
             statusView.setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
         } else {
-            val meshColor = if (mesh.cleartext) R.color.xv_err else R.color.xv_net
+            val meshColor = meshStatusColor(mesh)
             statusView.text = mesh.label
             XvGlyphs.setLeadingIcon(statusView, R.drawable.ic_xv_mesh, dpSize = 14, tintColorRes = meshColor)
             statusView.setTextColor(
@@ -3213,13 +3321,15 @@ class XvDropDownReceiver(
         val card = LayoutInflater.from(pluginContext).inflate(R.layout.xv_mesh_channel_card, parent, false)
         card.findViewById<TextView>(R.id.xv_mesh_card_name).apply {
             text = MumbleTransport.lobbyLabel(row.name)
-            setTextColor(res.getColor(if (row.active) R.color.xv_voice else R.color.xv_text, null))
+            // Mesh is system state: Bluebonnet, not the voice Honey.
+            setTextColor(res.getColor(if (row.active) R.color.xv_net else R.color.xv_text, null))
         }
         card.findViewById<View>(R.id.xv_mesh_card_badge_interop).apply {
             visibility = if (row.interopLabel != null) View.VISIBLE else View.GONE
             (this as TextView).text = row.interopLabel
         }
         card.findViewById<View>(R.id.xv_mesh_card_badge_clear).visibility = if (row.hasClearLeg) View.VISIBLE else View.GONE
+        card.findViewById<View>(R.id.xv_mesh_card_badge_encrypted).visibility = if (row.hasClearLeg) View.GONE else View.VISIBLE
         card.findViewById<TextView>(R.id.xv_mesh_card_detail).text = row.detail
         val segments =
             mapOf(
@@ -4141,6 +4251,14 @@ class XvDropDownReceiver(
         // Extra portrait height for the main panel beyond its measured
         // content: room for the in-call bar without clipping a row.
         private const val MAIN_PANEL_HEIGHT_SLACK = 0.06
+
+        // How long a refused PTT shows its DENIED state.
+        private const val DENY_FLASH_MS = 700L
+
+        // Undo window for Swap / clearing channel 2, and how long the
+        // "PTT1 → <channel>" hint shows after a swap.
+        private const val UNDO_MS = 5_000L
+        private const val PTT1_HINT_MS = 4_000L
 
         // Narrowest landscape pane that still fits a full channel row.
         private const val MAIN_PANEL_MIN_WIDTH_DP = 340.0

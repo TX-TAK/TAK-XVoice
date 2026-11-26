@@ -41,4 +41,5 @@ Long-press a channel for mesh options.</string>
     <string name="xv_help_url" translatable="false">https://tx-tak.github.io/TAK-XVoice/</string>
     <string name="xv_help_label">Help &amp; Documentation</string>
     <string name="xv_help_caption">Quick start, user setup, supported hardware, server setup, and the privacy policy — opens in your browser.</string>
+    <string name="xv_undo">Undo</string>
 </resources>

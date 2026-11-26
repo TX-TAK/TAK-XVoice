@@ -101,9 +101,34 @@ class MapHudPolicyTest {
     // ---- press feedback ----
 
     @Test
-    fun `held button is red before the service reports TX`() {
-        assertEquals(Look.TRANSMITTING, MapHudPolicy.button(slot(0), held = true).look)
-        assertEquals(listOf(Look.IDLE, Look.TRANSMITTING), MapHudPolicy.buttons(slot(0), slot(1), heldSlot = 1).map { it.look })
+    fun `held button is neutral PRESSED until the service confirms TX`() {
+        assertEquals(Look.PRESSED, MapHudPolicy.button(slot(0), held = true).look)
+        assertEquals(listOf(Look.IDLE, Look.PRESSED), MapHudPolicy.buttons(slot(0), slot(1), heldSlot = 1).map { it.look })
+    }
+
+    @Test
+    fun `confirmed TX is red with TX label`() {
+        val b = MapHudPolicy.button(slot(0).copy(transmitting = true), held = true)
+        assertEquals(Look.TRANSMITTING, b.look)
+        assertEquals("TX", b.label)
+    }
+
+    @Test
+    fun `refused press shows DENIED on that slot only`() {
+        val drawn = MapHudPolicy.buttons(slot(0), slot(1), heldSlot = 1, deniedSlot = 1)
+        assertEquals(listOf(Look.IDLE, Look.DENIED), drawn.map { it.look })
+        assertEquals("DENIED", drawn[1].label)
+    }
+
+    @Test
+    fun `talker pill shows both channels when both are talking`() {
+        val pill =
+            MapHudPolicy.talkerPill(
+                slot(0).copy(talkers = listOf("Bravo-2")),
+                slot(1).copy(talkers = listOf("Charlie-1")),
+            )!!
+        assertTrue(pill.contains("1 · Bravo-2"))
+        assertTrue(pill.contains("2 · Charlie-1"))
     }
 
     // ---- long names ----
