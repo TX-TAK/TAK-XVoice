@@ -688,17 +688,18 @@ class XvDropDownReceiver(
                 // call (toast + return), so a rebuild attempt would toast
                 // every tick for the whole call. Defer; the rebuild fires on
                 // the first tick after the call ends.
-                val root = channelListRoot
-                if (openPickerSlot != null &&
-                    root != null &&
-                    !controller.isInCall() &&
-                    channelPickerSignature() != openPickerSignature
-                ) {
-                    populateChannelList(root)
-                }
+                channelListNeedingRepaint()?.let { populateChannelList(it) }
                 mainHandler.postDelayed(this, REFRESH_MS)
             }
         }
+
+    // The open channel list's root when it is stale and safe to repaint
+    // (list open, not in a call, rendered inputs changed); else null.
+    private fun channelListNeedingRepaint(): View? {
+        val root = channelListRoot ?: return null
+        val open = openPickerSlot != null && !controller.isInCall()
+        return root.takeIf { open && channelPickerSignature() != openPickerSignature }
+    }
 
     // Signature of everything the channel picker renders, so a change
     // (server channels appearing/disappearing on drop/reconnect, or an
@@ -1014,64 +1015,103 @@ class XvDropDownReceiver(
         connected: Boolean,
     ) {
         val ids = slotViews(slot)
-        val res = pluginContext.resources
-        val canSpeak = live && controller.canSpeakOnSlot(slot)
-        val listenOnly = live && !canSpeak
-        val transmitting = live && controller.isTransmittingOnSlot(slot)
-        val speakers = if (live) controller.activeSpeakers(slot) else emptyList()
+        val listenOnly = live && !controller.canSpeakOnSlot(slot)
+        renderSlotHeader(v, ids, slot, channel, live)
+        renderSlotActivity(
+            v.findViewById(ids.activity),
+            speakers = if (live) controller.activeSpeakers(slot) else emptyList(),
+            idleText = slotIdleText(slot, live, connected, listenOnly),
+        )
+        renderSlotPtt(
+            v.findViewById(ids.ptt),
+            slot = slot,
+            live = live,
+            listenOnly = listenOnly,
+            transmitting = live && controller.isTransmittingOnSlot(slot),
+        )
+    }
 
+    // Badge, channel name and member count for one row.
+    private fun renderSlotHeader(
+        v: View,
+        ids: SlotViews,
+        slot: Int,
+        channel: String?,
+        live: Boolean,
+    ) {
+        val res = pluginContext.resources
         v.findViewById<TextView>(ids.badge).apply {
             setBackgroundResource(if (live) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off)
             setTextColor(res.getColor(if (live) R.color.xv_bg else R.color.xv_text_dim, null))
         }
-
-        val display = channel?.let { MumbleTransport.lobbyLabel(it) }
+        val display = channel?.let { MumbleTransport.lobbyLabel(it) } ?: "Pick a channel"
         v.findViewById<TextView>(ids.name).apply {
-            text = if (display != null) "$display  ▾" else "Pick a channel  ▾"
+            text = "$display  ▾"
             setTextColor(res.getColor(if (live) R.color.xv_text else R.color.xv_text_dim, null))
         }
-
         val memberCount = controller.channelMembersForSlot(slot)?.members?.size ?: 0
         v.findViewById<TextView>(ids.members).apply {
             visibility = if (live) View.VISIBLE else View.GONE
             text = "👥 $memberCount"
         }
+    }
 
-        val activity = v.findViewById<TextView>(ids.activity)
-        activity.text =
-            when {
-                speakers.isNotEmpty() -> speakers.joinToString(", ")
-                !connected && slot == 0 -> "not connected"
-                !live -> "joining…"
-                listenOnly -> "listen only"
-                else -> "quiet"
-            }
-        if (speakers.isNotEmpty()) {
-            activity.setTextColor(res.getColor(R.color.xv_voice, null))
-            activity.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD)
+    // What the activity line says when nobody is talking.
+    private fun slotIdleText(
+        slot: Int,
+        live: Boolean,
+        connected: Boolean,
+        listenOnly: Boolean,
+    ): String =
+        when {
+            !connected && slot == 0 -> "not connected"
+            !live -> "joining…"
+            listenOnly -> "listen only"
+            else -> "quiet"
+        }
+
+    // Activity line: talkers in Honey with the waveform glyph, else the
+    // dim idle text.
+    private fun renderSlotActivity(
+        activity: TextView,
+        speakers: List<String>,
+        idleText: String,
+    ) {
+        val talking = speakers.isNotEmpty()
+        activity.text = if (talking) speakers.joinToString(", ") else idleText
+        activity.setTextColor(pluginContext.resources.getColor(if (talking) R.color.xv_voice else R.color.xv_text_dim, null))
+        activity.setTypeface(
+            android.graphics.Typeface.MONOSPACE,
+            if (talking) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL,
+        )
+        if (talking) {
             XvGlyphs.setLeadingIcon(activity, R.drawable.ic_xv_signal, dpSize = 14, tintColorRes = R.color.xv_voice)
         } else {
-            activity.setTextColor(res.getColor(R.color.xv_text_dim, null))
-            activity.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.NORMAL)
             activity.setCompoundDrawablesRelative(null, null, null, null)
         }
+    }
 
-        v.findViewById<Button>(ids.ptt).apply {
-            isEnabled = live || slot == 0
-            text =
-                when {
-                    listenOnly -> "LISTEN"
-                    transmitting -> "TX"
-                    else -> "PTT"
-                }
-            alpha =
-                when {
-                    !live && slot == 1 -> 0.4f
-                    listenOnly -> 0.5f
-                    else -> 1.0f
-                }
-            setBackgroundResource(if (transmitting) R.drawable.xv_ptt_bg_tx else R.drawable.xv_ptt_bg)
-        }
+    private fun renderSlotPtt(
+        ptt: Button,
+        slot: Int,
+        live: Boolean,
+        listenOnly: Boolean,
+        transmitting: Boolean,
+    ) {
+        ptt.isEnabled = live || slot == 0
+        ptt.text =
+            when {
+                listenOnly -> "LISTEN"
+                transmitting -> "TX"
+                else -> "PTT"
+            }
+        ptt.alpha =
+            when {
+                !live && slot == 1 -> 0.4f
+                listenOnly -> 0.5f
+                else -> 1.0f
+            }
+        ptt.setBackgroundResource(if (transmitting) R.drawable.xv_ptt_bg_tx else R.drawable.xv_ptt_bg)
     }
 
     private fun showSettings() {
@@ -1113,25 +1153,9 @@ class XvDropDownReceiver(
         val search = v.findViewById<android.widget.EditText>(R.id.xv_channels_search)
         search.setText(channelListQuery)
         search.addTextChangedListener(
-            object : android.text.TextWatcher {
-                override fun beforeTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    count: Int,
-                    after: Int,
-                ) {}
-
-                override fun onTextChanged(
-                    s: CharSequence?,
-                    start: Int,
-                    before: Int,
-                    count: Int,
-                ) {}
-
-                override fun afterTextChanged(s: android.text.Editable?) {
-                    channelListQuery = s?.toString().orEmpty()
-                    populateChannelList(v)
-                }
+            AfterTextChanged { text ->
+                channelListQuery = text
+                populateChannelList(v)
             },
         )
         channelListRoot = v
@@ -1169,94 +1193,50 @@ class XvDropDownReceiver(
         return server + offline
     }
 
-    private fun populateChannelList(v: View) {
-        val ch1 = controller.currentChannelName()
-        val ch2 = controller.secondaryChannelName()?.takeIf { it.isNotBlank() }
-        val res = pluginContext.resources
+    // Per-repaint snapshot the row builder reads, so each row doesn't
+    // re-query the controller.
+    private class ChannelListState(
+        val ch1: String?,
+        val ch2: String?,
+        val counts: Map<Int, Int>,
+        val speakers1: List<String>,
+        val speakers2: List<String>,
+    ) {
+        fun talkingOn(display: String): List<String> =
+            when {
+                matches(display, ch1) -> speakers1
+                matches(display, ch2) -> speakers2
+                else -> emptyList()
+            }
 
-        // Assignment bar.
-        v.findViewById<TextView>(R.id.xv_channels_slot_1).text = ch1?.let { MumbleTransport.lobbyLabel(it) } ?: "—"
-        v.findViewById<TextView>(R.id.xv_channels_slot_2).apply {
-            text = ch2?.let { MumbleTransport.lobbyLabel(it) } ?: "off"
-            setTextColor(res.getColor(if (ch2 != null) R.color.xv_text else R.color.xv_text_dim, null))
-        }
-        v.findViewById<TextView>(R.id.xv_channels_slot_2_badge).setBackgroundResource(
-            if (ch2 != null) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off,
-        )
-        val swapReason = controller.swapUnavailableReason()
-        v.findViewById<Button>(R.id.xv_channels_swap).apply {
-            // Tappable even when unavailable: the tap toasts the reason
-            // (keyed, in a call, no channel 2, …) instead of failing silently.
-            alpha = if (swapReason == null) 1.0f else 0.45f
-            setBackgroundResource(if (swapReason == null) R.drawable.xv_pill_off else R.drawable.xv_pill_disabled)
-        }
+        private fun matches(
+            display: String,
+            slotChannel: String?,
+        ): Boolean = slotChannel != null && display.equals(MumbleTransport.lobbyLabel(slotChannel), ignoreCase = true)
+    }
+
+    private fun populateChannelList(v: View) {
+        val ch2 = controller.secondaryChannelName()?.takeIf { it.isNotBlank() }
+        val state =
+            ChannelListState(
+                ch1 = controller.currentChannelName(),
+                ch2 = ch2,
+                counts = controller.channelUserCounts(),
+                speakers1 = controller.activeSpeakers(0),
+                speakers2 = if (ch2 != null) controller.activeSpeakers(1) else emptyList(),
+            )
+        renderAssignmentBar(v, state)
 
         val rowsHost = v.findViewById<android.widget.LinearLayout>(R.id.xv_channels_rows)
         rowsHost.removeAllViews()
-        val inflater = LayoutInflater.from(pluginContext)
-        val density = res.displayMetrics.density
-        val counts = controller.channelUserCounts()
-        val speakers1 = controller.activeSpeakers(0)
-        val speakers2 = if (ch2 != null) controller.activeSpeakers(1) else emptyList()
         val rows = ChannelListPolicy.filter(ChannelListPolicy.order(channelListInput()), channelListQuery)
-        var offlineHeaderShown = false
-        var serverHeaderShown = false
+        var lastSectionOffline: Boolean? = null
         for (row in rows) {
-            val ch = row.channel
-            if (!ch.offline && !serverHeaderShown) {
-                serverHeaderShown = true
-                rowsHost.addView(sectionHeader("SERVER · ${controller.connectedTakHost() ?: "not connected"}"))
+            if (row.channel.offline != lastSectionOffline) {
+                lastSectionOffline = row.channel.offline
+                rowsHost.addView(sectionHeader(channelSectionTitle(row.channel.offline)))
             }
-            if (ch.offline && !offlineHeaderShown) {
-                offlineHeaderShown = true
-                rowsHost.addView(sectionHeader("OFFLINE · MESH"))
-            }
-            val rv = inflater.inflate(R.layout.xv_channel_row, rowsHost, false)
-            rv.setPaddingRelative(
-                ((12 + 20 * row.depth) * density).toInt(),
-                rv.paddingTop,
-                rv.paddingEnd,
-                rv.paddingBottom,
-            )
-            val display = MumbleTransport.lobbyLabel(ch.name)
-            rv.findViewById<TextView>(R.id.xv_row_name).apply {
-                text = display
-                setTextColor(res.getColor(if (ch.access == ChannelListPolicy.Access.NONE) R.color.xv_text_dim else R.color.xv_text, null))
-            }
-            val talking =
-                when {
-                    ch1 != null && display.equals(MumbleTransport.lobbyLabel(ch1), ignoreCase = true) -> speakers1
-                    ch2 != null && display.equals(MumbleTransport.lobbyLabel(ch2), ignoreCase = true) -> speakers2
-                    else -> emptyList()
-                }
-            rv.findViewById<TextView>(R.id.xv_row_meta).text = channelRowMeta(ch, counts[ch.id] ?: 0, talking)
-            for (slot in 0..1) {
-                val pill = rv.findViewById<TextView>(if (slot == 0) R.id.xv_row_pill_1 else R.id.xv_row_pill_2)
-                val state = ChannelListPolicy.pillState(slot, ch, ch1, ch2)
-                pill.setBackgroundResource(
-                    when (state) {
-                        ChannelListPolicy.Pill.ON -> R.drawable.xv_pill_on
-                        ChannelListPolicy.Pill.OFF -> R.drawable.xv_pill_off
-                        ChannelListPolicy.Pill.DISABLED -> R.drawable.xv_pill_disabled
-                    },
-                )
-                pill.setTextColor(
-                    res.getColor(
-                        when (state) {
-                            ChannelListPolicy.Pill.ON -> R.color.xv_bg
-                            ChannelListPolicy.Pill.OFF -> R.color.xv_text
-                            ChannelListPolicy.Pill.DISABLED -> R.color.xv_text_dim
-                        },
-                        null,
-                    ),
-                )
-                pill.setOnClickListener { onChannelPillTap(v, slot, ch, ch1, ch2) }
-            }
-            rv.setOnLongClickListener {
-                showChannelOptions(v, ch)
-                true
-            }
-            rowsHost.addView(rv)
+            rowsHost.addView(buildChannelRow(v, rowsHost, row, state))
         }
         if (rows.isEmpty()) {
             rowsHost.addView(
@@ -1264,6 +1244,83 @@ class XvDropDownReceiver(
             )
         }
         openPickerSignature = channelPickerSignature()
+    }
+
+    private fun channelSectionTitle(offline: Boolean): String =
+        if (offline) "OFFLINE · MESH" else "SERVER · ${controller.connectedTakHost() ?: "not connected"}"
+
+    // Current slot assignment + Swap at the top of the list.
+    private fun renderAssignmentBar(
+        v: View,
+        state: ChannelListState,
+    ) {
+        val res = pluginContext.resources
+        val on2 = state.ch2 != null
+        v.findViewById<TextView>(R.id.xv_channels_slot_1).text = state.ch1?.let { MumbleTransport.lobbyLabel(it) } ?: "—"
+        v.findViewById<TextView>(R.id.xv_channels_slot_2).apply {
+            text = state.ch2?.let { MumbleTransport.lobbyLabel(it) } ?: "off"
+            setTextColor(res.getColor(if (on2) R.color.xv_text else R.color.xv_text_dim, null))
+        }
+        v
+            .findViewById<TextView>(R.id.xv_channels_slot_2_badge)
+            .setBackgroundResource(if (on2) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off)
+        val swapOk = controller.swapUnavailableReason() == null
+        v.findViewById<Button>(R.id.xv_channels_swap).apply {
+            // Tappable even when unavailable: the tap toasts the reason
+            // (keyed, in a call, no channel 2, …) instead of failing silently.
+            alpha = if (swapOk) 1.0f else 0.45f
+            setBackgroundResource(if (swapOk) R.drawable.xv_pill_off else R.drawable.xv_pill_disabled)
+        }
+    }
+
+    // One channel row: indented name, meta line, [1]/[2] pills, long-press.
+    private fun buildChannelRow(
+        list: View,
+        parent: android.view.ViewGroup,
+        row: ChannelListPolicy.Row,
+        state: ChannelListState,
+    ): View {
+        val ch = row.channel
+        val res = pluginContext.resources
+        val rv = LayoutInflater.from(pluginContext).inflate(R.layout.xv_channel_row, parent, false)
+        rv.setPaddingRelative(
+            ((12 + 20 * row.depth) * res.displayMetrics.density).toInt(),
+            rv.paddingTop,
+            rv.paddingEnd,
+            rv.paddingBottom,
+        )
+        val display = MumbleTransport.lobbyLabel(ch.name)
+        val noAccess = ch.access == ChannelListPolicy.Access.NONE
+        rv.findViewById<TextView>(R.id.xv_row_name).apply {
+            text = display
+            setTextColor(res.getColor(if (noAccess) R.color.xv_text_dim else R.color.xv_text, null))
+        }
+        rv.findViewById<TextView>(R.id.xv_row_meta).text =
+            channelRowMeta(ch, state.counts[ch.id] ?: 0, state.talkingOn(display))
+        for (slot in 0..1) {
+            val pill = rv.findViewById<TextView>(if (slot == 0) R.id.xv_row_pill_1 else R.id.xv_row_pill_2)
+            stylePill(pill, ChannelListPolicy.pillState(slot, ch, state.ch1, state.ch2))
+            pill.setOnClickListener { onChannelPillTap(list, slot, ch, state.ch1, state.ch2) }
+        }
+        rv.setOnLongClickListener {
+            showChannelOptions(list, ch)
+            true
+        }
+        return rv
+    }
+
+    private fun stylePill(
+        pill: TextView,
+        state: ChannelListPolicy.Pill,
+    ) {
+        val (bg, fg) =
+            when (state) {
+                ChannelListPolicy.Pill.ON -> R.drawable.xv_pill_on to R.color.xv_bg
+                ChannelListPolicy.Pill.OFF -> R.drawable.xv_pill_off to R.color.xv_text
+                ChannelListPolicy.Pill.DISABLED -> R.drawable.xv_pill_disabled to R.color.xv_text_dim
+            }
+        pill.setBackgroundResource(bg)
+        pill.setTextColor(pluginContext.resources.getColor(fg, null))
     }
 
     private fun channelRowMeta(
@@ -3817,4 +3874,25 @@ class XvDropDownReceiver(
         // changes needed).
         private const val RX_DOT = "●"
     }
+}
+
+/** TextWatcher that only cares about the settled text (search fields). */
+private class AfterTextChanged(
+    private val onText: (String) -> Unit,
+) : android.text.TextWatcher {
+    override fun beforeTextChanged(
+        s: CharSequence?,
+        start: Int,
+        count: Int,
+        after: Int,
+    ) = Unit
+
+    override fun onTextChanged(
+        s: CharSequence?,
+        start: Int,
+        before: Int,
+        count: Int,
+    ) = Unit
+
+    override fun afterTextChanged(s: android.text.Editable?) = onText(s?.toString().orEmpty())
 }
