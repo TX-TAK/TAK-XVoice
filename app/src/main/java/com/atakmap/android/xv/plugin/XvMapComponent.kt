@@ -5726,10 +5726,13 @@ class XvMapComponent : AbstractMapComponent() {
                         // in Lobby and expect to come back to Lobby
                         // next time, not be force-routed to REACT by
                         // OTS's user-group default.
-                        val isPrivateTempChannel = name?.startsWith("TAK PRIVATE - ") == true
-                        if (settled && channelId >= 0 && !isPrivateTempChannel && !name.isNullOrBlank()) {
+                        // restore() rejects blank names and temp call
+                        // channels; settled excludes landings and swap legs.
+                        val persistable =
+                            SecondaryChannelPersistence.restore(name)?.takeIf { settled && channelId >= 0 }
+                        if (persistable != null) {
                             try {
-                                settings.persistPrimaryChannel(name)
+                                settings.persistPrimaryChannel(persistable)
                             } catch (t: Throwable) {
                                 Log.w(TAG, "persist primary channel '$name' threw", t)
                             }

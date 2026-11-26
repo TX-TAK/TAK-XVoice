@@ -1053,7 +1053,7 @@ class XvDropDownReceiver(
         renderSlotActivity(
             v.findViewById(ids.activity),
             speakers = if (live) controller.activeSpeakers(slot) else emptyList(),
-            idleText = slotIdleText(slot, live, connected, listenOnly),
+            idleText = slotIdleText(live, connected, listenOnly),
         )
         renderSlotPtt(
             v.findViewById(ids.ptt),
@@ -1092,7 +1092,6 @@ class XvDropDownReceiver(
 
     // What the activity line says when nobody is talking.
     private fun slotIdleText(
-        slot: Int,
         live: Boolean,
         connected: Boolean,
         listenOnly: Boolean,
@@ -1383,17 +1382,19 @@ class XvDropDownReceiver(
         talking: List<String>,
     ): CharSequence {
         val text = channelRowMeta(ch, users, talking)
-        if (talking.isEmpty()) return text
-        val names = talking.joinToString(", ")
-        val start = text.indexOf(names)
-        if (start < 0) return text
-        return android.text.SpannableString(text).apply {
-            setSpan(
-                android.text.style.ForegroundColorSpan(pluginContext.resources.getColor(R.color.xv_voice, null)),
-                start,
-                start + names.length + " talking".length,
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
-            )
+        val span = if (talking.isEmpty()) null else "${talking.joinToString(", ")} talking"
+        val start = span?.let { text.indexOf(it) } ?: -1
+        return if (span == null || start < 0) {
+            text
+        } else {
+            android.text.SpannableString(text).apply {
+                setSpan(
+                    android.text.style.ForegroundColorSpan(pluginContext.resources.getColor(R.color.xv_voice, null)),
+                    start,
+                    start + span.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+                )
+            }
         }
     }
 
