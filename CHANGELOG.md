@@ -6,12 +6,13 @@ All notable user-visible and operationally significant changes to TAK-XVoice are
 
 ### Fixed
 - **OpenMANET interop: XV audio is no longer silently dropped by openmanetd.** The patch/interop leg used `VX_COMPAT`, which sends bare Opus; openmanetd parses every datagram as RTP and discards anything else. New cleartext `WireFormat.OPENMANET_RTP` profile (RTP, payload type 111, no XVMC control packets) is now used for patch legs created from the app. `VX_COMPAT` is unchanged (raw Opus) for legacy VX peers; existing stored configs keep their wire format.
-- OpenMANET leg packs two consecutive 10 ms Opus frames into one 20 ms packet (RFC 6716 code 1/2, no re-encode), matching openmanetd's 20 ms cadence. The Mumble path still encodes and sends 10 ms frames. The RTP timestamp now advances by the actual packet duration instead of a fixed 960.
+- OpenMANET leg packs two consecutive 10 ms Opus frames into one 20 ms packet (RFC 6716 code 1/2, no re-encode), matching openmanetd's 20 ms cadence. When the encoder changes Opus config between two frames they can't share a packet; the older one is sent alone as a 10 ms packet rather than dropped. The Mumble path still encodes and sends 10 ms frames. The RTP timestamp now advances by the actual packet duration instead of a fixed 960.
 - OpenMANET leg keeps RTP sequence/timestamp monotonic across PTT bursts (random initial values) so rapid re-keys are not discarded by openmanetd's jitter buffer, which only re-syncs on an SSRC change or ~2 s idle.
 - Multicast TTL raised 8 → 32 (multi-hop batman-adv / overlay paths) and DSCP EF (`0xB8`) is requested on mesh sockets, best-effort (failure is logged, not fatal).
 - Applying a patch to a channel that uses the auto-derived default config no longer fails with "Channel config not found."
 
 ### Notes
+- New `scripts/interop-sim/run.sh` replays XV's OpenMANET-leg datagrams through openmanetd's real RTP/jitter/Opus receive code with no radios or nodes.
 - Not yet verified on-air against a live openmanetd node.
 - Configs naming `OPENMANET_RTP` are not readable by older builds; they degrade to the auto-derived default channel config rather than crashing.
 

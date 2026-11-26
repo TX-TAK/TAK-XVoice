@@ -387,6 +387,28 @@ class MulticastWireCodecTest {
     }
 
     @Test
+    fun `openmanet sends a frame alone when the next frame's opus config differs`() {
+        val tx = omCodec(seq = 7, ts = 0L)
+        tx.beginBurst()
+        val a = byteArrayOf(0x70, 1, 2, 3) // hybrid FB 10 ms
+        val b = byteArrayOf(0x60, 4, 5, 6) // hybrid SWB 10 ms: different config
+        val c = byteArrayOf(0x60, 7, 8, 9)
+        assertNull(tx.encodeTx(a))
+        val alone = rtp(tx.encodeTx(b))
+        assertEquals(1L, tx.unpackedFrames)
+        assertEquals(0L, tx.droppedFrames)
+        assertArrayEquals(a, alone.second) // unmodified 10 ms packet
+        assertEquals(480, OpusPacking.packetSamples(alone.second))
+        assertTrue(tx.lastEncodeBuffered.not()) // a datagram was produced
+        val pair = rtp(tx.encodeTx(c))
+        assertEquals(OpusPacking.SAMPLES_20MS, OpusPacking.packetSamples(pair.second))
+        // Timestamp advanced by the real duration of each packet.
+        assertEquals(0L, alone.first.timestamp)
+        assertEquals(480L, pair.first.timestamp)
+        assertEquals(8, pair.first.sequenceNumber)
+    }
+
+    @Test
     fun `openmanet rx accepts PT 111 RTP and attributes by ssrc`() {
         val tx = omCodec()
         tx.beginBurst()

@@ -309,6 +309,10 @@ class VxWireCodec(private val ssrc: Long) : MulticastWireCodec {
  *    anything not mergeable) pass straight through.
  *  - **Timestamp advances by the actual packet duration**, parsed from
  *    the Opus TOC, not a fixed 960.
+ *  - Consecutive frames whose Opus config differs (the encoder switched
+ *    bandwidth/mode) cannot share a packet; the older one goes out alone
+ *    as a 10 ms packet (the receiver zero-pads the rest of its playout
+ *    tick) instead of being dropped.
  *  - A held half-pair at PTT release is dropped on the next
  *    [beginBurst] (at most 10 ms of trailing audio) rather than leaking
  *    into the following burst.
@@ -329,8 +333,12 @@ class OpenManetRtpWireCodec(
     override var lastEncodeBuffered: Boolean = false
         private set
 
-    /** Frames discarded unsent (stranded half-pair, unmergeable mismatch). Diagnostics only. */
+    /** Frames discarded unsent (stranded half-pair at PTT release). Diagnostics only. */
     var droppedFrames: Long = 0
+        private set
+
+    /** Frames sent alone as 10 ms packets because the next frame's Opus config differed. Diagnostics only. */
+    var unpackedFrames: Long = 0
         private set
 
     override fun beginBurst() {
@@ -355,18 +363,20 @@ class OpenManetRtpWireCodec(
 
     private fun encodeMergeable(opus: ByteArray): ByteArray? {
         val held = pending
-        pending = null
         val merged = held?.let { OpusPacking.pack(it, opus) }
-        if (held != null && merged == null) {
-            // Config mismatch between consecutive frames (encoder was
-            // reconfigured mid-burst): drop the older, hold the newer.
-            droppedFrames++
+        pending = if (merged == null) opus else null
+        lastEncodeBuffered = held == null
+        // The encoder can change Opus config between frames (bandwidth or
+        // SILK/CELT/hybrid switches), and RFC 6716 only lets frames with
+        // the same config share a packet. When that happens send the held
+        // frame alone as a 10 ms packet rather than dropping audio, and
+        // hold the new one for the next pair.
+        if (held != null && merged == null) unpackedFrames++
+        return when {
+            merged != null -> frame(merged)
+            held != null -> frame(held)
+            else -> null
         }
-        if (merged == null) {
-            pending = opus
-            lastEncodeBuffered = true
-        }
-        return merged?.let { frame(it) }
     }
 
     private fun dropPending() {
