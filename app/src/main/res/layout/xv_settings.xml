@@ -672,7 +672,7 @@
 
                 <TextView
                     style="@style/XV.CaptionBlock"
-                    android:text="Off = no mesh leg. Backup = mesh carries the channel only when the server is down. Both = transmit on server and mesh every time (no gap, more radio traffic)." />
+                    android:text="Backup (default) carries a channel only when the server is down. Tap a channel to change it." />
 
                 <LinearLayout
                     android:id="@+id/xv_mesh_channel_container"

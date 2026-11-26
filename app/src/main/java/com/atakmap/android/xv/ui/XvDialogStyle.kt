@@ -4,6 +4,10 @@ import android.app.AlertDialog
 import android.content.Context
 import android.content.DialogInterface
 import android.graphics.drawable.ColorDrawable
+import android.view.View
+import android.view.ViewGroup
+import android.widget.ArrayAdapter
+import android.widget.EditText
 import android.widget.TextView
 import com.atakmap.android.xv.R
 
@@ -18,7 +22,10 @@ import com.atakmap.android.xv.R
  *  - Comb surface with a rounded hairline border;
  *  - Wax White title and message;
  *  - Honey positive button (error red when the action is destructive),
- *    Signal Grey negative / neutral; all buttons 48dp, no all-caps.
+ *    Signal Grey negative / neutral; all buttons 48dp, no all-caps;
+ *  - text fields inside custom dialog views get the Settings field look
+ *    (Wax White text, Signal Grey hint, field background);
+ *  - list / spinner rows built with [textAdapter] read as body text.
  */
 object XvDialogStyle {
     fun apply(
@@ -51,6 +58,7 @@ object XvDialogStyle {
             divider = ColorDrawable(res.getColor(R.color.xv_line, null))
             dividerHeight = 1
         }
+        dialog.window?.decorView?.let { styleFields(it, plugin) }
         val positive = res.getColor(if (destructive) R.color.xv_err else R.color.xv_voice, null)
         for ((which, color) in listOf(
             DialogInterface.BUTTON_POSITIVE to positive,
@@ -62,6 +70,65 @@ object XvDialogStyle {
                 isAllCaps = false
                 minHeight = (48 * density).toInt()
                 minimumHeight = (48 * density).toInt()
+            }
+        }
+    }
+
+    // EditTexts anywhere in a dialog's custom view: field look.
+    private fun styleFields(
+        v: View,
+        plugin: Context,
+    ) {
+        val res = plugin.resources
+        when (v) {
+            is EditText -> {
+                v.setTextColor(res.getColor(R.color.xv_text, null))
+                v.setHintTextColor(res.getColor(R.color.xv_text_dim, null))
+                val pad = (12 * res.displayMetrics.density).toInt()
+                v.background = res.getDrawable(R.drawable.xv_field_bg, null)
+                v.setPadding(pad, pad, pad, pad)
+            }
+            is ViewGroup -> for (i in 0 until v.childCount) styleFields(v.getChildAt(i), plugin)
+        }
+    }
+
+    /**
+     * An adapter for dialog lists and spinners whose rows read as XV body
+     * text on the dark dialog. Built on ATAK's [ctx] (plugin layouts can't
+     * be inflated with it), recolouring the stock rows.
+     */
+    fun <T> textAdapter(
+        ctx: Context,
+        plugin: Context,
+        items: List<T>,
+    ): ArrayAdapter<T> {
+        val res = plugin.resources
+        val text = res.getColor(R.color.xv_text, null)
+        val surface = res.getColor(R.color.xv_surface, null)
+        val minH = (48 * res.displayMetrics.density).toInt()
+        return object : ArrayAdapter<T>(ctx, android.R.layout.simple_list_item_1, items) {
+            override fun getView(
+                position: Int,
+                convertView: View?,
+                parent: ViewGroup,
+            ): View = style(super.getView(position, convertView, parent), dropDown = false)
+
+            override fun getDropDownView(
+                position: Int,
+                convertView: View?,
+                parent: ViewGroup,
+            ): View = style(super.getDropDownView(position, convertView, parent), dropDown = true)
+
+            private fun style(
+                row: View,
+                dropDown: Boolean,
+            ): View {
+                (row as? TextView)?.apply {
+                    setTextColor(text)
+                    minHeight = minH
+                    if (dropDown) setBackgroundColor(surface)
+                }
+                return row
             }
         }
     }

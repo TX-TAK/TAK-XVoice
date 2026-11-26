@@ -45,8 +45,9 @@ The **Samsung Active Key** works as PTT in the foreground, with ATAK
 backgrounded, and with the screen locked once it is assigned to XV in
 Samsung's own settings:
 
-1. Open **XV Settings** and tap **Samsung Active Key PTT** (visible only on
-   devices with the key). XV opens Samsung's Active button settings screen.
+1. Open **XV Settings → Devices → Phone Active key** (visible only on
+   devices with the key) and tap it. XV opens Samsung's Active button settings
+   screen.
 2. Turn on **Use Active button with app** and pick **Texas TAK-XVoice**.
 3. Back in XV Settings the row shows **Assigned**.
 
@@ -89,14 +90,16 @@ into ATAK's **Alert Tool**:
     emergency from ATAK's Emergency / Alert tool. See
     [Inrico BT02](hardware/inrico-bt02.md).
 
-## Direct Calling
+## Direct Calling (not shipping)
 
-You can place private, 1-to-1 calls to peers on your server or mesh presence
-roster:
+!!! warning "Dormant in this release"
+    Private 1-to-1 calls are not available in this release: the call
+    signalling is switched off, and nothing in the UI places or receives a
+    direct call. The notes below describe the dormant design.
 
-- Uses a heads-up incoming-call notification with Answer / Decline actions.
-- Holds a proximity wake-lock when using the earpiece route so the screen turns
-  off when held to your ear.
+- Incoming calls would use a heads-up notification with Answer / Decline.
+- The earpiece route would hold a proximity wake-lock so the screen turns off
+  at your ear.
 
 ## Channel Sharing & Offline Comms Plans
 

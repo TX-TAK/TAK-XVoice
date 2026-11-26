@@ -75,8 +75,9 @@ permissions:
   **XV Settings → Devices**.
 - **Pryme BT-PTT-Z (BLE button only):** Follow the
   [Pryme BT-PTT-Z Pairing Guide](hardware/pryme-bt-ptt-z.md).
-- **Samsung Active Key:** Enable the hardware key toggle in **XV Settings**;
-  see [Samsung Active Key](hardware/samsung-active-key.md) for background /
+- **Samsung Active Key:** In **XV Settings → Devices → Phone Active key**,
+  tap the card to open Samsung's Active button settings and assign the key to
+  XV; see [Samsung Active Key](hardware/samsung-active-key.md) for background /
   screen-off setup.
 
 ## 5. Test Push-to-Talk

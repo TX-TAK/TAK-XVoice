@@ -229,15 +229,14 @@ stateDiagram-v2
   - `· BRIDGE`: this device relays between server and mesh.
   - `· KEY NEEDED`: peers are encrypted and you don't hold the key yet, so you hear nothing until keyed.
   - `· CLEAR` (red): an unencrypted interop leg is live.
-- **Channels list,** one card per channel:
-  - the name (Bluebonnet when active);
-  - an **ENCRYPTED** chip, or instead a red **CLEAR** chip when this device has an interop patch on that channel (never both);
-  - **OPENMANET** / **VX** with the patch;
-  - **Off / Backup / Both**:
+- **Channels list,** one compact card per channel:
+  - collapsed (the default), one line: the name (Bluebonnet when active), the mode chip (**BACKUP**, **OFF** or **BOTH**), and **ENCRYPTED** — or a red **CLEAR** with **OPENMANET** when this device has an interop patch on that channel;
+  - **tap** a card to open it (one at a time): a context line, **Off / Backup / Both**, and **Details…**. Picking a mode saves it and collapses the card;
     - *Off*: no mesh leg.
     - *Backup*: mesh carries the channel only while the server is down. This is the default.
     - *Both*: transmits on server and mesh every time.
-  - **Tap** a card for details; **long-press** an offline channel to forget it.
+  - **Details…** opens the channel's settings. Server channels: mode (Off / Backup / Both) and the **interop patch (OpenMANET RTP)** — this device only, never shared, unencrypted — with **Clear patch**. Offline channels: name and fixed group/port, plus **Interop patch…** for the same patch dialog;
+  - **long-press** an offline channel to forget it.
 - **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both. The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
 - **+ Add channel** presets:
   - **Private channel:** XV picks the name, group and key.
@@ -251,7 +250,10 @@ stateDiagram-v2
 
 ---
 
-## 5a. Direct calls
+## 5a. Direct calls (dormant — not shipping)
+
+> Direct calls are switched off in this release: call signalling is not registered and nothing places or receives a call. This section records the dormant design. Phone calls (below) are live.
+
 
 **Entry:** an incoming call arrives as a heads-up notification with **Answer** / **Decline**.
 
@@ -328,7 +330,7 @@ Other screens:
 6. **Interop patch applies to the current channel.** The patch fields act on the active mesh channel, not the card you were looking at. Per-channel patch editing exists in the channel's details dialog.
 7. **No first-run channel prompt.** Channel 1 is wherever the server places you (usually Lobby) until you pick one. This is intentional (channel 1 is never blank), but a new operator may not realise they're in Lobby.
 8. **Hardware PTT during a swap gets only a deny tone.** On-screen and map PTT add a toast; a speaker-mic can't show one. The window is about 1 s.
-9. **No way to place a direct call.** Receiving works (5a), but nothing in the UI starts an outgoing call: the dialling code in the plugin has no caller. Needs an entry point, e.g. a member-row action or an ATAK contact action.
+9. **Direct calls are dormant.** Neither placing nor receiving a direct call is possible in this release (signalling off, no UI entry point). Re-enabling needs the signalling, the phone-call foreground-service type, and an entry point such as a member-row action.
 10. **Texas Red text contrast.** Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.
 11. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
 12. **Map PTT buttons aren't reachable with TalkBack.** They're ATAK map widgets, which aren't in the Android accessibility tree. TalkBack users key from the panel PTT or a hardware button.

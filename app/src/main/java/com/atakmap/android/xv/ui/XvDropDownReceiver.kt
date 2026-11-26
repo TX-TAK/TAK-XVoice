@@ -1942,7 +1942,7 @@ class XvDropDownReceiver(
         }
 
         val overrideText = android.widget.TextView(ctx).apply {
-            text = "Mesh Failover"
+            text = "Mesh leg  ·  Off = none · Backup = only when the server is down · Both = always"
             setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
             textSize = 12f
             val density = ctx.resources.displayMetrics.density
@@ -1950,20 +1950,16 @@ class XvDropDownReceiver(
         }
         view.addView(overrideText)
 
-        val overrideSpinner = android.widget.Spinner(ctx).apply {
-            val adapter = android.widget.ArrayAdapter(
-                ctx,
-                android.R.layout.simple_spinner_item,
-                arrayOf("Use Global Setting", "Always On", "Always Off")
+        // Same three choices, same order, as the Mesh card segments.
+        val modes =
+            listOf(
+                com.atakmap.android.xv.transport.multicast.MulticastMode.OFF,
+                com.atakmap.android.xv.transport.multicast.MulticastMode.FAILOVER,
+                com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS
             )
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            this.adapter = adapter
-            val modeIndex = when (existingConfig.mode) {
-                com.atakmap.android.xv.transport.multicast.MulticastMode.FAILOVER -> 0
-                com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS -> 1
-                com.atakmap.android.xv.transport.multicast.MulticastMode.OFF -> 2
-            }
-            setSelection(modeIndex)
+        val overrideSpinner = android.widget.Spinner(ctx).apply {
+            this.adapter = XvDialogStyle.textAdapter(ctx, pluginContext, listOf("Off", "Backup", "Both"))
+            setSelection(modes.indexOf(existingConfig.mode).coerceAtLeast(0))
         }
         view.addView(overrideSpinner)
 
@@ -2022,7 +2018,7 @@ class XvDropDownReceiver(
         view.addView(cryptoText)
 
         val patchText = android.widget.TextView(ctx).apply {
-            text = "External Patch (Vx)"
+            text = "Interop patch (OpenMANET RTP)  ·  this device only, never shared  ·  unencrypted"
             setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
             textSize = 12f
             val density = ctx.resources.displayMetrics.density
@@ -2057,11 +2053,7 @@ class XvDropDownReceiver(
             .setTitle("Configure: $channel")
             .setView(view)
             .setPositiveButton("Save") { _, _ ->
-                val mode = when (overrideSpinner.selectedItemPosition) {
-                    0 -> com.atakmap.android.xv.transport.multicast.MulticastMode.FAILOVER
-                    1 -> com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS
-                    else -> com.atakmap.android.xv.transport.multicast.MulticastMode.OFF
-                }
+                val mode = modes.getOrElse(overrideSpinner.selectedItemPosition) { existingConfig.mode }
                 val pg = patchGroup.text.toString().trim().ifEmpty { null }
                 val pp = patchPort.text.toString().trim().ifEmpty { null }?.toIntOrNull()
 
@@ -2093,9 +2085,14 @@ class XvDropDownReceiver(
                 if (err != null) {
                     meshToast("Validation failed: $err")
                 } else {
-                    meshToast("Saved patch config.")
+                    meshToast(if (pg == null) "Saved — no interop patch." else "Saved.")
                     onSaved()
                 }
+            }
+            .setNeutralButton("Clear patch") { _, _ ->
+                val err = controller.saveChannelConfig(existingConfig.copy(patchGroup = null, patchPort = null))
+                meshToast(err?.let { "Validation failed: $it" } ?: "Interop patch cleared.")
+                if (err == null) onSaved()
             }
             .setNegativeButton("Cancel", null)
             .showXv(pluginContext)
@@ -2890,7 +2887,13 @@ class XvDropDownReceiver(
             val port = v.findViewById<android.widget.EditText>(R.id.xv_edit_patch_port).text.toString().trim()
             val err = controller.applyPatchToCurrentChannel(group, port)
             if (err == null) {
-                meshToast("Patch applied to current channel.")
+                meshToast(
+                    if (group.isEmpty()) {
+                        "Interop patch cleared on the current channel."
+                    } else {
+                        "Interop patch applied to the current channel."
+                    },
+                )
                 refreshMeshSection(v)
             } else {
                 meshToast(err)
@@ -3392,9 +3395,9 @@ class XvDropDownReceiver(
         val groupField =
             android.widget.EditText(ctx).apply {
                 hint = "Mesh group address (blank = automatic)"
-                // The PRIMARY pin only. The patch leg is a separate endpoint
-                // (gear dialog); prefilling it here pinned the channel itself
-                // to the patch address on save.
+                // The PRIMARY pin only. The interop patch is a separate
+                // endpoint (its own dialog); prefilling it here pinned the
+                // channel itself to the patch address on save.
                 setText(existingConfig?.pinnedGroup ?: "")
                 setSingleLine(true)
             }
@@ -3473,8 +3476,8 @@ class XvDropDownReceiver(
                 addView(nameField)
                 addView(
                     caption(
-                        "Fixed group/port (optional). Leave blank for automatic. Interop with " +
-                            "OpenMANET / VX goes on the channel's patch leg (gear button).",
+                        "Fixed group/port (optional). Leave blank for automatic. OpenMANET interop " +
+                            "is the channel's interop patch: use Interop patch… below.",
                     ),
                 )
                 addView(groupField)
@@ -3502,6 +3505,12 @@ class XvDropDownReceiver(
                     refreshMeshSection(section)
                 } else {
                     meshToast(err)
+                }
+            }.apply {
+                // Offline channels edit / clear their interop patch here too
+                // (server channel cards open the patch dialog directly).
+                if (existingName != null) {
+                    setNeutralButton("Interop patch…") { _, _ -> promptConfigureChannel(section, existingName) }
                 }
             }.setNegativeButton("Cancel", null)
             .showXv(pluginContext)
@@ -3602,7 +3611,8 @@ class XvDropDownReceiver(
             seg.isSelected = on
             seg.contentDescription = "${MumbleTransport.lobbyLabel(row.name)} mesh: ${seg.text}${if (on) ", selected" else ""}"
             seg.setOnClickListener {
-                if (!on) setMeshChannelMode(section, row.name, mode)
+                expandedMeshCard = null
+                if (on) refreshMeshSection(section) else setMeshChannelMode(section, row.name, mode)
             }
             // TalkBack: these TextViews act as buttons.
             seg.accessibilityDelegate =
@@ -3616,7 +3626,16 @@ class XvDropDownReceiver(
                     }
                 }
         }
+        // Compact by default: one line with the current mode. Tap expands
+        // the mode choice (one card at a time); a pick collapses it again.
+        card.findViewById<TextView>(R.id.xv_mesh_card_mode).text = meshModeLabel(row.mode).uppercase()
+        val expanded = com.atakmap.android.xv.transport.AutoJoinPolicy.sameChannel(expandedMeshCard, row.name)
+        card.findViewById<View>(R.id.xv_mesh_card_expanded).visibility = if (expanded) View.VISIBLE else View.GONE
         card.setOnClickListener {
+            expandedMeshCard = if (expanded) null else row.name
+            refreshMeshSection(section)
+        }
+        card.findViewById<View>(R.id.xv_mesh_card_details).setOnClickListener {
             if (row.serverChannel) {
                 promptConfigureChannel(section, row.name) { refreshMeshSection(section) }
             } else {
@@ -3629,9 +3648,21 @@ class XvDropDownReceiver(
                 true
             }
         }
-        card.contentDescription = "${MumbleTransport.lobbyLabel(row.name)}: ${row.detail}. Opens channel details."
+        card.contentDescription =
+            "${MumbleTransport.lobbyLabel(row.name)}: mesh ${meshModeLabel(row.mode)}. " +
+            if (expanded) "Tap to collapse." else "Tap to change."
         return card
     }
+
+    // The Mesh card open for editing (null = all collapsed).
+    private var expandedMeshCard: String? = null
+
+    private fun meshModeLabel(mode: com.atakmap.android.xv.transport.multicast.MulticastMode): String =
+        when (mode) {
+            com.atakmap.android.xv.transport.multicast.MulticastMode.OFF -> "Off"
+            com.atakmap.android.xv.transport.multicast.MulticastMode.FAILOVER -> "Backup"
+            com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS -> "Both"
+        }
 
     // Save a per-channel Off / Backup / Both choice (stored override of
     // the channel's config; the always-encrypted policy is untouched).
@@ -4158,8 +4189,7 @@ class XvDropDownReceiver(
         // sized for a Spinner popup and may render as a zero-height row
         // in a dialog. Field-observed 2026-07-07: scan found PTT-Z01 in
         // the log but the dialog's rows never appeared.
-        val adapter =
-            ArrayAdapter(mapView.context, android.R.layout.simple_list_item_1, labels)
+        val adapter = XvDialogStyle.textAdapter(mapView.context, pluginContext, labels)
 
         var scanner: com.atakmap.android.xv.aina.BlePttScanner? = null
 
