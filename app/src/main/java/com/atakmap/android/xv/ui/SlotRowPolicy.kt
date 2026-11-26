@@ -30,28 +30,31 @@ object SlotRowPolicy {
     }
 
     /**
-     * What the row's activity line says when nobody is talking.
+     * One row's link state for [idle].
      *
      * [slotServerUp] = this row's own server session is up. [refused] =
      * the shared server credential was rejected (by either session): every
      * row whose session is down shows the same reason, while a session the
      * server is still serving keeps its normal state.
      */
-    fun idle(
-        slot: Int,
-        live: Boolean,
-        serverConnected: Boolean,
-        listenOnly: Boolean,
-        refused: Boolean = false,
-        slotServerUp: Boolean = serverConnected,
-    ): Idle =
+    data class SlotStatus(
+        val slot: Int,
+        val live: Boolean,
+        val serverConnected: Boolean,
+        val listenOnly: Boolean,
+        val refused: Boolean = false,
+        val slotServerUp: Boolean = serverConnected,
+    )
+
+    /** What the row's activity line says when nobody is talking. */
+    fun idle(s: SlotStatus): Idle =
         when {
-            refused && !slotServerUp && live && slot == 0 -> Idle.REFUSED_MESH
-            refused && !slotServerUp -> Idle.REFUSED
-            !serverConnected && live && slot == 0 -> Idle.MESH
-            !serverConnected -> Idle.NOT_CONNECTED
-            !live -> Idle.JOINING
-            listenOnly -> Idle.LISTEN_ONLY
+            s.refused && !s.slotServerUp && s.live && s.slot == 0 -> Idle.REFUSED_MESH
+            s.refused && !s.slotServerUp -> Idle.REFUSED
+            !s.serverConnected && s.live && s.slot == 0 -> Idle.MESH
+            !s.serverConnected -> Idle.NOT_CONNECTED
+            !s.live -> Idle.JOINING
+            s.listenOnly -> Idle.LISTEN_ONLY
             else -> Idle.QUIET
         }
 

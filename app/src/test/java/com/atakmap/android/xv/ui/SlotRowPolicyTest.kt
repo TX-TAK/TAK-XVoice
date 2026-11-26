@@ -22,16 +22,28 @@ class SlotRowPolicyTest {
 
     @Test
     fun `server down with mesh carrying reads mesh on row 1 only`() {
-        assertEquals(Idle.MESH, SlotRowPolicy.idle(0, live = true, serverConnected = false, listenOnly = false))
-        assertEquals(Idle.NOT_CONNECTED, SlotRowPolicy.idle(1, live = true, serverConnected = false, listenOnly = false))
-        assertEquals(Idle.NOT_CONNECTED, SlotRowPolicy.idle(0, live = false, serverConnected = false, listenOnly = false))
+        assertEquals(Idle.MESH, SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = false, listenOnly = false)))
+        assertEquals(
+            Idle.NOT_CONNECTED,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(1, live = true, serverConnected = false, listenOnly = false))
+        )
+        assertEquals(
+            Idle.NOT_CONNECTED,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = false, serverConnected = false, listenOnly = false))
+        )
     }
 
     @Test
     fun `connected rows read joining, listen only or quiet`() {
-        assertEquals(Idle.JOINING, SlotRowPolicy.idle(1, live = false, serverConnected = true, listenOnly = false))
-        assertEquals(Idle.LISTEN_ONLY, SlotRowPolicy.idle(0, live = true, serverConnected = true, listenOnly = true))
-        assertEquals(Idle.QUIET, SlotRowPolicy.idle(0, live = true, serverConnected = true, listenOnly = false))
+        assertEquals(
+            Idle.JOINING,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(1, live = false, serverConnected = true, listenOnly = false))
+        )
+        assertEquals(
+            Idle.LISTEN_ONLY,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = true, listenOnly = true))
+        )
+        assertEquals(Idle.QUIET, SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = true, listenOnly = false)))
     }
 
     @Test
@@ -49,25 +61,38 @@ class SlotRowPolicyTest {
 
     @Test
     fun `revoked credential shows on both rows once their sessions are down`() {
-        assertEquals(Idle.REFUSED, SlotRowPolicy.idle(0, live = false, serverConnected = false, listenOnly = false, refused = true))
         assertEquals(
             Idle.REFUSED,
-            SlotRowPolicy.idle(1, live = false, serverConnected = false, listenOnly = false, refused = true, slotServerUp = false),
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = false, serverConnected = false, listenOnly = false, refused = true))
+        )
+        assertEquals(
+            Idle.REFUSED,
+            SlotRowPolicy.idle(
+                SlotRowPolicy.SlotStatus(1, live = false, serverConnected = false, listenOnly = false, refused = true, slotServerUp = false)
+            ),
         )
     }
 
     @Test
     fun `a session the server still serves is not shown as refused`() {
         // Channel 2 was refused, channel 1's session is still up.
-        assertEquals(Idle.QUIET, SlotRowPolicy.idle(0, live = true, serverConnected = true, listenOnly = false, refused = true))
+        assertEquals(
+            Idle.QUIET,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = true, listenOnly = false, refused = true))
+        )
         assertEquals(
             Idle.REFUSED,
-            SlotRowPolicy.idle(1, live = false, serverConnected = true, listenOnly = false, refused = true, slotServerUp = false),
+            SlotRowPolicy.idle(
+                SlotRowPolicy.SlotStatus(1, live = false, serverConnected = true, listenOnly = false, refused = true, slotServerUp = false)
+            ),
         )
     }
 
     @Test
     fun `refused with a mesh leg carrying channel 1 says mesh only`() {
-        assertEquals(Idle.REFUSED_MESH, SlotRowPolicy.idle(0, live = true, serverConnected = false, listenOnly = false, refused = true))
+        assertEquals(
+            Idle.REFUSED_MESH,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = false, listenOnly = false, refused = true))
+        )
     }
 }

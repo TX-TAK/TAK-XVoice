@@ -1395,7 +1395,9 @@ class XvDropDownReceiver(
         val refusedReason = controller.mumbleRefusedReason()
         val slotUp = if (slot == 0) connected else controller.secondaryRegistered()
         val idle =
-            SlotRowPolicy.idle(slot, live, connected, listenOnly, refused = refusedReason != null, slotServerUp = slotUp)
+            SlotRowPolicy.idle(
+                SlotRowPolicy.SlotStatus(slot, live, connected, listenOnly, refused = refusedReason != null, slotServerUp = slotUp)
+            )
         return when (idle) {
             SlotRowPolicy.Idle.REFUSED -> "$refusedReason" to R.color.xv_err
             SlotRowPolicy.Idle.REFUSED_MESH -> "mesh only · $refusedReason" to R.color.xv_err
