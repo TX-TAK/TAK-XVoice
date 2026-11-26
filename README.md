@@ -185,9 +185,12 @@ XV also adds:
   active-active and auto-derived-failover per-channel modes; auto-bridge
   election so a server-connected client relays voice to peers who have
   gone dark; and an offline comms-plan carrier (QR / passphrase-locked)
-  plus peer-beacon discovery for fully server-less operation. Standard
-  RTP framing (RFC 3550 + 7587) and a raw-Opus wire mode provide
-  mesh-radio / OpenMANET interop. Implemented and unit-tested, but
+  plus peer-beacon discovery for fully server-less operation. An
+  OpenMANET-compatible cleartext RTP profile (RFC 3550 + 7587: payload
+  type 111, 20 ms Opus packets, stream-monotonic sequence numbers) and
+  a raw-Opus wire mode for legacy VX peers provide mesh-radio interop.
+  Implemented and unit-tested, but not yet verified on-air against a
+  live OpenMANET node, and
   **alpha and not comprehensively tested; do not use outside of
   testing.** It stays off by default; there is a known bridge issue on
   congested networks under investigation. Do not rely on it

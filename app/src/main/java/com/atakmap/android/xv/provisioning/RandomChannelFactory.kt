@@ -76,10 +76,9 @@ object RandomChannelFactory {
         val word = WORDS[nameRng.nextInt(WORDS.size)]
         val number = nameRng.nextInt(90) + 10 // 10..99, always two digits
         val name = "$word-$number"
-        // defaultFor gives FAILOVER + XV_NATIVE + PREFERRED crypto. With
-        // the key below installed, PREFERRED encrypts every frame; if a
-        // teammate is missing the key it degrades to clear rather than
-        // to silence, which is the right default for a field channel.
+        // defaultFor gives FAILOVER + XV_NATIVE + REQUIRED crypto. With
+        // the key below installed every frame is encrypted; a teammate
+        // missing the key hears nothing until keyed, never cleartext.
         val config = ChannelMulticastConfig.defaultFor(name)
         val key = AeadCodec.generateChannelKey(keyRng)
         return GeneratedChannel(name = name, config = config, preSharedKey = key)

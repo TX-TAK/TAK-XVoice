@@ -23,6 +23,20 @@ Get-ChildItem .git/hooks -File | Where-Object Name -notlike '*.sample'   # expec
 
 That last line is not ceremony — verify it. If `core.hooksPath` is set in your clone, `pre-commit install` **refuses and exits non-zero**, and it is easy to miss in scrollback. The result is a clone where `.pre-commit-config.yaml` looks authoritative but no hook has ever run. Clear it with `git config --unset-all core.hooksPath` (check `git config --get core.hooksPath` first — if it points somewhere other than `.git/hooks`, something else owns your hooks and you should find out what before unsetting).
 
+## `interop-sim/run.sh` — local OpenMANET interop simulation (no nodes needed)
+
+```bash
+./scripts/interop-sim/run.sh                       # latest openmanetd main
+OPENMANETD_REF=v1.2.3 ./scripts/interop-sim/run.sh # a tag/branch/commit
+OPENMANETD_DIR=~/src/openmanetd ./scripts/interop-sim/run.sh   # your own checkout (not modified)
+```
+
+Clones the public `OpenMANET/openmanetd` into `.tmp/openmanetd`, encodes real 10 ms Opus frames with libopus, frames them with XV's actual Kotlin wire codecs, and replays the datagrams through the same functions openmanetd's receive path calls (`rtp.ParseIncomingInto` → `JitterBuffer` → `PopReady` → Opus decode). It asserts the `OPENMANET_RTP` leg is accepted, in order and decodable, and that the two pre-fix behaviors (bare Opus; per-burst sequence reset on a rapid re-key) are still rejected by the daemon, so a change in openmanetd that invalidates the audit shows up as a failure.
+
+Needs JDK 17+, Go, git, gcc and libopus dev files (`apt install libopus-dev libopusfile-dev pkg-config` / `brew install opus opusfile pkg-config`). It does **not** need the ATAK SDK: `scripts/interop-sim/` is its own Gradle build that compiles only the pure-JVM codec sources from `app/src`. This one is bash rather than `pwsh` (it was authored where `pwsh` was unavailable to test); a `pwsh` port is welcome.
+
+What it does **not** cover: radios, batman-adv, multicast routing / TTL / DSCP, audio devices, or openmanetd's talkgroup/config layer. It is a wire-compatibility check, not a substitute for an on-air test.
+
 ## `verify-gates.ps1` — run the pre-merge build gates
 
 ```powershell

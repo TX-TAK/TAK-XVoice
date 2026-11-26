@@ -126,5 +126,7 @@ When enabled in **XV Settings**:
   back automatically when the server returns.
 - Supports per-frame AEAD encryption (ChaCha20-Poly1305) with TAK-cert-wrapped
   channel keys, distributed key election, auto-bridge election, and pinned
-  group/port overrides for OpenMANET / mesh-radio interop (standard RTP
-  RFC 3550 + 7587 or raw-Opus wire mode).
+  group/port overrides for OpenMANET / mesh-radio interop (cleartext RTP
+  profile, RFC 3550 + 7587, for OpenMANET; raw-Opus wire mode for legacy VX
+  peers). OpenMANET interop has not yet been verified on-air against a live
+  node.

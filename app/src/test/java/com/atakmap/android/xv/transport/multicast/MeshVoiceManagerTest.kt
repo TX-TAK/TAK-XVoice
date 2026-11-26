@@ -1,5 +1,6 @@
 package com.atakmap.android.xv.transport.multicast
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -62,11 +63,15 @@ class MeshVoiceManagerTest {
     private class Harness(
         ourUid: String = "uid-mmm",
         configOverride: ((String) -> ChannelMulticastConfig)? = null,
+        // null models a device with no server identity (offline / never
+        // enrolled): a derived primary endpoint can't be resolved.
+        serverIdentityValue: ServerIdentity? = ServerIdentity.fromHostname("tak.example.com"),
     ) {
         var now = 10_000L
         var meshOn = true
         var mumbleUp = true
         val legs = mutableMapOf<String, FakeLeg>()
+        val created = mutableListOf<FakeLeg>() // every leg ever built, patch legs included
         val playedRx = mutableListOf<String>() // speaker labels forwarded to service
         val relayedToMumble = mutableListOf<Boolean>() // burstStart flags
         val meshTxStateChanges = mutableListOf<Boolean>()
@@ -85,10 +90,13 @@ class MeshVoiceManagerTest {
                 ourCallsign = { "Alpha-1" },
                 meshEnabled = { meshOn },
                 configForChannel = configOverride ?: { ChannelMulticastConfig.defaultFor(it) },
-                serverIdentity = { ServerIdentity.fromHostname("tak.example.com") },
+                serverIdentity = { serverIdentityValue },
                 mumbleConnected = { mumbleUp },
                 legFactory = { cfg, endpoint, registry, _ ->
-                    FakeLeg(cfg, endpoint, registry).also { legs[cfg.channelName] = it }
+                    FakeLeg(cfg, endpoint, registry).also {
+                        legs[cfg.channelName] = it
+                        created += it
+                    }
                 },
                 onRxOpus = { _, label -> playedRx += label },
                 relayToMumble = { _, burstStart -> relayedToMumble += burstStart },
@@ -256,6 +264,178 @@ class MeshVoiceManagerTest {
         h.joinAndTick()
         h.manager.beginTxBurst()
         assertEquals(1, h.channelLeg().bursts)
+    }
+
+    private fun patched(
+        wire: WireFormat,
+        crypto: CryptoPolicy = CryptoPolicy.CLEARTEXT,
+        port: Int = 5009,
+    ) = { channel: String ->
+        ChannelMulticastConfig.defaultFor(channel).copy(
+            patchGroup = "239.255.0.9",
+            patchPort = port,
+            patchWireFormat = wire,
+            patchCryptoPolicy = crypto,
+        )
+    }
+
+    @Test
+    fun `beginTxBurst also resets patch legs`() {
+        val h = Harness(configOverride = patched(WireFormat.OPENMANET_RTP))
+        h.joinAndTick()
+        val patch = h.created.single { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+        h.manager.beginTxBurst()
+        h.manager.beginTxBurst()
+        assertEquals(2, patch.bursts)
+    }
+
+    @Test
+    fun `re-applying a patch on the same endpoint with a new wire format rebuilds the live leg`() {
+        var wire = WireFormat.VX_COMPAT
+        val h = Harness(configOverride = { patched(wire)(it) })
+        h.joinAndTick()
+        val old = h.created.single { it.config.wireFormat == WireFormat.VX_COMPAT }
+
+        wire = WireFormat.OPENMANET_RTP
+        h.manager.tick()
+
+        assertTrue(old.closed)
+        assertEquals(1, h.created.count { it.config.wireFormat == WireFormat.OPENMANET_RTP })
+    }
+
+    @Test
+    fun `crypto-policy change on the same endpoint rebuilds the primary leg and keeps the key`() {
+        var policy = CryptoPolicy.PREFERRED
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = policy) })
+        h.joinAndTick()
+        val key = ByteArray(AeadCodec.KEY_BYTES) { 0x42 }
+        h.manager.installPresharedKey("ops-1", key)
+        val old = h.channelLeg()
+
+        policy = CryptoPolicy.REQUIRED
+        h.manager.tick()
+
+        assertTrue("old codec must not keep running", old.closed)
+        val rebuilt = h.channelLeg()
+        assertEquals(CryptoPolicy.REQUIRED, rebuilt.config.cryptoPolicy)
+        assertEquals(old.endpoint, rebuilt.endpoint)
+        assertTrue("key survives the rebuild", rebuilt.encryptedNow)
+        assertArrayEquals(key, h.manager.currentKeyFor("ops-1"))
+    }
+
+    @Test
+    fun `mode change on the same endpoint rebuilds the primary leg`() {
+        var mode = MulticastMode.FAILOVER
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = mode) })
+        h.joinAndTick()
+        val old = h.channelLeg()
+        mode = MulticastMode.ALWAYS
+        h.manager.tick()
+        assertTrue(old.closed)
+        assertEquals(MulticastMode.ALWAYS, h.channelLeg().config.mode)
+    }
+
+    @Test
+    fun `unchanged config does not churn the leg`() {
+        val h = Harness()
+        h.joinAndTick()
+        val leg = h.channelLeg()
+        h.manager.tick()
+        h.manager.tick()
+        assertFalse(leg.closed)
+        assertTrue(leg === h.channelLeg())
+    }
+
+    @Test
+    fun `wire-format change on the same pinned endpoint rebuilds the primary leg`() {
+        var wire = WireFormat.XV_NATIVE
+        val h =
+            Harness(configOverride = {
+                ChannelMulticastConfig.defaultFor(it).copy(
+                    wireFormat = wire,
+                    cryptoPolicy = if (wire == WireFormat.XV_NATIVE) CryptoPolicy.REQUIRED else CryptoPolicy.CLEARTEXT,
+                    pinnedGroup = "239.7.7.7",
+                    pinnedPort = 5500,
+                )
+            })
+        h.joinAndTick()
+        // The rendezvous leg is XV-native too: select the channel's own leg.
+        val old = h.created.single { it.channelName == "ops-1" && it.config.wireFormat == WireFormat.XV_NATIVE }
+
+        wire = WireFormat.OPENMANET_RTP
+        h.manager.tick()
+
+        assertTrue(old.closed)
+        val rebuilt = h.created.single { it.channelName == "ops-1" && it.config.wireFormat == WireFormat.OPENMANET_RTP }
+        assertEquals(old.endpoint, rebuilt.endpoint)
+    }
+
+    @Test
+    fun `patch-only channel (no resolvable primary) still takes failover TX`() {
+        val h = Harness(configOverride = patched(WireFormat.OPENMANET_RTP), serverIdentityValue = null)
+        h.joinAndTick()
+        assertTrue(
+            "no server identity: derived primary can't resolve",
+            h.created.none { it.channelName == "ops-1" && it.config.wireFormat == WireFormat.XV_NATIVE },
+        )
+        val patch = h.created.single { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("patch leg alone must activate mesh TX", h.manager.isMeshTxActive())
+
+        h.manager.beginTxBurst()
+        h.manager.sendTxOpus(byteArrayOf(9), targetSlot = 0)
+        assertEquals(1, patch.sentOpus.size)
+    }
+
+    @Test
+    fun `mode change rebuilds the patch leg too`() {
+        var mode = MulticastMode.FAILOVER
+        val h = Harness(configOverride = { patched(WireFormat.OPENMANET_RTP)(it).copy(mode = mode) })
+        h.joinAndTick()
+        val oldPatch = h.created.single { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+
+        mode = MulticastMode.ALWAYS
+        h.manager.tick()
+
+        assertTrue(oldPatch.closed)
+        val rebuilt = h.created.last { it.config.wireFormat == WireFormat.OPENMANET_RTP }
+        assertEquals(MulticastMode.ALWAYS, rebuilt.config.mode)
+    }
+
+    @Test
+    fun `beacons never carry the device-local patch endpoint or interop-primary legs`() {
+        val h = Harness(configOverride = patched(WireFormat.OPENMANET_RTP))
+        h.joinAndTick()
+        val beacons =
+            h.created
+                .flatMap { it.sentControl }
+                .filterIsInstance<ControlPacket.Message.PeerBeacon>()
+        assertTrue("a beacon was sent", beacons.isNotEmpty())
+        beacons.flatMap { it.channels }.forEach {
+            assertEquals("", it.patchGroup)
+            assertEquals(0, it.patchPort)
+        }
+
+        val interop =
+            Harness(configOverride = {
+                ChannelMulticastConfig(
+                    channelName = MulticastGroupDerivation.canonicalChannelName(it),
+                    wireFormat = WireFormat.VX_COMPAT,
+                    cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                    pinnedGroup = "239.8.8.8",
+                    pinnedPort = 5600,
+                )
+            })
+        interop.joinAndTick()
+        val advertised =
+            interop.created
+                .flatMap { it.sentControl }
+                .filterIsInstance<ControlPacket.Message.PeerBeacon>()
+                .flatMap { it.channels }
+        assertTrue("interop-primary leg is not advertised", advertised.none { it.group == "239.8.8.8" })
     }
 
     // ---- RX merge + dedup ----
@@ -1031,7 +1211,7 @@ class MeshVoiceManagerTest {
 
     @Test
     fun `status badge reflects failover and cleartext state`() {
-        val h = Harness()
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = CryptoPolicy.PREFERRED) })
         h.joinAndTick()
         assertEquals("MESH READY · CLEAR", h.manager.statusBadge())
         h.mumbleUp = false
@@ -1047,7 +1227,7 @@ class MeshVoiceManagerTest {
         h.joinAndTick()
         val ready = h.manager.statusSnapshot()!!
         assertFalse(ready.active)
-        assertTrue("default channel is PREFERRED with no key yet → cleartext", ready.cleartext)
+        assertFalse("default channel is REQUIRED: unkeyed it is silent, never clear", ready.cleartext)
         assertEquals(1, ready.legCount)
 
         h.mumbleUp = false
@@ -1058,11 +1238,23 @@ class MeshVoiceManagerTest {
 
     @Test
     fun `status snapshot clears the cleartext flag once a key is live`() {
-        val h = Harness()
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = CryptoPolicy.PREFERRED) })
         h.joinAndTick()
         assertTrue(h.manager.statusSnapshot()!!.cleartext)
         h.manager.installPresharedKey("Ops-1", ByteArray(AeadCodec.KEY_BYTES) { 0x42 })
         assertFalse("keyed PREFERRED leg is encrypted", h.manager.statusSnapshot()!!.cleartext)
+    }
+
+    @Test
+    fun `unkeyed REQUIRED leg is never flagged CLEAR, a CLEARTEXT leg always is`() {
+        val req = Harness()
+        req.joinAndTick()
+        assertFalse(req.manager.statusSnapshot()!!.cleartext)
+        assertFalse(req.manager.statusBadge().orEmpty().contains("CLEAR"))
+
+        val clear = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = CryptoPolicy.CLEARTEXT) })
+        clear.joinAndTick()
+        assertTrue(clear.manager.statusSnapshot()!!.cleartext)
     }
 
     @Test

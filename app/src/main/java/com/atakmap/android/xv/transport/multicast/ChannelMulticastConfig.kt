@@ -19,17 +19,40 @@ import org.json.JSONObject
  *                     talkgroup in 225.41.1.1–.5) because those
  *                     deployments chose their addresses on their own
  *                     scheme — the XV derivation can't find them.
+ *   OPENMANET_RTP — cleartext `[RTP || Opus]`, PT 111, 20 ms packets,
+ *                     stream-monotonic sequence, no XVMC control
+ *                     packets ([OpenManetRtpWireCodec]). What
+ *                     OpenMANET's openmanetd requires; it drops
+ *                     anything that isn't RTP. Like VX_COMPAT it needs
+ *                     an operator-pinned group + port and CLEARTEXT.
+ *
+ * Persistence note: an older build reading a stored config that names
+ * [OPENMANET_RTP] fails `valueOf`, [ChannelMulticastConfig.fromJson]
+ * returns null, and the channel degrades to the auto-derived default —
+ * no crash.
  */
-enum class WireFormat { XV_NATIVE, VX_COMPAT }
+enum class WireFormat {
+    XV_NATIVE,
+    VX_COMPAT,
+    OPENMANET_RTP,
+    ;
+
+    /** Cleartext interop formats with no XVMC control plane and no crypto layer. */
+    val isInterop: Boolean get() = this != XV_NATIVE
+}
 
 /**
  * Per-channel encryption posture for the multicast leg.
  *
  *   REQUIRED  — frames are AEAD-wrapped or not sent; cleartext RX is
- *               dropped. For channels where privacy beats availability.
+ *               dropped. Default for XV-native channels, including every
+ *               auto-derived failover leg: until a key is held the leg is
+ *               silent rather than cleartext on the air.
  *   PREFERRED — encrypt when a channel key is live, fall back to clear
- *               RTP when keying hasn't converged. Degrades to degraded
- *               comms, never to silence. Default.
+ *               RTP when keying hasn't converged (and accept clear RX).
+ *               Kept for wire / stored-config compatibility only: no
+ *               longer selectable, and normalized to REQUIRED on XV-native
+ *               legs ([ChannelMulticastConfig.meshPolicyNormalized]).
  *   CLEARTEXT — never encrypt. Forced for [WireFormat.VX_COMPAT]
  *               (the interop format has no crypto layer at all) and
  *               surfaced in the UI as a clear-traffic badge.
@@ -64,7 +87,7 @@ data class ChannelMulticastConfig(
     val channelName: String,
     val mode: MulticastMode = MulticastMode.FAILOVER,
     val wireFormat: WireFormat = WireFormat.XV_NATIVE,
-    val cryptoPolicy: CryptoPolicy = CryptoPolicy.PREFERRED,
+    val cryptoPolicy: CryptoPolicy = CryptoPolicy.REQUIRED,
     /** Operator-pinned group address; null ⇒ derive via v1 hash. */
     val pinnedGroup: String? = null,
     /** Operator-pinned UDP port; null ⇒ derive via v1 hash. */
@@ -94,13 +117,13 @@ data class ChannelMulticastConfig(
         if (pinnedGroup != null && !isIpv4MulticastAddress(pinnedGroup)) {
             return "pinned group '$pinnedGroup' is not an IPv4 multicast address (224.0.0.1—239.255.255.255)"
         }
-        if (wireFormat == WireFormat.VX_COMPAT) {
+        if (wireFormat.isInterop) {
             if (pinnedGroup == null) {
-                return "VX-compat channels need an explicit group + port " +
+                return "interop channels need an explicit group + port " +
                     "(the interop deployment chose them; XV can't derive them)"
             }
             if (cryptoPolicy != CryptoPolicy.CLEARTEXT) {
-                return "VX-compat wire format has no encryption layer; crypto policy must be CLEARTEXT"
+                return "interop wire formats have no encryption layer; crypto policy must be CLEARTEXT"
             }
         }
         if ((patchGroup == null) != (patchPort == null)) {
@@ -112,8 +135,8 @@ data class ChannelMulticastConfig(
         if (patchGroup != null && !isIpv4MulticastAddress(patchGroup)) {
             return "patch group '$patchGroup' is not an IPv4 multicast address"
         }
-        if (patchGroup != null && patchWireFormat == WireFormat.VX_COMPAT && patchCryptoPolicy != CryptoPolicy.CLEARTEXT) {
-            return "VX-compat patch format has no encryption layer; patch crypto policy must be CLEARTEXT"
+        if (patchGroup != null && patchWireFormat.isInterop && patchCryptoPolicy != CryptoPolicy.CLEARTEXT) {
+            return "interop patch formats have no encryption layer; patch crypto policy must be CLEARTEXT"
         }
         return null
     }
@@ -150,6 +173,110 @@ data class ChannelMulticastConfig(
     }
 
     /**
+     * True for a primary leg in interop framing (VX_COMPAT / OPENMANET_RTP)
+     * that can be re-expressed as an encrypted XV-native primary plus a
+     * cleartext patch leg on the same endpoint: it is pinned (every valid
+     * interop primary is) and the patch slot is free.
+     */
+    val interopPrimaryConvertible: Boolean
+        get() =
+            wireFormat.isInterop &&
+                pinnedGroup != null &&
+                pinnedPort != null &&
+                patchGroup == null &&
+                patchPort == null
+
+    /**
+     * The mesh-policy invariant (operator decision 2026-11-25: "the failover
+     * to mesh should always be encrypted"): an XV-native leg is always
+     * [CryptoPolicy.REQUIRED]; cleartext exists only on interop legs.
+     *
+     *  - XV-native primary: forced to REQUIRED (PREFERRED / CLEARTEXT are
+     *    no longer valid choices for it).
+     *  - Interop primary with a free patch slot ([interopPrimaryConvertible],
+     *    e.g. left behind by the VX-interop Accept prompt): becomes an
+     *    XV-native REQUIRED primary on the derived endpoint, and the old
+     *    interop endpoint + framing move to a CLEARTEXT patch leg.
+     *  - Unpinned interop primary (invalid; written by the retired
+     *    VX-interop prompt): becomes XV-native REQUIRED, unpinned.
+     *  - Pinned interop primary that already has a patch: returned unchanged
+     *    (two interop endpoints don't fit one config; the migration
+     *    report lists those).
+     *
+     * Patch legs and every other field are untouched. Idempotent.
+     */
+    fun meshPolicyNormalized(): ChannelMulticastConfig =
+        when {
+            wireFormat == WireFormat.XV_NATIVE ->
+                if (cryptoPolicy == CryptoPolicy.REQUIRED) this else copy(cryptoPolicy = CryptoPolicy.REQUIRED)
+            interopPrimaryConvertible ->
+                copy(
+                    wireFormat = WireFormat.XV_NATIVE,
+                    cryptoPolicy = CryptoPolicy.REQUIRED,
+                    pinnedGroup = null,
+                    pinnedPort = null,
+                    patchGroup = pinnedGroup,
+                    patchPort = pinnedPort,
+                    patchWireFormat = wireFormat,
+                    patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
+                )
+            // Unpinned interop primary: invalid (interop needs a pin), and the
+            // retired VX-interop prompt wrote exactly this. Nothing to move
+            // to a patch, so it simply becomes encrypted XV-native again.
+            wireFormat.isInterop && (pinnedGroup == null || pinnedPort == null) ->
+                copy(wireFormat = WireFormat.XV_NATIVE, cryptoPolicy = CryptoPolicy.REQUIRED, pinnedGroup = null, pinnedPort = null)
+            else -> this
+        }
+
+    /**
+     * The form of this config that may leave the device (comms-plan export,
+     * QR / text / .xvplan, any re-share) and the only form accepted from
+     * one on import. OpenMANET / VX interop is device-local by operator
+     * decision (2026-11-25): one manually enabled gateway device at a time,
+     * so two devices auto-configured from the same plan can't both feed one
+     * OpenMANET net into the server or the mesh and collide.
+     *
+     *  - Every patch field is dropped (reset to the class defaults).
+     *  - An interop PRIMARY (older builds) is shared as an encrypted
+     *    XV-native primary on the derived endpoint: its interop endpoint is
+     *    not carried, so an importer never becomes a gateway by accident.
+     *
+     * Everything else (mode, crypto policy, XV-native pin) is kept as is;
+     * persist-time [meshPolicyNormalized] still applies on the importer.
+     */
+    fun sharedForm(): ChannelMulticastConfig {
+        val primary =
+            if (wireFormat.isInterop) {
+                copy(wireFormat = WireFormat.XV_NATIVE, cryptoPolicy = CryptoPolicy.REQUIRED, pinnedGroup = null, pinnedPort = null)
+            } else {
+                this
+            }
+        return primary.copy(
+            patchGroup = null,
+            patchPort = null,
+            patchWireFormat = WireFormat.VX_COMPAT,
+            patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
+        )
+    }
+
+    /**
+     * This (imported, [sharedForm]) config carrying [local]'s device-local
+     * patch leg, so importing a plan for a channel this device gateways
+     * never wipes or replaces its own patch. [local] null keeps this as is.
+     */
+    fun withLocalPatchOf(local: ChannelMulticastConfig?): ChannelMulticastConfig =
+        if (local == null) {
+            this
+        } else {
+            copy(
+                patchGroup = local.patchGroup,
+                patchPort = local.patchPort,
+                patchWireFormat = local.patchWireFormat,
+                patchCryptoPolicy = local.patchCryptoPolicy,
+            )
+        }
+
+    /**
      * Canonical JSON for persistence and for embedding in a comms-plan
      * bundle. Field order is FIXED (schema v1) so the same config
      * always emits byte-identical JSON — comms-plan signatures depend
@@ -180,7 +307,11 @@ data class ChannelMulticastConfig(
         /**
          * The zero-config default (operator decision D3, 2026-07-14):
          * every joined Mumble channel gets an auto-derived encrypted
-         * failover leg when mesh voice is enabled globally.
+         * failover leg when mesh voice is enabled globally. Encrypted
+         * means [CryptoPolicy.REQUIRED] (operator decision 2026-11-25):
+         * XV-native failover legs never fall back to cleartext. Interop
+         * legs (OpenMANET / VX patch) stay CLEARTEXT — those formats have
+         * no encryption layer.
          */
         fun defaultFor(channelName: String): ChannelMulticastConfig =
             ChannelMulticastConfig(
