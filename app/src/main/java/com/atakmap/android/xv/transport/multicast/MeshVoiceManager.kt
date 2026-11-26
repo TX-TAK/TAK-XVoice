@@ -367,7 +367,7 @@ class MeshVoiceManager(
         targetSlot: Int,
     ) {
         // Revoked / rejected server credential: no mesh TX in any mode.
-        if (serverAccessRejected) return
+        if (meshStopped) return
         val targetChannel = if (targetSlot == 0) primaryChannel else secondaryChannel
         if (targetChannel == null) return
         if (legs.isEmpty() && patchLegs.isEmpty()) return
@@ -395,24 +395,43 @@ class MeshVoiceManager(
         }
     }
 
-    // Operator rule: when the voice server REJECTS this device's credential
-    // (access revoked, certificate or auth refused), the mesh stops too —
-    // every leg (patch and rendezvous included) is closed, so nothing is
-    // heard or sent and no keys are used — until access is restored. A
-    // server that is merely down / unreachable still fails over as usual.
+    // Operator rules: the mesh stops entirely — every leg (patch and
+    // rendezvous included) is closed, so nothing is heard or sent and no
+    // keys are used — while EITHER:
+    //  - the voice server REJECTS this device's credential (access
+    //    revoked, certificate or auth refused), until access is restored;
+    //  - the operator turned voice off (Disconnect), until they Connect.
+    // A server that is merely down / unreachable still fails over as usual.
     @Volatile
     private var serverAccessRejected = false
+
+    @Volatile
+    private var operatorVoiceOff = false
+
+    private val meshStopped: Boolean get() = serverAccessRejected || operatorVoiceOff
 
     /** Set from the plugin's shared-identity verdict; clears on a good login / Connect. */
     @Synchronized
     fun setServerAccessRejected(rejected: Boolean) {
         if (rejected == serverAccessRejected) return
         serverAccessRejected = rejected
-        logDiag("server access ${if (rejected) "rejected — mesh TX blocked" else "restored — mesh TX allowed"}")
-        if (rejected && meshTxActive) {
+        applyMeshStopped("server access ${if (rejected) "rejected" else "restored"}")
+    }
+
+    /** The operator pressed Disconnect (true) / Connect (false). */
+    @Synchronized
+    fun setOperatorVoiceOff(off: Boolean) {
+        if (off == operatorVoiceOff) return
+        operatorVoiceOff = off
+        applyMeshStopped("operator voice ${if (off) "off" else "on"}")
+    }
+
+    private fun applyMeshStopped(why: String) {
+        logDiag("$why — mesh ${if (meshStopped) "stopped" else "allowed"}")
+        if (meshStopped && meshTxActive) {
             meshTxActive = false
             onMeshTxStateChanged(false)
-            logDiag("failover TX -> MESH OFF (server access rejected)")
+            logDiag("failover TX -> MESH OFF ($why)")
         }
         // Close (or, on restore, rebuild) the legs now rather than on the
         // next tick.
@@ -487,7 +506,7 @@ class MeshVoiceManager(
     ) {
         // Legs are closed while access is rejected; a frame already in
         // flight from a closing leg must not play either.
-        if (serverAccessRejected) return
+        if (meshStopped) return
         val action = decideVoiceRx(channelName, speakerKey, sourceHost, isPatchLeg)
         if (!action.play) return
         // Burst-boundary diagnostics — OUTSIDE the manager lock, burst-gated
@@ -748,7 +767,7 @@ class MeshVoiceManager(
         // resolvable primary (no server identity to derive it from) and
         // runs on its patch leg alone, which must still take failover TX.
         val anyLeg = legs.isNotEmpty() || patchLegs.isNotEmpty()
-        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST && !serverAccessRejected
+        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST && !meshStopped
         if (newMeshTx != meshTxActive) {
             meshTxActive = newMeshTx
             onMeshTxStateChanged(newMeshTx)
@@ -956,7 +975,7 @@ class MeshVoiceManager(
     private fun reconcileLegs() {
         // A rejected server credential stops the mesh entirely: no legs
         // (so no listening, no TX, no key use) until access is restored.
-        val enabled = meshEnabled() && !serverAccessRejected
+        val enabled = meshEnabled() && !meshStopped
         val desired = mutableMapOf<String, ChannelMulticastConfig>()
         if (enabled) {
             primaryChannel?.let { channel ->

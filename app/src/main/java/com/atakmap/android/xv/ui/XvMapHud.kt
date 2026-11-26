@@ -368,7 +368,6 @@ class XvMapHud(
         val c = Canvas(bmp)
         val res = pluginContext.resources
         val honey = res.getColor(R.color.xv_voice, null)
-        val grey = res.getColor(R.color.xv_surface_alt, null)
         val red = res.getColor(R.color.xv_ptt_active, null)
         val black = res.getColor(R.color.xv_bg, null)
         val dim = res.getColor(R.color.xv_text_dim, null)
@@ -386,7 +385,8 @@ class XvMapHud(
         val (fill, stroke, fg) =
             when (b.look) {
                 MapHudPolicy.Look.TRANSMITTING -> Triple(red, red, text)
-                MapHudPolicy.Look.PRESSED -> Triple(grey, honey, text)
+                // Clearly lit on the map (a near-black grey was hard to see).
+                MapHudPolicy.Look.PRESSED -> Triple(dim, honey, black)
                 MapHudPolicy.Look.DENIED -> Triple(black, red, red)
                 MapHudPolicy.Look.RECEIVING -> Triple(honey, honey, black)
                 MapHudPolicy.Look.UNAVAILABLE -> Triple(black, dim, dim)

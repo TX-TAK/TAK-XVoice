@@ -45,7 +45,7 @@ data class AinaDeviceInfo(
         // XV captures via a MediaSession in the foreground service.
         // Single-button devices fire VS1 only; XV doesn't yet
         // distinguish between primary/secondary on these.
-        BLE_HID("BLE HID button (VS1 only)"),
+        BLE_HID("BLE HID button · channel 1"),
 
         // Audio path only — device has HFP/audio profile but we don't
         // recognize a button protocol. On-screen PTT still works.

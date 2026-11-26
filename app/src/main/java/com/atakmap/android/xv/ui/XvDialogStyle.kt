@@ -59,6 +59,7 @@ object XvDialogStyle {
             dividerHeight = 1
         }
         dialog.window?.decorView?.let { styleFields(it, plugin) }
+        clearPlatformChrome(dialog)
         val positive = res.getColor(if (destructive) R.color.xv_err else R.color.xv_voice, null)
         for ((which, color) in listOf(
             DialogInterface.BUTTON_POSITIVE to positive,
@@ -71,6 +72,21 @@ object XvDialogStyle {
                 minHeight = (48 * density).toInt()
                 minimumHeight = (48 * density).toInt()
             }
+        }
+    }
+
+    // ATAK's dialog theme draws its own grey panel and a blue line under
+    // the title inside our window background (two boxes). Clear the panel
+    // backgrounds and hide the dividers so only the XV surface shows.
+    private fun clearPlatformChrome(dialog: AlertDialog) {
+        val res = dialog.context.resources
+        for (name in listOf("parentPanel", "topPanel", "contentPanel", "customPanel", "buttonPanel", "scrollView")) {
+            val id = res.getIdentifier(name, "id", "android")
+            if (id != 0) dialog.findViewById<View>(id)?.background = null
+        }
+        for (name in listOf("titleDivider", "titleDividerTop", "titleDividerNoCustom")) {
+            val id = res.getIdentifier(name, "id", "android")
+            if (id != 0) dialog.findViewById<View>(id)?.visibility = View.GONE
         }
     }
 

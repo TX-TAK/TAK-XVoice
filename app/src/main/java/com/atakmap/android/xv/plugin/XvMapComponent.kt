@@ -2838,6 +2838,9 @@ class XvMapComponent : AbstractMapComponent() {
             }
 
             override fun disconnectMumble() {
+                // Operator rule: Disconnect means no voice on either
+                // channel — the mesh must not fail over to carry channel 1.
+                meshVoiceManager?.setOperatorVoiceOff(true)
                 stopActiveTransport()
             }
 
@@ -5819,6 +5822,8 @@ class XvMapComponent : AbstractMapComponent() {
     // lookup would fail anyway). The user picks a channel after
     // connect via the channel picker; we don't pre-select one.
     private fun connectMumbleWithDefaults() {
+        // Any start of voice lifts an operator Disconnect: the mesh may run again.
+        meshVoiceManager?.setOperatorVoiceOff(false)
         val defaultPort = 64738
         // Auto-rejoin the last channel the operator was on. Persisted in
         // PREF_PRIMARY_CHANNEL by onChannelChanged on every slot-0 move.

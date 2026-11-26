@@ -264,6 +264,26 @@ class MeshVoiceManagerTest {
     }
 
     @Test
+    fun `operator Disconnect stops the mesh until Connect`() {
+        val h = Harness()
+        h.joinAndTick()
+        val leg = h.channelLeg()
+        h.manager.setOperatorVoiceOff(true)
+        h.mumbleUp = false // the transport is down after Disconnect
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("legs closed after Disconnect", leg.closed)
+        assertFalse("no failover after Disconnect", h.manager.isMeshTxActive())
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue(h.playedRx.isEmpty())
+
+        h.manager.setOperatorVoiceOff(false) // Connect
+        h.now += 1_000
+        h.manager.tick()
+        assertFalse(h.channelLeg().closed)
+    }
+
+    @Test
     fun `server merely down still plays mesh RX`() {
         val h = Harness()
         h.joinAndTick()

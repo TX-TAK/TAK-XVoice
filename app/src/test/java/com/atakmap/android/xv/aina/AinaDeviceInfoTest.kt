@@ -47,7 +47,7 @@ class AinaDeviceInfoTest {
             mapOf(
                 AinaDeviceInfo.ButtonProtocol.SPP to "AINA V1  ·  SPP buttons",
                 AinaDeviceInfo.ButtonProtocol.BLE to "AINA V2  ·  BLE buttons",
-                AinaDeviceInfo.ButtonProtocol.BLE_HID to "Pryme BT  ·  BLE HID button (VS1 only)",
+                AinaDeviceInfo.ButtonProtocol.BLE_HID to "Pryme BT  ·  BLE HID button · channel 1",
                 AinaDeviceInfo.ButtonProtocol.AUDIO_ONLY to "Generic HFP  ·  audio only",
             )
         for ((proto, expected) in cases) {

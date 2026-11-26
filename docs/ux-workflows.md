@@ -240,6 +240,7 @@ stateDiagram-v2
   - **Details…** opens the channel's settings. Server channels: mode (Off / Backup / Both) and the **interop patch (OpenMANET RTP)** — this device only, never shared, unencrypted — with **Clear patch**. Offline channels: name and fixed group/port, plus **Interop patch…** for the same patch dialog;
   - **long-press** an offline channel to forget it.
 - **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both. The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
+- **Not after Disconnect:** a manual Disconnect turns voice off on both channels, mesh included (no failover), until you Connect again — from Settings › Server or by tapping *Voice off — tap to connect*.
 - **Not after a refusal:** if the server *rejects* this device (access revoked, certificate or login refused), the mesh stops too: every mesh leg (interop patch included) closes, so nothing is heard or sent, until access is restored. A server that is just down or unreachable still fails over as above.
 - **+ Add channel** presets:
   - **Private channel:** XV picks the name, group and key.

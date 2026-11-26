@@ -1466,7 +1466,18 @@ class XvDropDownReceiver(
                 listenOnly -> 0.5f
                 else -> 1.0f
             }
-        ptt.setBackgroundResource(if (transmitting) R.drawable.xv_ptt_bg_tx else R.drawable.xv_ptt_bg)
+        // Held (finger down, not yet on the air): draw the pressed look
+        // explicitly. Relying on the view's pressed state lost it when this
+        // refresh re-set the background during the TPT / priming wait.
+        val held = onScreenPtt.heldSlot == slot
+        ptt.setBackgroundResource(
+            when {
+                transmitting -> R.drawable.xv_ptt_bg_tx
+                held -> R.drawable.xv_ptt_bg_pressed
+                else -> R.drawable.xv_ptt_bg
+            },
+        )
+        ptt.isPressed = held && !transmitting
         val state =
             when {
                 transmitting -> ", transmitting"
@@ -1532,6 +1543,23 @@ class XvDropDownReceiver(
                 populateChannelList(v)
             },
         )
+        // The keyboard covers the bottom of the screen; in portrait the list
+        // pane is the bottom half, so typing hid every result. While the
+        // search box has focus, grow the pane to full height (results sit
+        // between the search box and the keyboard); Done / leaving it
+        // shrinks the pane back.
+        search.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_DONE
+        search.setOnFocusChangeListener { _, focused ->
+            if (isPortrait()) callResize(FULL_WIDTH, if (focused) FULL_HEIGHT else HALF_HEIGHT)
+        }
+        search.setOnEditorActionListener { field, action, _ ->
+            if (action == android.view.inputmethod.EditorInfo.IME_ACTION_DONE) {
+                field.clearFocus()
+                (pluginContext.getSystemService(Context.INPUT_METHOD_SERVICE) as? android.view.inputmethod.InputMethodManager)
+                    ?.hideSoftInputFromWindow(field.windowToken, 0)
+            }
+            false
+        }
         channelListRoot = v
         openPickerSlot = CHANNEL_LIST_OPEN
         populateChannelList(v)
