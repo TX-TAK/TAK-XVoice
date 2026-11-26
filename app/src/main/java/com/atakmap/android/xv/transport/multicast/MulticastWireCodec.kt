@@ -27,6 +27,15 @@ sealed interface MulticastWireCodec {
     fun encodeTx(opus: ByteArray): ByteArray?
 
     /**
+     * True when the most recent [encodeTx] returned null because the
+     * codec is deliberately holding the frame to pack it with the next
+     * one (not a policy drop). Lets the transport keep its
+     * policy-drop diagnostics honest. Only meaningful right after an
+     * [encodeTx] call on the same thread.
+     */
+    val lastEncodeBuffered: Boolean get() = false
+
+    /**
      * Classify + unwrap one received datagram.
      *
      * @param sourceHost the datagram's source IP literal; identity of
@@ -233,7 +242,12 @@ class XvNativeWireCodec(
 }
 
 /**
- * ATAK VX interop framing (Standard RTP)
+ * ATAK VX interop framing: each datagram is ONE raw Opus frame — no RTP
+ * header, no sequence numbers. Matches legacy VX / OpenVLM peers.
+ *
+ * This is NOT OpenMANET's wire format (openmanetd requires RTP and drops
+ * anything else); use [OpenManetRtpWireCodec] / [WireFormat.OPENMANET_RTP]
+ * for that.
  */
 class VxWireCodec(private val ssrc: Long) : MulticastWireCodec {
     private var seq = 0
@@ -276,6 +290,128 @@ class VxWireCodec(private val ssrc: Long) : MulticastWireCodec {
     }
 }
 
+/**
+ * OpenMANET (openmanetd) interop framing: cleartext `[RTP || Opus]`,
+ * payload type 111, 48 kHz clock, one 20 ms Opus packet per datagram,
+ * no XVMC control packets on the group.
+ *
+ * Differences from [XvNativeWireCodec], each driven by openmanetd's
+ * receive path (`internal/comms/rtp`):
+ *  - **Sequence and timestamp are monotonic across bursts.** The jitter
+ *    buffer only re-syncs on an SSRC change or ~2 s of idle, so a
+ *    per-burst `seq = 0` reset on a quick re-key looks like a stale
+ *    packet and is dropped. Initial values are random (RFC 3550 §5.1).
+ *  - **Two consecutive 10 ms Opus frames are merged into one 20 ms
+ *    packet** ([OpusPacking]) because the XV capture path encodes 10 ms
+ *    (to match Mumla on the Mumble leg) while openmanetd encodes/plays
+ *    20 ms. The first frame of a pair is held ([lastEncodeBuffered]);
+ *    the second emits the packet. Frames that are already 20 ms (or
+ *    anything not mergeable) pass straight through.
+ *  - **Timestamp advances by the actual packet duration**, parsed from
+ *    the Opus TOC, not a fixed 960.
+ *  - A held half-pair at PTT release is dropped on the next
+ *    [beginBurst] (at most 10 ms of trailing audio) rather than leaking
+ *    into the following burst.
+ *
+ * RX accepts only RTP with PT 111; non-RTP and other payload types are
+ * dropped. Speaker attribution is by SSRC.
+ */
+class OpenManetRtpWireCodec(
+    private val ssrc: Long,
+    initialSeq: Int = kotlin.random.Random.nextInt(0x10000),
+    initialTimestamp: Long = kotlin.random.Random.nextLong(0x1_0000_0000L),
+) : MulticastWireCodec {
+    private var seq = initialSeq and 0xFFFF
+    private var timestamp = initialTimestamp and 0xFFFFFFFFL
+    private var burstStart = true
+    private var pending: ByteArray? = null
+
+    override var lastEncodeBuffered: Boolean = false
+        private set
+
+    /** Frames discarded unsent (stranded half-pair, unmergeable mismatch). Diagnostics only. */
+    var droppedFrames: Long = 0
+        private set
+
+    override fun beginBurst() {
+        if (pending != null) {
+            droppedFrames++
+            pending = null
+        }
+        burstStart = true
+    }
+
+    override fun encodeTx(opus: ByteArray): ByteArray? {
+        lastEncodeBuffered = false
+        if (opus.isEmpty()) return null
+
+        if (!OpusPacking.isMergeableTenMs(opus)) {
+            // Already a full-size (or unusual) packet: send as-is. A held
+            // 10 ms frame can't precede it on the wire without breaking
+            // order, so it is dropped.
+            if (pending != null) {
+                droppedFrames++
+                pending = null
+            }
+            return frame(opus)
+        }
+
+        val held = pending
+        if (held == null) {
+            pending = opus
+            lastEncodeBuffered = true
+            return null
+        }
+        pending = null
+        val merged = OpusPacking.pack(held, opus)
+        if (merged == null) {
+            // Config mismatch between consecutive frames (encoder was
+            // reconfigured mid-burst): drop the older, hold the newer.
+            droppedFrames++
+            pending = opus
+            lastEncodeBuffered = true
+            return null
+        }
+        return frame(merged)
+    }
+
+    private fun frame(opusPacket: ByteArray): ByteArray {
+        val rtp =
+            RtpFraming.encode(
+                sequenceNumber = seq,
+                timestamp = timestamp,
+                ssrc = ssrc,
+                opusPayload = opusPacket,
+                marker = burstStart,
+            )
+        seq = (seq + 1) and 0xFFFF
+        val samples = OpusPacking.packetSamples(opusPacket) ?: RtpFraming.TIMESTAMP_INCREMENT_20MS
+        timestamp = (timestamp + samples) and 0xFFFFFFFFL
+        burstStart = false
+        return rtp
+    }
+
+    override fun decodeRx(
+        datagram: ByteArray,
+        sourceHost: String,
+    ): MulticastWireCodec.RxResult {
+        if (datagram.isEmpty()) return MulticastWireCodec.RxResult.Dropped(MulticastWireCodec.DropReason.EMPTY)
+        val decoded =
+            RtpFraming.decode(datagram)
+                ?: return MulticastWireCodec.RxResult.Dropped(MulticastWireCodec.DropReason.NOT_RTP)
+        val (header, payload) = decoded
+        if (header.payloadType != RtpFraming.PAYLOAD_TYPE_OPUS) {
+            return MulticastWireCodec.RxResult.Dropped(MulticastWireCodec.DropReason.WRONG_PAYLOAD_TYPE)
+        }
+        return MulticastWireCodec.RxResult.Voice(
+            speakerKey = "ssrc:%08x".format(header.ssrc),
+            // The RTP sequence is stream-wide here, not burst-relative.
+            seqInBurst = null,
+            opus = payload,
+        )
+    }
+}
+
 /** Factory keyed off a channel's config. */
 fun ChannelMulticastConfig.newWireCodec(
     ssrc: Long,
@@ -284,4 +420,5 @@ fun ChannelMulticastConfig.newWireCodec(
     when (wireFormat) {
         WireFormat.XV_NATIVE -> XvNativeWireCodec(ssrc, cryptoPolicy, keyRegistry)
         WireFormat.VX_COMPAT -> VxWireCodec(ssrc)
+        WireFormat.OPENMANET_RTP -> OpenManetRtpWireCodec(ssrc)
     }

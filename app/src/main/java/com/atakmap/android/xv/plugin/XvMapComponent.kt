@@ -3044,7 +3044,11 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun applyPatchToCurrentChannel(group: String, port: String): String? {
                 val channel = meshActiveChannelCanonical() ?: return "No active mesh channel."
-                val config = settings.channelMulticastConfigFor(channel) ?: return "Channel config not found."
+                // A channel on the auto-derived default has no stored
+                // override; patching it materializes one from the default.
+                val config =
+                    settings.channelMulticastConfigFor(channel)
+                        ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig.defaultFor(channel)
 
                 val patchGroup = group.ifBlank { null }
                 val patchPortStr = port.ifBlank { null }
@@ -3052,7 +3056,9 @@ class XvMapComponent : AbstractMapComponent() {
                 val updated = config.copy(
                     patchGroup = patchGroup,
                     patchPort = patchPortStr?.toIntOrNull(),
-                    patchWireFormat = com.atakmap.android.xv.transport.multicast.WireFormat.VX_COMPAT,
+                    // OpenMANET's openmanetd only accepts RTP; raw-Opus VX_COMPAT
+                    // patches were silently dropped by it.
+                    patchWireFormat = com.atakmap.android.xv.transport.multicast.WireFormat.OPENMANET_RTP,
                     patchCryptoPolicy = com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT
                 )
                 if (patchGroup != null && updated.patchPort == null) return "Invalid port number."

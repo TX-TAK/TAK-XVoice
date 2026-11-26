@@ -1656,7 +1656,8 @@ class MeshVoiceManager(
     }
 
     private fun MeshLeg.safeSendControl(msg: ControlPacket.Message) {
-        if (config.wireFormat != com.atakmap.android.xv.transport.multicast.WireFormat.VX_COMPAT) {
+        // Interop wires (raw Opus / OpenMANET RTP) have no XVMC control plane.
+        if (!config.wireFormat.isInterop) {
             sendControl(msg)
         }
     }

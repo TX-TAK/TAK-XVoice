@@ -19,8 +19,27 @@ import org.json.JSONObject
  *                     talkgroup in 225.41.1.1–.5) because those
  *                     deployments chose their addresses on their own
  *                     scheme — the XV derivation can't find them.
+ *   OPENMANET_RTP — cleartext `[RTP || Opus]`, PT 111, 20 ms packets,
+ *                     stream-monotonic sequence, no XVMC control
+ *                     packets ([OpenManetRtpWireCodec]). What
+ *                     OpenMANET's openmanetd requires; it drops
+ *                     anything that isn't RTP. Like VX_COMPAT it needs
+ *                     an operator-pinned group + port and CLEARTEXT.
+ *
+ * Persistence note: an older build reading a stored config that names
+ * [OPENMANET_RTP] fails `valueOf`, [ChannelMulticastConfig.fromJson]
+ * returns null, and the channel degrades to the auto-derived default —
+ * no crash.
  */
-enum class WireFormat { XV_NATIVE, VX_COMPAT }
+enum class WireFormat {
+    XV_NATIVE,
+    VX_COMPAT,
+    OPENMANET_RTP,
+    ;
+
+    /** Cleartext interop formats with no XVMC control plane and no crypto layer. */
+    val isInterop: Boolean get() = this != XV_NATIVE
+}
 
 /**
  * Per-channel encryption posture for the multicast leg.
@@ -94,13 +113,13 @@ data class ChannelMulticastConfig(
         if (pinnedGroup != null && !isIpv4MulticastAddress(pinnedGroup)) {
             return "pinned group '$pinnedGroup' is not an IPv4 multicast address (224.0.0.1—239.255.255.255)"
         }
-        if (wireFormat == WireFormat.VX_COMPAT) {
+        if (wireFormat.isInterop) {
             if (pinnedGroup == null) {
-                return "VX-compat channels need an explicit group + port " +
+                return "interop channels need an explicit group + port " +
                     "(the interop deployment chose them; XV can't derive them)"
             }
             if (cryptoPolicy != CryptoPolicy.CLEARTEXT) {
-                return "VX-compat wire format has no encryption layer; crypto policy must be CLEARTEXT"
+                return "interop wire formats have no encryption layer; crypto policy must be CLEARTEXT"
             }
         }
         if ((patchGroup == null) != (patchPort == null)) {
@@ -112,8 +131,8 @@ data class ChannelMulticastConfig(
         if (patchGroup != null && !isIpv4MulticastAddress(patchGroup)) {
             return "patch group '$patchGroup' is not an IPv4 multicast address"
         }
-        if (patchGroup != null && patchWireFormat == WireFormat.VX_COMPAT && patchCryptoPolicy != CryptoPolicy.CLEARTEXT) {
-            return "VX-compat patch format has no encryption layer; patch crypto policy must be CLEARTEXT"
+        if (patchGroup != null && patchWireFormat.isInterop && patchCryptoPolicy != CryptoPolicy.CLEARTEXT) {
+            return "interop patch formats have no encryption layer; patch crypto policy must be CLEARTEXT"
         }
         return null
     }

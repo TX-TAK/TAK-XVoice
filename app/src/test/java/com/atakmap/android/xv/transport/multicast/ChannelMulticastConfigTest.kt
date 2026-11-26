@@ -194,4 +194,54 @@ class ChannelMulticastConfigTest {
         assertNotNull(parsed)
         assertTrue(parsed!!.validate() != null)
     }
+
+    // ---- OPENMANET_RTP ----
+
+    private fun openManet(
+        crypto: CryptoPolicy = CryptoPolicy.CLEARTEXT,
+        pinned: Boolean = true,
+    ) = ChannelMulticastConfig(
+        channelName = "mesh-ptt",
+        wireFormat = WireFormat.OPENMANET_RTP,
+        cryptoPolicy = crypto,
+        pinnedGroup = if (pinned) "239.255.0.1" else null,
+        pinnedPort = if (pinned) 5007 else null,
+    )
+
+    @Test
+    fun `openmanet rtp demands a pin and cleartext like other interop formats`() {
+        assertNull(openManet().validate())
+        assertNotNull(openManet(pinned = false).validate())
+        assertNotNull(openManet(crypto = CryptoPolicy.REQUIRED).validate())
+        assertNotNull(openManet(crypto = CryptoPolicy.PREFERRED).validate())
+    }
+
+    @Test
+    fun `openmanet rtp patch leg round-trips through json`() {
+        val cfg =
+            ChannelMulticastConfig(
+                channelName = "ops-1",
+                patchGroup = "239.255.0.2",
+                patchPort = 5008,
+                patchWireFormat = WireFormat.OPENMANET_RTP,
+                patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
+            )
+        assertEquals(cfg, ChannelMulticastConfig.fromJson(cfg.toJson()))
+        assertNull(cfg.validate())
+        assertNotNull(cfg.copy(patchCryptoPolicy = CryptoPolicy.PREFERRED).validate())
+    }
+
+    @Test
+    fun `stored patch config without patchWireFormat still reads as vx compat`() {
+        val json =
+            """{"channel":"ops-1","mode":"FAILOVER","wireFormat":"XV_NATIVE","cryptoPolicy":"PREFERRED",""" +
+                """"patchGroup":"239.255.0.2","patchPort":5008}"""
+        assertEquals(WireFormat.VX_COMPAT, ChannelMulticastConfig.fromJson(json)!!.patchWireFormat)
+    }
+
+    @Test
+    fun `a wire format this build does not know degrades to no override`() {
+        val json = """{"channel":"ops-1","mode":"FAILOVER","wireFormat":"FUTURE_FORMAT","cryptoPolicy":"CLEARTEXT"}"""
+        assertNull(ChannelMulticastConfig.fromJson(json))
+    }
 }

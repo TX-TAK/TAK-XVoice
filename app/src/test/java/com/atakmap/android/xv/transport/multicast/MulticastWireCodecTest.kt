@@ -2,6 +2,7 @@ package com.atakmap.android.xv.transport.multicast
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -291,6 +292,135 @@ class MulticastWireCodecTest {
         assertArrayEquals(datagram, v.opus)
     }
 
+    // ---- OpenMANET RTP ----
+
+    // 10 ms hybrid-FB mono frames (TOC 0x70, code 0), as our encoder emits.
+    private fun tenMs(tag: Int) = byteArrayOf(0x70, tag.toByte(), 0x22, 0x33)
+
+    private fun omCodec(
+        seq: Int = 100,
+        ts: Long = 5_000L,
+    ) = OpenManetRtpWireCodec(ssrc, initialSeq = seq, initialTimestamp = ts)
+
+    private fun rtp(datagram: ByteArray?) = RtpFraming.decode(datagram!!)!!
+
+    @Test
+    fun `openmanet tx holds the first 10 ms frame and emits one 20 ms RTP packet per pair`() {
+        val tx = omCodec()
+        tx.beginBurst()
+        assertNull(tx.encodeTx(tenMs(1)))
+        assertTrue(tx.lastEncodeBuffered)
+        val datagram = tx.encodeTx(tenMs(2))
+        assertNotNull(datagram)
+        assertFalse(tx.lastEncodeBuffered)
+
+        val (header, payload) = rtp(datagram)
+        assertEquals(0x80, datagram!![0].toInt() and 0xFF) // RTP v2, no pad/ext/CSRC
+        assertEquals(111, header.payloadType)
+        assertEquals(ssrc, header.ssrc)
+        assertTrue(header.marker)
+        assertEquals(100, header.sequenceNumber)
+        assertEquals(5_000L, header.timestamp)
+        // Payload is one code-1 packet of two 10 ms frames == 20 ms.
+        assertEquals(OpusPacking.SAMPLES_20MS, OpusPacking.packetSamples(payload))
+        assertEquals(0x71, payload[0].toInt() and 0xFF)
+    }
+
+    @Test
+    fun `openmanet sequence and timestamp are monotonic across bursts`() {
+        val tx = omCodec(seq = 100, ts = 5_000L)
+        val headers = mutableListOf<RtpFraming.Header>()
+        repeat(3) { burst ->
+            tx.beginBurst()
+            repeat(4) { i -> tx.encodeTx(tenMs(burst * 10 + i))?.let { headers += rtp(it).first } }
+        }
+        assertEquals(6, headers.size)
+        assertEquals((100..105).toList(), headers.map { it.sequenceNumber })
+        // 20 ms per packet, continuing through the burst boundary.
+        assertEquals((0..5).map { 5_000L + it * 960L }, headers.map { it.timestamp })
+        // Marker only on each burst's first packet.
+        assertEquals(listOf(true, false, true, false, true, false), headers.map { it.marker })
+    }
+
+    @Test
+    fun `openmanet sequence and timestamp wrap at 16 and 32 bits`() {
+        val tx = omCodec(seq = 0xFFFF, ts = 0xFFFFFFFFL - 959)
+        tx.beginBurst()
+        tx.encodeTx(tenMs(1))
+        val first = rtp(tx.encodeTx(tenMs(2))).first
+        tx.encodeTx(tenMs(3))
+        val second = rtp(tx.encodeTx(tenMs(4))).first
+        assertEquals(0xFFFF, first.sequenceNumber)
+        assertEquals(0, second.sequenceNumber)
+        assertEquals(0xFFFFFFFFL - 959, first.timestamp)
+        assertEquals(0L, second.timestamp) // (2^32 - 960) + 960 wraps to 0
+    }
+
+    @Test
+    fun `openmanet timestamp increment follows actual packet duration`() {
+        val tx = omCodec(ts = 0L)
+        tx.beginBurst()
+        // Packets that are not 10 ms single frames pass straight through
+        // (no holding) and advance the clock by their real duration.
+        val twenty = byteArrayOf(0x78, 1, 2, 3) // hybrid FB 20 ms
+        val forty = byteArrayOf(0x10, 1, 2, 3) // SILK NB 40 ms
+        val a = rtp(tx.encodeTx(twenty)).first
+        val b = rtp(tx.encodeTx(forty)).first
+        val c = rtp(tx.encodeTx(twenty)).first
+        assertEquals(0L, a.timestamp)
+        assertEquals(960L, b.timestamp)
+        assertEquals(960L + 1920L, c.timestamp)
+    }
+
+    @Test
+    fun `openmanet half-pair stranded at PTT release is dropped, not leaked into the next burst`() {
+        val tx = omCodec()
+        tx.beginBurst()
+        assertNull(tx.encodeTx(tenMs(1))) // odd frame count: 1 stranded
+        tx.beginBurst()
+        assertEquals(1L, tx.droppedFrames)
+        assertNull(tx.encodeTx(tenMs(2)))
+        val (_, payload) = rtp(tx.encodeTx(tenMs(3)))
+        // New burst's pair is (2, 3) — frame 1 never reappears.
+        assertEquals(2, payload[1].toInt())
+        assertEquals(3, payload[4].toInt())
+    }
+
+    @Test
+    fun `openmanet rx accepts PT 111 RTP and attributes by ssrc`() {
+        val tx = omCodec()
+        tx.beginBurst()
+        tx.encodeTx(tenMs(1))
+        val datagram = tx.encodeTx(tenMs(2))!!
+        val v = voice(omCodec().decodeRx(datagram, sourceHost = "198.51.100.7"))
+        assertEquals("ssrc:deadbeef", v.speakerKey)
+        assertNull(v.seqInBurst)
+        assertArrayEquals(rtp(datagram).second, v.opus)
+    }
+
+    @Test
+    fun `openmanet rx drops raw opus, other payload types and empties`() {
+        val rx = omCodec()
+        assertEquals(MulticastWireCodec.DropReason.EMPTY, dropReason(rx.decodeRx(ByteArray(0), "198.51.100.7")))
+        assertEquals(
+            MulticastWireCodec.DropReason.NOT_RTP,
+            dropReason(rx.decodeRx(byteArrayOf(0x70, 1, 2, 3, 4), "198.51.100.7")),
+        )
+        val pt96 = RtpFraming.encode(1, 0, ssrc, tenMs(1), payloadType = 96)
+        assertEquals(
+            MulticastWireCodec.DropReason.WRONG_PAYLOAD_TYPE,
+            dropReason(rx.decodeRx(pt96, "198.51.100.7")),
+        )
+    }
+
+    @Test
+    fun `vx compat stays raw opus with no RTP header`() {
+        val tx = VxWireCodec(ssrc)
+        tx.beginBurst()
+        assertArrayEquals(opus, tx.encodeTx(opus))
+        assertFalse(tx.lastEncodeBuffered)
+    }
+
     // ---- factory ----
 
     @Test
@@ -307,5 +437,15 @@ class MulticastWireCodecTest {
                 pinnedPort = 5007,
             ).newWireCodec(ssrc, keyRegistry = null)
         assertTrue(compat is VxWireCodec)
+
+        val openManet =
+            ChannelMulticastConfig(
+                channelName = "mesh-ptt",
+                wireFormat = WireFormat.OPENMANET_RTP,
+                cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                pinnedGroup = "239.255.0.1",
+                pinnedPort = 5007,
+            ).newWireCodec(ssrc, keyRegistry = null)
+        assertTrue(openManet is OpenManetRtpWireCodec)
     }
 }

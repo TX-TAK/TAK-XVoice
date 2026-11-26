@@ -138,6 +138,15 @@ class MulticastMeshLeg(
                     transport.sendRaw(opus)
                     return
                 }
+                WireFormat.OPENMANET_RTP -> {
+                    // RTP carries an SSRC, so relays keep per-speaker
+                    // attribution, but there is no crypto and the codec
+                    // packs 10 ms frames into 20 ms packets per speaker.
+                    relayedSpeakerLastMs["ssrc:%08x".format(RtpFraming.fnv1aSsrc(speakerUid))] = nowMs()
+                    relayCodecs.getOrPut(speakerUid) {
+                        OpenManetRtpWireCodec(RtpFraming.fnv1aSsrc(speakerUid))
+                    }
+                }
                 WireFormat.XV_NATIVE -> {
                     relayedSpeakerLastMs["ssrc:%08x".format(RtpFraming.fnv1aSsrc(speakerUid))] = nowMs()
                     relayCodecs.getOrPut(speakerUid) {

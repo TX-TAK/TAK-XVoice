@@ -146,6 +146,13 @@ class MulticastTransport(
             } catch (t: Throwable) {
                 Log.w(TAG, "setting multicast TTL failed (using OS default): ${t.message}")
             }
+            // DSCP EF so mesh/overlay QoS can prioritize voice. Best effort:
+            // many Android builds ignore or reject IP_TOS on multicast sockets.
+            try {
+                sock.trafficClass = DSCP_EF_TRAFFIC_CLASS
+            } catch (t: Throwable) {
+                Log.w(TAG, "setting DSCP EF traffic class failed (continuing best-effort): ${t.message}")
+            }
             val intf =
                 config.networkInterfaceName?.let { NetworkInterface.getByName(it) }
                     ?: defaultMulticastInterface()
@@ -244,7 +251,8 @@ class MulticastTransport(
         if (!connected) return
         val datagram = txCodec.encodeTx(frame.opusPayload)
         if (datagram == null) {
-            txDroppedByPolicy.incrementAndGet()
+            // A codec holding half of a 10 ms pair is not a policy drop.
+            if (!txCodec.lastEncodeBuffered) txDroppedByPolicy.incrementAndGet()
             return
         }
         sendRaw(datagram)
@@ -411,9 +419,13 @@ class MulticastTransport(
         // even with the RTP + AEAD overhead.
         private const val MAX_DATAGRAM_BYTES = 1500
 
-        // 239/8 is org-local scope; TTL 8 lets frames cross a few mesh
-        // hops (OpenMANET nodes route multicast) without leaking far.
-        private const val MULTICAST_TTL = 8
+        // 239/8 is org-local scope. TTL 32 matches openmanetd so frames
+        // survive multi-hop batman-adv / overlay paths (every routed hop
+        // decrements TTL) while staying inside the administrative scope.
+        private const val MULTICAST_TTL = 32
+
+        // DSCP EF (46) << 2 = 0xB8 in the IP TOS / traffic-class byte.
+        private const val DSCP_EF_TRAFFIC_CLASS = 0xB8
 
         private const val DROP_LOG_SAMPLE = 200L
 
