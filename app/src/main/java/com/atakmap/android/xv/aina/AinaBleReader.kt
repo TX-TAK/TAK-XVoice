@@ -272,6 +272,9 @@ class AinaBleReader(
     @Volatile
     private var lastGattCloseMs: Long = 0L
 
+    // Still supposed to be (re)connecting: not torn down by the owner.
+    private fun wantsReconnect(): Boolean = !intentionalDisconnect && !disposed
+
     private fun scheduleReconnect(
         reason: String,
         expected: BluetoothGatt?,
@@ -281,7 +284,7 @@ class AinaBleReader(
         // typically leaves it unusable. A stale handle's failure (closeGatt
         // returns false) belongs to whoever replaced it. closeGatt only runs
         // when the earlier checks pass.
-        if (intentionalDisconnect || disposed || device == null || !closeGatt(expected)) return
+        if (!wantsReconnect() || device == null || !closeGatt(expected)) return
         val auth = lastFailureWasAuth
         val unrecognised = unrecognisedCount
         // After several failed direct attempts, switch to autoConnect=true so

@@ -523,6 +523,9 @@ open class BitmaskGattPttReader(
         }
     }
 
+    // Still supposed to be (re)connecting: not torn down by the owner.
+    private fun wantsReconnect(): Boolean = !intentionalDisconnect && !disposed
+
     private fun scheduleReconnect(
         reason: String,
         expected: BluetoothGatt?,
@@ -531,7 +534,7 @@ open class BitmaskGattPttReader(
         // A stale handle's failure (closeGatt returns false): whoever
         // replaced it owns the retry. closeGatt only runs when the
         // earlier checks pass.
-        if (intentionalDisconnect || disposed || device == null || !closeGatt(expected)) return
+        if (!wantsReconnect() || device == null || !closeGatt(expected)) return
         val auth = lastFailureWasAuth
         val unrecognised = unrecognisedCount
         val (delayMs, armed, attempts) =
