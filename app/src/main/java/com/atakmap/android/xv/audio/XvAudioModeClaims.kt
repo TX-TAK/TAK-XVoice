@@ -21,21 +21,39 @@ object XvAudioModeClaims {
     const val AUDIO_PLANT = "audio-plant"
     const val SCO_LINK = "sco-link"
 
+    /**
+     * After the last release the reported mode can lag the restore
+     * (~1.4 s observed on Pixel / API 35), so XV's mode counts as XV's
+     * for this long after it lets go.
+     */
+    const val RELEASE_GRACE_MS = 2_000L
+
     private val holders = ConcurrentHashMap.newKeySet<String>()
+
+    @Volatile
+    private var lastReleaseElapsedMs = 0L
 
     fun claim(tag: String) {
         holders.add(tag)
     }
 
-    fun release(tag: String) {
-        holders.remove(tag)
+    fun release(
+        tag: String,
+        nowMs: Long = android.os.SystemClock.elapsedRealtime(),
+    ) {
+        if (holders.remove(tag) && holders.isEmpty()) lastReleaseElapsedMs = nowMs
     }
 
     /** True while any XV component holds IN_COMMUNICATION. */
     fun held(): Boolean = holders.isNotEmpty()
 
+    /** [held], or the last claim ended within [RELEASE_GRACE_MS]. */
+    fun heldOrRecentlyReleased(nowMs: Long = android.os.SystemClock.elapsedRealtime()): Boolean =
+        held() || (lastReleaseElapsedMs > 0L && nowMs - lastReleaseElapsedMs <= RELEASE_GRACE_MS)
+
     /** Test-only: forget every claim. */
     internal fun clearForTest() {
         holders.clear()
+        lastReleaseElapsedMs = 0L
     }
 }

@@ -173,7 +173,7 @@ class VoicePlant(
             val xvOwnCallOrGrace =
                 xvHasActiveTelecomCallProvider() ||
                     com.atakmap.android.xv.audio.XvAudioModeClaims
-                        .held() ||
+                        .heldOrRecentlyReleased(nowMs) ||
                     recentOwnRx ||
                     lowLatencyHoldActive ||
                     com.atakmap.android.xv.telecom.ActiveCallRegistry

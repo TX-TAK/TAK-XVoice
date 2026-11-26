@@ -15,13 +15,14 @@ package com.atakmap.android.xv.service
  *  - ringing / in-call / call-screening / redirect: a call, always;
  *  - IN_COMMUNICATION entered from a call mode stays a call (an answered
  *    VoLTE call goes RINGTONE then IN_COMMUNICATION);
- *  - IN_COMMUNICATION entered while XV wasn't producing audio is
- *    someone else's call (placed VoLTE, another VoIP app), and stays so
- *    until the mode leaves IN_COMMUNICATION;
- *  - IN_COMMUNICATION entered by XV's own audio stays XV's;
+ *  - IN_COMMUNICATION while XV holds no claim, Telecom call or grace
+ *    window is someone else's call (placed VoLTE, another VoIP app),
+ *    and stays so until the mode leaves IN_COMMUNICATION;
+ *  - IN_COMMUNICATION while XV holds it is XV's;
  *  - any other mode ends the call.
- * Limitation: a VoIP call another app starts while XV already holds
- * IN_COMMUNICATION can't be seen (the mode doesn't change).
+ * Limitation: a VoIP call another app starts while XV is actively
+ * holding IN_COMMUNICATION is seen only once XV releases it (the end of
+ * its cool-down after the last traffic).
  *
  * The caller must not count audio it dropped because of this signal as
  * "XV's own audio" — otherwise a call would un-latch itself.
@@ -55,9 +56,13 @@ class ExternalCallDetector(
         active =
             when (audioMode) {
                 MODE_RINGTONE, MODE_IN_CALL, MODE_CALL_SCREENING, MODE_CALL_REDIRECT, MODE_COMMUNICATION_REDIRECT -> true
-                MODE_IN_COMMUNICATION ->
-                    telephonyAvailable &&
-                        (active || (lastMode != MODE_IN_COMMUNICATION && !xvOwnAudio))
+                // Once a call is latched it stays a call. Otherwise
+                // IN_COMMUNICATION is somebody else's whenever XV isn't
+                // holding it: every XV setMode is claimed
+                // (XvAudioModeClaims), so "XV entered it earlier" is no
+                // longer needed — and it hid a call the operator placed
+                // during or just after radio traffic for that whole call.
+                MODE_IN_COMMUNICATION -> telephonyAvailable && (active || !xvOwnAudio)
                 else -> false
             }
         lastMode = audioMode

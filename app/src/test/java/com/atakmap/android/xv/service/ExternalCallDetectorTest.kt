@@ -31,11 +31,23 @@ class ExternalCallDetectorTest {
     }
 
     @Test
-    fun `XV-entered IN_COMMUNICATION is not a call, even after XV audio stops`() {
+    fun `XV-held IN_COMMUNICATION is not a call`() {
         d.sample(AudioManager.MODE_NORMAL, xvOwnAudio = false)
         assertFalse(d.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = true))
-        // Grace / RX window lapsed but the mode never left: still XV.
-        assertFalse(d.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = false))
+        assertFalse(d.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = true))
+    }
+
+    @Test
+    fun `a call placed during XV traffic is a call once XV lets go`() {
+        // VoLTE / VoIP call dialed mid-burst: the mode never changes, so
+        // only XV releasing its hold reveals it. It must then stay a call
+        // (no channel audio over it, no PTT that would hold it).
+        d.sample(AudioManager.MODE_NORMAL, xvOwnAudio = false)
+        assertFalse(d.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = true))
+        assertTrue(d.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = false))
+        // XV traffic during the call doesn't un-latch it.
+        assertTrue(d.sample(AudioManager.MODE_IN_COMMUNICATION, xvOwnAudio = true))
+        assertFalse(d.sample(AudioManager.MODE_NORMAL, xvOwnAudio = false))
     }
 
     @Test
