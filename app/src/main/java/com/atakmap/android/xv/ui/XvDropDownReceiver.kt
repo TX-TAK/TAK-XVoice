@@ -704,7 +704,7 @@ class XvDropDownReceiver(
             size = MapHudPolicy.Size.parse(controller.mapPttSize()),
             slot1 = hudSlot(0, controller.currentChannelName(), SlotRowPolicy.channel1Live(controller.currentChannelName(), linked, false)),
             slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
-            notice = ptt1Hint(0) ?: if (linked) null else "Voice offline",
+            notice = ptt1Hint(0) ?: hudNotice(linked),
         )
     }
 
@@ -1195,6 +1195,17 @@ class XvDropDownReceiver(
         }
     }
 
+    // Map HUD notice with nobody talking: the server's refusal (shared by
+    // both channels) wins over the generic offline cue.
+    private fun hudNotice(linked: Boolean): String? {
+        val refused = controller.mumbleRefusedReason()
+        return when {
+            refused != null && !controller.isMumbleConnected() -> "Voice: $refused"
+            linked -> null
+            else -> "Voice offline"
+        }
+    }
+
     // Status line text + tap action. Connected / reconnecting: the host or
     // the retry countdown, no tap. Refused: the reason, tap opens Server.
     // Voice off: an explicit "tap to connect" so a disconnected panel never
@@ -1378,8 +1389,19 @@ class XvDropDownReceiver(
         connected: Boolean,
         listenOnly: Boolean,
     ): Pair<String, Int> {
-        val idle = SlotRowPolicy.idle(slot, live, connected, listenOnly)
-        return idle.text to if (idle == SlotRowPolicy.Idle.MESH) R.color.xv_net else R.color.xv_text_dim
+        // A credential rejection on either session shows on every row
+        // whose own session is down (channel 2's session is "up" when it
+        // is registered; channel 1's when the transport is connected).
+        val refusedReason = controller.mumbleRefusedReason()
+        val slotUp = if (slot == 0) connected else controller.secondaryRegistered()
+        val idle =
+            SlotRowPolicy.idle(slot, live, connected, listenOnly, refused = refusedReason != null, slotServerUp = slotUp)
+        return when (idle) {
+            SlotRowPolicy.Idle.REFUSED -> "$refusedReason" to R.color.xv_err
+            SlotRowPolicy.Idle.REFUSED_MESH -> "mesh only · $refusedReason" to R.color.xv_err
+            SlotRowPolicy.Idle.MESH -> idle.text to R.color.xv_net
+            else -> idle.text to R.color.xv_text_dim
+        }
     }
 
     // Activity line: talkers in Honey with the waveform glyph, else the

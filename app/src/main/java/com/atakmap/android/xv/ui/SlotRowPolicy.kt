@@ -21,16 +21,33 @@ object SlotRowPolicy {
         JOINING("joining…"),
         LISTEN_ONLY("listen only"),
         QUIET("quiet"),
+
+        /** The server refused our (shared) credential; the caller shows the reason. */
+        REFUSED("refused"),
+
+        /** Same, but a mesh leg still carries channel 1. */
+        REFUSED_MESH("mesh only"),
     }
 
-    /** What the row's activity line says when nobody is talking. */
+    /**
+     * What the row's activity line says when nobody is talking.
+     *
+     * [slotServerUp] = this row's own server session is up. [refused] =
+     * the shared server credential was rejected (by either session): every
+     * row whose session is down shows the same reason, while a session the
+     * server is still serving keeps its normal state.
+     */
     fun idle(
         slot: Int,
         live: Boolean,
         serverConnected: Boolean,
         listenOnly: Boolean,
+        refused: Boolean = false,
+        slotServerUp: Boolean = serverConnected,
     ): Idle =
         when {
+            refused && !slotServerUp && live && slot == 0 -> Idle.REFUSED_MESH
+            refused && !slotServerUp -> Idle.REFUSED
             !serverConnected && live && slot == 0 -> Idle.MESH
             !serverConnected -> Idle.NOT_CONNECTED
             !live -> Idle.JOINING

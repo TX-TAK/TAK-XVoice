@@ -46,4 +46,28 @@ class SlotRowPolicyTest {
         assertTrue(SlotRowPolicy.showEncryptedChip(hasClearLeg = false))
         assertFalse(SlotRowPolicy.showEncryptedChip(hasClearLeg = true))
     }
+
+    @Test
+    fun `revoked credential shows on both rows once their sessions are down`() {
+        assertEquals(Idle.REFUSED, SlotRowPolicy.idle(0, live = false, serverConnected = false, listenOnly = false, refused = true))
+        assertEquals(
+            Idle.REFUSED,
+            SlotRowPolicy.idle(1, live = false, serverConnected = false, listenOnly = false, refused = true, slotServerUp = false),
+        )
+    }
+
+    @Test
+    fun `a session the server still serves is not shown as refused`() {
+        // Channel 2 was refused, channel 1's session is still up.
+        assertEquals(Idle.QUIET, SlotRowPolicy.idle(0, live = true, serverConnected = true, listenOnly = false, refused = true))
+        assertEquals(
+            Idle.REFUSED,
+            SlotRowPolicy.idle(1, live = false, serverConnected = true, listenOnly = false, refused = true, slotServerUp = false),
+        )
+    }
+
+    @Test
+    fun `refused with a mesh leg carrying channel 1 says mesh only`() {
+        assertEquals(Idle.REFUSED_MESH, SlotRowPolicy.idle(0, live = true, serverConnected = false, listenOnly = false, refused = true))
+    }
 }

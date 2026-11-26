@@ -28,6 +28,8 @@ object RejectSummary {
         }
 
     const val REMOVED = "removed by the server"
+
+    const val REVOKED = "access revoked"
 }
 
 /** Auth wall, missing cert, banned, or any other Reject type that
