@@ -159,6 +159,68 @@ class AinaSppReaderGenerationTest {
         assertFalse(AinaSppReader.shouldKeepLiveReader(false, "v1"))
     }
 
+    @Test
+    fun `reconnect queued by an old generation never starts a second read thread`() {
+        // Gen 1 exhausts its burst and queues a reconnect on the main
+        // looper. Before it fires, connect() starts gen 2, whose socket
+        // blocks in connect(). Firing the stale reconnect must not open a
+        // second concurrent attempt.
+        val failing = mockk<BluetoothSocket>(relaxed = true)
+        every { failing.connect() } throws IOException("peer not there")
+        val blockingEntered = AtomicInteger(0)
+        val release = CountDownLatch(1)
+        val blocking = mockk<BluetoothSocket>(relaxed = true)
+        every { blocking.connect() } answers {
+            blockingEntered.incrementAndGet()
+            awaitUninterruptibly(release)
+            throw IOException("closed")
+        }
+        every { blocking.close() } answers { release.countDown() }
+        val exhausted = CountDownLatch(1)
+        var phase = 1
+        val reader =
+            AinaSppReader(
+                context = context,
+                onEvent = { _, _ -> },
+                onConnectionState = { up -> if (!up && phase == 1) exhausted.countDown() },
+                socketFactory = AinaSppReader.SocketFactory { _, _, _ -> if (phase == 1) failing else blocking },
+            )
+        reader.connect(device())
+        assertTrue("gen 1 never exhausted", exhausted.await(5, TimeUnit.SECONDS))
+        phase = 2
+        reader.connect(device())
+        // Let gen 2 reach its blocking connect(), then fire anything the
+        // main looper has queued (gen 1's reconnect).
+        val deadline = System.currentTimeMillis() + 2_000
+        while (blockingEntered.get() == 0 && System.currentTimeMillis() < deadline) Thread.sleep(10)
+        org.robolectric.Shadows
+            .shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(java.time.Duration.ofSeconds(60))
+        Thread.sleep(300)
+        assertEquals("only gen 2's attempt may be in connect()", 1, blockingEntered.get())
+        reader.disconnect()
+    }
+
+    @Test
+    fun `fresh reader connect does not announce a disconnect`() {
+        val edges = java.util.Collections.synchronizedList(mutableListOf<Boolean>())
+        val sock = mockk<BluetoothSocket>(relaxed = true)
+        val hold = CountDownLatch(1)
+        every { sock.connect() } answers { awaitUninterruptibly(hold) }
+        every { sock.close() } answers { hold.countDown() }
+        val reader =
+            AinaSppReader(
+                context = context,
+                onEvent = { _, _ -> },
+                onConnectionState = { edges += it },
+                socketFactory = AinaSppReader.SocketFactory { _, _, _ -> sock },
+            )
+        reader.connect(device())
+        Thread.sleep(200)
+        assertTrue("no false edge for a reader that had no session: $edges", edges.none { !it })
+        reader.disconnect()
+    }
+
     private fun device(): BluetoothDevice {
         val dev = mockk<BluetoothDevice>(relaxed = true)
         every { dev.address } returns MAC

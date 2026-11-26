@@ -186,4 +186,147 @@ class PttDispatcherOwnerKeyTest {
         d.up(0, PttSource.ON_SCREEN)
         verify(exactly = 1) { txController.stop() }
     }
+
+    @Test
+    fun `on-screen channel 2 press releases on its own up`() {
+        val d = dispatcher()
+        d.down(1, PttSource.ON_SCREEN)
+        verify(exactly = 1) { txController.start(slot = 1) }
+        d.up(1, PttSource.ON_SCREEN)
+        verify(exactly = 1) { txController.stop() }
+    }
+
+    @Test
+    fun `on-screen release with the wrong slot still ends the burst`() {
+        // Belt and braces for the stuck-mic bug: the UI used to release
+        // every press as slot 0. One finger, one on-screen input.
+        val d = dispatcher()
+        d.down(1, PttSource.ON_SCREEN)
+        d.up(0, PttSource.ON_SCREEN)
+        verify(exactly = 1) { txController.stop() }
+    }
+
+    @Test
+    fun `Active Key release clears its key whatever the slot`() {
+        val d = dispatcher()
+        d.down(0, PttSource.SAMSUNG_ACTIVE_KEY)
+        d.up(1, PttSource.SAMSUNG_ACTIVE_KEY)
+        verify(exactly = 1) { txController.stop() }
+    }
+
+    @Test
+    fun `on-screen wildcard release does not touch a held speaker-mic`() {
+        val d = dispatcher()
+        val mic = PttInputOwner("primary-v2")
+        d.down(0, PttSource.AINA_V2, mic)
+        d.down(1, PttSource.ON_SCREEN)
+        d.up(0, PttSource.ON_SCREEN)
+        verify(exactly = 0) { txController.stop() }
+        d.up(0, PttSource.AINA_V2, mic)
+        verify(exactly = 1) { txController.stop() }
+    }
+
+    @Test
+    fun `back-compat up without source clears every owner`() {
+        val d = dispatcher()
+        d.down(0, PttSource.AINA_V2, PttInputOwner("primary-v2"))
+        d.down(0, PttSource.PRYME_BLE, PttInputOwner("external-ble-hid"))
+        d.down(1, PttSource.ON_SCREEN)
+        d.up(0)
+        verify(exactly = 1) { txController.stop() }
+    }
+
+    @Test
+    fun `latched burst survives forgetOwner of its reader and toggles off from another input`() {
+        // Latched TX is owned by latchedActive, not by the held set: a
+        // reader teardown must not end it, and the next press toggles off.
+        latchedMode = true
+        val d = dispatcher()
+        val mic = PttInputOwner("primary-v2")
+        d.down(0, PttSource.AINA_V2, mic)
+        d.forgetOwner(mic, retire = true)
+        assertTrue(d.isLatched())
+        verify(exactly = 0) { txController.stop() }
+        d.down(0, PttSource.ON_SCREEN)
+        assertFalse(d.isLatched())
+        verify(exactly = 1) { txController.stop() }
+    }
+
+    @Test
+    fun `down racing a teardown never leaves TX running with nothing held`() {
+        // Thread A presses on a reader while thread B tears that reader
+        // down. Whichever wins, the end state must be "not transmitting".
+        repeat(200) {
+            val calls = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val tx = mockk<TxController>()
+            io.mockk.every { tx.start(any()) } answers { calls += "start" }
+            io.mockk.every { tx.stop() } answers { calls += "stop" }
+            val d =
+                PttDispatcher(
+                    txController = tx,
+                    statusTones = null,
+                    latchedModeEnabled = { false },
+                    momentaryTimeoutSec = { 0 },
+                    latchedTimeoutSec = { 0 },
+                )
+            val owner = PttInputOwner("primary-spp")
+            val go = java.util.concurrent.CountDownLatch(1)
+            val a = Thread {
+                go.await()
+                d.down(0, PttSource.AINA_V1, owner)
+            }
+            val b = Thread {
+                go.await()
+                d.forgetOwner(owner, retire = true)
+            }
+            a.start()
+            b.start()
+            go.countDown()
+            a.join()
+            b.join()
+            val last = synchronized(calls) { calls.lastOrNull() }
+            assertTrue("TX left running after teardown: $calls", last == null || last == "stop")
+        }
+    }
+
+    @Test
+    fun `concurrent releases on two devices end the burst exactly when both are up`() {
+        repeat(200) {
+            val calls = java.util.Collections.synchronizedList(mutableListOf<String>())
+            val tx = mockk<TxController>()
+            io.mockk.every { tx.start(any()) } answers { calls += "start" }
+            io.mockk.every { tx.stop() } answers { calls += "stop" }
+            val d =
+                PttDispatcher(
+                    txController = tx,
+                    statusTones = null,
+                    latchedModeEnabled = { false },
+                    momentaryTimeoutSec = { 0 },
+                    latchedTimeoutSec = { 0 },
+                )
+            val one = PttInputOwner("primary-v2")
+            val two = PttInputOwner("external-ble-hid")
+            d.down(0, PttSource.AINA_V2, one)
+            val go = java.util.concurrent.CountDownLatch(1)
+            // Thread A releases device one while thread B presses then
+            // holds device two: B's press must keep TX on.
+            val a = Thread {
+                go.await()
+                d.up(0, PttSource.AINA_V2, one)
+            }
+            val b = Thread {
+                go.await()
+                d.down(0, PttSource.PRYME_BLE, two)
+            }
+            a.start()
+            b.start()
+            go.countDown()
+            a.join()
+            b.join()
+            val last = synchronized(calls) { calls.last() }
+            assertTrue("device two still held but TX stopped: $calls", last == "start")
+            d.up(0, PttSource.PRYME_BLE, two)
+            assertTrue(synchronized(calls) { calls.last() } == "stop")
+        }
+    }
 }
