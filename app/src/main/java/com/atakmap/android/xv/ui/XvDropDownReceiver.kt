@@ -725,6 +725,18 @@ class XvDropDownReceiver(
         mapHud?.setPanelOpen(paneVisible && mainPaneShowing)
     }
 
+    // An XV pane is open and on screen (not closed, not swiped away).
+    private fun paneOnScreen(): Boolean = paneVisible && !isClosed()
+
+    // [v] is the pane being tracked as [current] and is still attached.
+    private fun isShownPane(
+        v: View,
+        current: View?,
+    ): Boolean = current === v && v.isAttachedToWindow
+
+    // The main panel [v] is the pane on screen right now.
+    private fun mainPaneOnScreen(v: View): Boolean = mainPaneShowing && paneOnScreen() && isShownPane(v, mainView)
+
     // Settings / channel list / members: keep the map PTT buttons.
     private fun showSecondaryDropDown(v: View) {
         mainPaneShowing = false
@@ -1267,9 +1279,7 @@ class XvDropDownReceiver(
     // and rows come and go (call bar, channel 2, the mesh line). Only
     // while the main panel is the pane on screen.
     private fun fitMainToContent(v: View) {
-        if (!isPortrait() || isClosed() || !paneVisible || !mainPaneShowing || mainView !== v || !v.isAttachedToWindow) {
-            return
-        }
+        if (!isPortrait() || !mainPaneOnScreen(v)) return
         val fraction = mainPanelPortraitHeight(v)
         if (kotlin.math.abs(fraction - mainPaneFraction) < MAIN_PANEL_RESIZE_STEP) return
         mainPaneFraction = fraction
@@ -1649,7 +1659,7 @@ class XvDropDownReceiver(
             // with no way to dismiss it. Decide after the close has
             // settled, and only resize while this list is still showing.
             mainHandler.post {
-                if (isPortrait() && !isClosed() && paneVisible && channelListRoot === v && v.isAttachedToWindow) {
+                if (isPortrait() && paneOnScreen() && isShownPane(v, channelListRoot)) {
                     callResize(FULL_WIDTH, if (focused) FULL_HEIGHT else HALF_HEIGHT)
                 }
             }
