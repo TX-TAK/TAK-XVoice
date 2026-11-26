@@ -60,12 +60,12 @@ Each channel row shows, left to right:
 
 - a hex slot badge: Honey when live, an outline when the slot isn't live;
 - the channel name, which shrinks and then wraps to two lines. With no channel yet it reads **Pick a channel**. A **⚑** before channel 1's name means the active mission set it (Settings › Server);
-- what's happening on the channel: talker names in Honey with a waveform, or *quiet*, *joining…*, *not connected*, *listen only*, or *mesh* (Bluebonnet: the server is down and a mesh leg is carrying channel 1);
-- while the mesh is carrying channel 1, its slot badge, PTT outline and map PTT hex turn Bluebonnet instead of Honey (still Texas Red while transmitting);
+- what's happening on the channel: talker names in Honey with a waveform, or *quiet*, *joining…*, *not connected*, *listen only*, or *mesh* (Bluebonnet: the server is down and a mesh leg is carrying that channel);
+- while the mesh is carrying a channel, its slot badge, PTT outline and map PTT hex turn Bluebonnet instead of Honey (still Texas Red while transmitting);
 - a **👥 N** member count (the same number the channel list shows for that channel);
 - a large **PTT** button.
 
-A row is **live** only while voice can actually leave: channel 1 needs the server or a mesh leg carrying voice; channel 2 needs its own session joined. A row that isn't live is dimmed, even if a channel name is remembered. Row 2's PTT is disabled while channel 2 is joining.
+A row is **live** only while voice can actually leave: each channel needs the server (channel 2: its own session joined) or its mesh leg carrying voice. A row that isn't live is dimmed, even if a channel name is remembered. Row 2's PTT is disabled while channel 2 is joining.
 
 Other parts of the panel:
 
@@ -240,8 +240,8 @@ stateDiagram-v2
     - *Both*: transmits on server and mesh every time.
   - **Details…** opens the channel's settings. Server channels: mode (Off / Backup / Both) and the **interop patch (OpenMANET RTP)** — this device only, never shared, unencrypted — with **Clear patch**. Offline channels: name and fixed group/port, plus **Interop patch…** for the same patch dialog;
   - **long-press** an offline channel to forget it.
-- **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both. The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
-- **Disconnect has two choices** (Settings › Server › Disconnect): **Server only** leaves the server and keeps the mesh as backup (channel 1 fails over as above; status *Server off — tap to connect*); **All voice off** stops server and mesh (no failover, nothing heard or sent; status *All voice off — tap to connect*) until you connect again.
+- **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both — channel 1 and channel 2 alike, each on its own leg (PTT2 keys channel 2's leg; what you hear there plays on row 2). The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
+- **Disconnect has two choices** (Settings › Server › Disconnect): **Server only** leaves the server and keeps the mesh as backup (both channels fail over as above; status *Server off — tap to connect*); **All voice off** stops server and mesh (no failover, nothing heard or sent; status *All voice off — tap to connect*) until you connect again.
 - **Not after a refusal:** if the server *rejects* this device (access revoked, certificate or login refused), the mesh stops too: every mesh leg (interop patch included) closes, so nothing is heard or sent, until access is restored. A server that is just down or unreachable still fails over as above.
 - **+ Add channel** presets:
   - **Private channel:** XV picks the name, group and key.

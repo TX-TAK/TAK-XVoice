@@ -101,6 +101,9 @@ class XvDropDownReceiver(
         // The UI uses this to dim the VS2 PTT button until VS2 is live.
         fun secondaryRegistered(): Boolean
 
+        // Channel 2 is carried by its mesh leg (server down, failover on).
+        fun secondaryOnMesh(): Boolean = false
+
         // True if the operator can transmit on the slot's currently-
         // joined channel. Driven by the suppress flag on our own
         // Mumble UserState (set by OTS direction enforcement when our
@@ -735,7 +738,11 @@ class XvDropDownReceiver(
                 SlotRowPolicy.channel1Live(controller.currentChannelName(), linked, false),
                 onMesh = !controller.isMumbleConnected() && controller.meshStatus()?.active == true,
             ),
-            slot2 = ch2?.let { hudSlot(1, it, controller.secondaryRegistered()) },
+            slot2 =
+            ch2?.let {
+                val onMesh = !controller.secondaryRegistered() && controller.secondaryOnMesh()
+                hudSlot(1, it, controller.secondaryRegistered() || onMesh, onMesh = onMesh)
+            },
             notice = ptt1Hint(0) ?: hudNotice(linked),
         )
     }
@@ -1224,7 +1231,7 @@ class XvDropDownReceiver(
                 v,
                 slot = 1,
                 channel = secondaryName,
-                live = controller.secondaryRegistered(),
+                live = controller.secondaryRegistered() || controller.secondaryOnMesh(),
                 connected = connected,
             )
         }

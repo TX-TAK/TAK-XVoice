@@ -725,6 +725,13 @@ class XvMapComponent : AbstractMapComponent() {
                     Log.w(TAG, "mumble liveness feed threw", t)
                 }
                 try {
+                    // Channel 2's mesh leg follows the operator's channel 2
+                    // (set, swapped or turned off).
+                    meshVoiceManager?.setSecondaryChannel(lastSecondaryChannel)
+                } catch (t: Throwable) {
+                    Log.w(TAG, "mesh channel-2 sync threw", t)
+                }
+                try {
                     refreshSlot1GateIfChanged()
                 } catch (t: Throwable) {
                     Log.w(TAG, "slot-1 gate refresh threw", t)
@@ -2115,22 +2122,21 @@ class XvMapComponent : AbstractMapComponent() {
      * count is still knowable. Rebuild it from the surviving presence
      * registry, keyed on the active mesh leg's channel.
      *
-     * Mesh legs bind to the primary channel only (slot 0), so this returns
-     * null for any other slot: VS2 has no mesh failover roster to count.
+     * Channel 1 and channel 2 each have their own leg; the roster is the
+     * presence on that slot's channel.
      * ☁️ (server) is legitimately 0 here — there is no server — while
      * 📻 (local mesh) reflects the real peers still reachable over mesh.
      */
     private fun buildMeshOnlySlotMembersSnapshot(slot: Int): XvDropDownReceiver.SlotMembers? {
-        if (slot != 0) return null
+        if (slot !in 0..1) return null
         // With mesh voice off there is no mesh roster to surface, even if
         // presence survives a server drop — 📻 must read 0, not a phantom
         // count. (activeLegs is normally empty when disabled; this is the
         // explicit guard.)
         if (!settings.persistedMeshVoiceEnabled()) return null
-        // legs is keyed by canonical channel name and excludes the
-        // separate rendezvous discovery leg, so firstOrNull is the
-        // operator's primary channel.
-        val channel = meshVoiceManager?.activeLegs()?.keys?.firstOrNull() ?: return null
+        // legs is keyed by canonical channel name (rendezvous excluded).
+        val mgr = meshVoiceManager ?: return null
+        val channel = mgr.channelForSlot(slot)?.takeIf { it in mgr.activeLegs().keys } ?: return null
         val ourUid = com.atakmap.android.xv.transport.mumble.MumbleAuth.deviceUid()
         val rows =
             presenceRegistry?.all().orEmpty().filter { p ->
@@ -2688,6 +2694,8 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun secondaryChannelName(): String? = lastSecondaryChannel?.takeIf { it.isNotBlank() }
 
+            override fun secondaryOnMesh(): Boolean = meshCarriesSlot1()
+
             override fun secondaryRegistered(): Boolean {
                 val t = mumbleTransport() ?: return false
                 // VS2 PTT lights up only when the secondary session has
@@ -2714,15 +2722,14 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun activeSpeakers(slot: Int): List<String> {
                 val mumble = mumbleTransport()?.activeSpeakers(slot).orEmpty()
-                if (slot != 0) return mumble
-                // Mesh talkers ride the primary channel row too —
+                // Mesh talkers ride their channel's row too —
                 // callsign for ATAK/XV peers, Mumble username for
                 // server clients heard via a bridge. The dedup layer
                 // already guarantees one leg plays per speaker, and
                 // resolved names collide across lists only when they
                 // genuinely refer to the same person — distinct()
                 // keeps the row clean either way.
-                val mesh = meshVoiceManager?.meshActiveSpeakers().orEmpty()
+                val mesh = meshVoiceManager?.meshActiveSpeakers(slot).orEmpty()
                 return (mumble + mesh).distinct()
             }
 
@@ -3443,8 +3450,8 @@ class XvMapComponent : AbstractMapComponent() {
                 // MESH-source presence deliberately survive a server drop.
                 // Fill slot 0 from that surviving presence so the 👥 badge
                 // reflects local-mesh peers instead of collapsing to zero.
-                if (0 !in result) {
-                    buildMeshOnlySlotMembersSnapshot(0)?.let { result[0] = it }
+                for (slot in listOf(0, 1)) {
+                    if (slot !in result) buildMeshOnlySlotMembersSnapshot(slot)?.let { result[slot] = it }
                 }
                 return result
             }
@@ -3684,10 +3691,10 @@ class XvMapComponent : AbstractMapComponent() {
                         sink = sink,
                     )
                 },
-                onRxOpus = { opus, speakerLabel ->
+                onRxOpus = { opus, speakerLabel, slot ->
                     voiceClient?.ifBound {
                         try {
-                            it.onRxOpus(0, opus, speakerLabel)
+                            it.onRxOpus(slot, opus, speakerLabel)
                         } catch (t: Throwable) {
                             Log.w(TAG, "mesh onRxOpus to service threw", t)
                         }
@@ -6936,7 +6943,7 @@ class XvMapComponent : AbstractMapComponent() {
     private fun slot1CanSpeak(): Boolean =
         PttSlotGate.canSpeakSlot1(
             channel2On = !lastSecondaryChannel.isNullOrBlank(),
-            channel2Live = mumbleTransport()?.secondaryConnected() == true,
+            channel2Live = mumbleTransport()?.secondaryConnected() == true || meshCarriesSlot1(),
             slot0Suppressed = selfSuppressedBySlot[0] == true,
             slot1Suppressed = selfSuppressedBySlot[1] == true,
         )
@@ -6954,6 +6961,9 @@ class XvMapComponent : AbstractMapComponent() {
 
     // Mesh leg currently carrying voice (server down, failover active).
     private fun meshCarrying(): Boolean = meshVoiceManager?.statusSnapshot()?.active == true
+
+    // Channel 2's mesh leg carrying voice (server down, failover active).
+    private fun meshCarriesSlot1(): Boolean = meshVoiceManager?.carriesSlot(1) == true
 
     private fun disconnectAinaInternal() {
         // Service owns the reader now; tell it to drop. ainaBle/ainaSpp

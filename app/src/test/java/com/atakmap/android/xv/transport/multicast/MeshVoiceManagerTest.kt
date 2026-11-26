@@ -73,6 +73,7 @@ class MeshVoiceManagerTest {
         val legs = mutableMapOf<String, FakeLeg>()
         val created = mutableListOf<FakeLeg>() // every leg ever built, patch legs included
         val playedRx = mutableListOf<String>() // speaker labels forwarded to service
+        val playedSlots = mutableListOf<Int>() // slot each played frame was routed to
         val relayedToMumble = mutableListOf<Boolean>() // burstStart flags
         val meshTxStateChanges = mutableListOf<Boolean>()
         val peerSessions = mutableMapOf<Int, String>() // mumble session → uid
@@ -98,7 +99,10 @@ class MeshVoiceManagerTest {
                         created += it
                     }
                 },
-                onRxOpus = { _, label -> playedRx += label },
+                onRxOpus = { _, label, slot ->
+                    playedRx += label
+                    playedSlots += slot
+                },
                 relayToMumble = { _, burstStart -> relayedToMumble += burstStart },
                 onMeshTxStateChanged = { meshTxStateChanges += it },
                 deviceUidForMumbleSession = { peerSessions[it] },
@@ -281,6 +285,58 @@ class MeshVoiceManagerTest {
         h.now += 1_000
         h.manager.tick()
         assertFalse(h.channelLeg().closed)
+    }
+
+    @Test
+    fun `channel 2 gets its own leg, carried on failover, RX routed to slot 2`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setSecondaryChannel("Ops-2")
+        h.manager.tick()
+        val leg2 = h.legs.getValue("ops-2")
+        assertFalse("server up: channel 2 not on mesh", h.manager.carriesSlot(1))
+
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue(h.manager.carriesSlot(1))
+        assertTrue(h.manager.carriesSlot(0))
+        h.manager.sendTxOpus(byteArrayOf(7), targetSlot = 1)
+        assertEquals("PTT2 goes out on channel 2's leg", 1, leg2.sentOpus.size)
+        assertTrue("and not on channel 1's", h.channelLeg().sentOpus.isEmpty())
+
+        h.manager.onVoice("ops-2", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf(1), h.playedSlots)
+        assertEquals(1, h.manager.meshActiveSpeakers(1).size)
+        assertTrue(h.manager.meshActiveSpeakers(0).isEmpty())
+    }
+
+    @Test
+    fun `turning channel 2 off closes its leg`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setSecondaryChannel("Ops-2")
+        val leg2 = h.legs.getValue("ops-2")
+        h.manager.setSecondaryChannel(null)
+        assertTrue(leg2.closed)
+        assertFalse(h.manager.carriesSlot(1))
+    }
+
+    @Test
+    fun `channel 2 equal to channel 1 is ignored`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setSecondaryChannel("Ops-1")
+        assertEquals(null, h.manager.channelForSlot(1))
+    }
+
+    @Test
+    fun `bridge never relays channel 2 mesh audio onto channel 1's server session`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.manager.setSecondaryChannel("Ops-2")
+        h.manager.onVoice("ops-2", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue(h.relayedToMumble.isEmpty())
     }
 
     @Test

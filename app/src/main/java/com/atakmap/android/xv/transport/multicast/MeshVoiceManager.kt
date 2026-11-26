@@ -60,7 +60,8 @@ class MeshVoiceManager(
     private val mumbleConnected: () -> Boolean,
     private val legFactory: MeshLegFactory,
     /** Forward one playable Opus frame to the service plant (AIDL onRxOpus). */
-    private val onRxOpus: (opus: ByteArray, speakerLabel: String) -> Unit,
+    /** [slot] = the channel slot whose leg heard it (0 = channel 1, 1 = channel 2). */
+    private val onRxOpus: (opus: ByteArray, speakerLabel: String, slot: Int) -> Unit,
     /** Bridge relay: push one mesh-originated Opus frame onto the Mumble leg. */
     private val relayToMumble: (opus: ByteArray, burstStart: Boolean) -> Unit = { _, _ -> },
     /** Mesh TX became (un)available — service uses it to keep PTT live server-less. */
@@ -253,6 +254,7 @@ class MeshVoiceManager(
     private data class MeshTalker(
         val speakerKey: String,
         var lastFrameMs: Long,
+        var slot: Int = 0,
     )
 
     private val meshTalking = HashMap<String, MeshTalker>()
@@ -287,6 +289,50 @@ class MeshVoiceManager(
         // different channel once the server returns.
         reconcileLegs()
     }
+
+    /**
+     * Channel 2 (slot 1) as the operator has it now: set, swapped or turned
+     * off (null). Its leg carries channel 2 over the mesh exactly as channel
+     * 1's does (Off / Backup / Both per channel). Like channel 1, a server
+     * drop does NOT clear it — only the operator's own change does.
+     */
+    @Synchronized
+    fun setSecondaryChannel(channelName: String?) {
+        val canonical =
+            channelName
+                ?.takeIf { it.isNotBlank() }
+                ?.let { MulticastGroupDerivation.canonicalChannelName(it) }
+                ?.takeIf { it != primaryChannel }
+        if (canonical == secondaryChannel) return
+        secondaryChannel = canonical
+        reconcileLegs()
+    }
+
+    /** Canonical channel on [slot], or null. */
+    @Synchronized
+    fun channelForSlot(slot: Int): String? =
+        when (slot) {
+            0 -> primaryChannel
+            1 -> secondaryChannel
+            else -> null
+        }
+
+    /**
+     * Mesh is carrying [slot]'s channel right now: failover is engaged (the
+     * server is gone) and that channel has a leg. Channel 1 uses the
+     * status snapshot's `active`; this answers it for either slot.
+     */
+    @Synchronized
+    fun carriesSlot(slot: Int): Boolean {
+        if (meshStopped || !meshTxActive) return false
+        val channel = channelForSlot(slot) ?: return false
+        return legs.containsKey(channel) || patchLegs.containsKey(channel)
+    }
+
+    // Channel 2's leg reports slot 1; everything else (channel 1, or a
+    // channel on both slots, which never happens) is slot 0.
+    private fun slotForChannel(channelName: String): Int =
+        if (channelName == secondaryChannel && channelName != primaryChannel) 1 else 0
 
     /**
      * Operator forgot a single channel: tear down its leg, drop any
@@ -527,7 +573,7 @@ class MeshVoiceManager(
                     (if (meshTxActive) " [FULL-DUPLEX: local mesh TX active]" else ""),
             )
         }
-        onRxOpus(opus, "mcast:$channelName:$speakerKey")
+        onRxOpus(opus, "mcast:$channelName:$speakerKey", action.slot)
         if (action.relay) {
             if (action.relayBurstStart) {
                 logDiag(
@@ -558,6 +604,8 @@ class MeshVoiceManager(
          * not influence any play/relay/drop decision.
          */
         val playBurstStart: Boolean = false,
+        /** Channel slot whose leg heard the frame (0 = channel 1, 1 = channel 2). */
+        val slot: Int = 0,
     )
 
     @Synchronized
@@ -637,7 +685,10 @@ class MeshVoiceManager(
                 )
             }
         }
-        val relay = bridging && canonical != ourUid && !serverOriginated && !uidMumbleConnected(canonical)
+        val slot = slotForChannel(channelName)
+        // The bridge relays onto OUR channel-1 session only: a channel-2
+        // leg's audio must never land on channel 1's server channel.
+        val relay = bridging && slot == 0 && canonical != ourUid && !serverOriginated && !uidMumbleConnected(canonical)
         var relayBurstStart = false
         if (relay) {
             // A speaker key still in raw "ssrc:" form means we never
@@ -673,7 +724,10 @@ class MeshVoiceManager(
         // getOrPut below still runs exactly as before — decision behaviour
         // is unchanged; this is pure observability.
         val playBurstStart = !meshTalking.containsKey(canonical)
-        meshTalking.getOrPut(canonical) { MeshTalker(speakerKey, now) }.lastFrameMs = now
+        meshTalking.getOrPut(canonical) { MeshTalker(speakerKey, now, slot) }.also {
+            it.lastFrameMs = now
+            it.slot = slot
+        }
         return VoiceRxAction(
             play = true,
             relay = relay,
@@ -681,6 +735,7 @@ class MeshVoiceManager(
             canonical = canonical,
             serverOriginated = serverOriginated,
             playBurstStart = playBurstStart,
+            slot = slot,
         )
     }
 
@@ -694,10 +749,12 @@ class MeshVoiceManager(
      * row's talker list alongside the Mumble roster names.
      */
     @Synchronized
-    fun meshActiveSpeakers(): List<String> {
+    fun meshActiveSpeakers(slot: Int? = null): List<String> {
         val now = nowMs()
         meshTalking.entries.removeAll { now - it.value.lastFrameMs > TALKING_TTL_MS }
-        return meshTalking.map { (canonical, talker) -> displayNameFor(canonical, talker.speakerKey) }
+        return meshTalking
+            .filter { slot == null || it.value.slot == slot }
+            .map { (canonical, talker) -> displayNameFor(canonical, talker.speakerKey) }
     }
 
     private fun displayNameFor(

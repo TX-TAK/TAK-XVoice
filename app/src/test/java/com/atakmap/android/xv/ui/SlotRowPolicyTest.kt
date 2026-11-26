@@ -21,11 +21,15 @@ class SlotRowPolicyTest {
     }
 
     @Test
-    fun `server down with mesh carrying reads mesh on row 1 only`() {
+    fun `server down with mesh carrying reads mesh on either row`() {
         assertEquals(Idle.MESH, SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(0, live = true, serverConnected = false, listenOnly = false)))
         assertEquals(
-            Idle.NOT_CONNECTED,
+            Idle.MESH,
             SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(1, live = true, serverConnected = false, listenOnly = false))
+        )
+        assertEquals(
+            Idle.NOT_CONNECTED,
+            SlotRowPolicy.idle(SlotRowPolicy.SlotStatus(1, live = false, serverConnected = false, listenOnly = false))
         )
         assertEquals(
             Idle.NOT_CONNECTED,

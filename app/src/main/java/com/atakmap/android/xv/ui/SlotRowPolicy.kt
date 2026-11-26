@@ -51,7 +51,7 @@ object SlotRowPolicy {
     fun idle(s: SlotStatus): Idle =
         when {
             s.refused && !s.slotServerUp -> Idle.REFUSED
-            !s.serverConnected && s.live && s.slot == 0 -> Idle.MESH
+            !s.serverConnected && s.live -> Idle.MESH
             !s.serverConnected -> Idle.NOT_CONNECTED
             !s.live -> Idle.JOINING
             s.listenOnly -> Idle.LISTEN_ONLY
