@@ -190,4 +190,21 @@ class Bt02BleReaderRescanTest {
             return gatt
         }
     }
+
+    @Test
+    fun `scanning for the companion peripheral counts as working on the Classic device`() {
+        val h = Harness(context, recognised = true)
+        val classic = mockk<BluetoothDevice>(relaxed = true)
+        every { classic.address } returns "AA:BB:CC:DD:EE:01"
+        every { classic.name } returns "B02PTT-0000"
+        every { classic.type } returns BluetoothDevice.DEVICE_TYPE_CLASSIC
+        h.reader.connectBt02(classic)
+        idle(1)
+        assertEquals(1, h.scans.size)
+        assertTrue(h.reader.isWorkingOn("AA:BB:CC:DD:EE:01"))
+        idle(11) // window missed, next one scheduled
+        assertTrue("between scan windows too", h.reader.isWorkingOn("AA:BB:CC:DD:EE:01"))
+        h.reader.disconnect()
+        assertTrue("torn down", !h.reader.isWorkingOn("AA:BB:CC:DD:EE:01"))
+    }
 }

@@ -501,4 +501,41 @@ class BitmaskGattPttReaderLifecycleTest {
         assertEquals(armedAt + 1, r.connects())
         r.reader.disconnect()
     }
+
+    @Test
+    fun `reader reports working, connected and idle for its requested device`() {
+        val f = fixture(listOf(button))
+        val r = start(listOf(f))
+        val mac = "AA:BB:CC:DD:EE:FF"
+        assertTrue("link open, setup pending", r.reader.isWorkingOn(mac))
+        assertFalse(r.reader.isWorkingOn("AA:BB:CC:DD:EE:00"))
+        assertFalse(r.reader.isConnectedTo(mac))
+        subscribeAll(r, f)
+        assertTrue(r.reader.isConnectedTo(mac.lowercase()))
+        r.cb.onConnectionStateChange(f.gatt, 8, BluetoothProfile.STATE_DISCONNECTED)
+        assertFalse(r.reader.isConnectedTo(mac))
+        assertTrue("backing off", r.reader.isWorkingOn(mac))
+        r.reader.disconnect()
+        assertFalse(r.reader.isWorkingOn(mac))
+    }
+
+    @Test
+    fun `a reader paused with the adapter off is not working on its device`() {
+        var adapterOn = true
+        val reader =
+            BitmaskGattPttReader(
+                context = context,
+                config = config(),
+                onEvent = { _, _ -> },
+                gattConnector = AinaBleReader.GattConnector { _, _, _, _ -> null },
+                adapterEnabled = { adapterOn },
+            )
+        reader.connect(dev())
+        idleSeconds(1)
+        assertTrue(reader.isWorkingOn("AA:BB:CC:DD:EE:FF"))
+        adapterOn = false
+        idleSeconds(30)
+        assertFalse("paused — the STATE_ON pass must replace it", reader.isWorkingOn("AA:BB:CC:DD:EE:FF"))
+        reader.disconnect()
+    }
 }

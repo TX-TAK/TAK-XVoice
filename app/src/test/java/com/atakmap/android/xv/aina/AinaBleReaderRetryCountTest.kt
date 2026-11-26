@@ -358,4 +358,30 @@ class AinaBleReaderRetryCountTest {
         every { gatt.writeDescriptor(cccd, any<ByteArray>()) } returns writeResult
         return gatt
     }
+
+    @Test
+    fun `a subscription confirmed after the watchdog gave up is not reported`() {
+        val h = harness()
+        val first = h.current
+        h.cb.onConnectionStateChange(first, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        h.cb.onServicesDiscovered(first, BluetoothGatt.GATT_SUCCESS)
+        idle(seconds = 16)
+        h.cb.onDescriptorWrite(first, cccdOf(first), BluetoothGatt.GATT_SUCCESS)
+        assertTrue("never reported up on an abandoned handle", h.states.none { it })
+        assertFalse(h.reader.isConnected())
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `reader reports working, connected and idle for its target`() {
+        val h = harness()
+        val mac = "AA:BB:CC:DD:EE:FF"
+        assertTrue(h.reader.isWorkingOn(mac))
+        subscribe(h)
+        h.cb.onDescriptorWrite(h.current, cccdOf(h.current), BluetoothGatt.GATT_SUCCESS)
+        assertTrue(h.reader.isConnectedTo(mac))
+        assertFalse(h.reader.isConnectedTo("AA:BB:CC:DD:EE:00"))
+        h.reader.disconnect()
+        assertFalse(h.reader.isWorkingOn(mac))
+    }
 }

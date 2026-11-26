@@ -182,11 +182,16 @@ class Bt02BleReader(
             } catch (_: Throwable) {
                 null
             }
+        // Same fresh start on both paths: tear down, clear every counter
+        // and notice flag (ours and the base's), and set the names before
+        // the first attempt or scan is queued.
+        disconnect()
+        resetFailureHistory()
+        scanPermissionReported = false
+        rescanRounds = 0
+        discoveryWindows = 0
+        rememberRequestedMac(device.address)
         if (devType == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
-            disconnect()
-            scanPermissionReported = false
-            rescanRounds = 0
-            discoveryWindows = 0
             targetBleName = devName?.takeIf { it.isNotBlank() }
             rescanName = targetBleName?.takeIf { isBt02Name(it) }
             Log.i(
@@ -196,13 +201,17 @@ class Bt02BleReader(
             )
             beginDiscovery()
         } else {
-            connect(device)
             // A saved LE address: remember the name (if this is a BT02)
             // so a rotated address can be re-resolved later.
             rescanName = devName?.takeIf { isBt02Name(it) }
-            rescanRounds = 0
+            startAttempts(device)
         }
     }
+
+    // Also "working" while scanning for (or between windows looking for)
+    // the companion LE peripheral of the device the owner asked for.
+    override fun isWorkingOn(mac: String): Boolean =
+        super.isWorkingOn(mac) || (!isReaderDisposed() && !discoveryStopped && isRequested(mac))
 
     /**
      * The cached LE address keeps failing: the BT02 has most likely
@@ -267,9 +276,11 @@ class Bt02BleReader(
         if (discoveryStopped || isReaderDisposed()) return
         val scanner = leScanner()
         if (scanner == null) {
-            // Adapter off: the plugin's STATE_ON reconnect pass restarts
-            // the reader, so just stop here.
+            // Adapter off: the plugin's STATE_ON reconnect pass replaces
+            // the reader. Mark discovery stopped so it reads as idle, not
+            // as still working on the device.
             Log.w(TAG, "BLE scanner unavailable (adapter off?) — pausing BT02 discovery")
+            discoveryStopped = true
             return
         }
         stopScanCallbackOnly()

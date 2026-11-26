@@ -39,7 +39,7 @@ class AinaBleReader(
     // Test seam: whether the Bluetooth adapter is on. Reconnects pause
     // while it is off.
     private val adapterEnabled: () -> Boolean = { GattSetup.defaultAdapterEnabled() },
-) {
+) : BlePttLink {
 
     private val decoder = ButtonMaskDecoder()
     private val handler = Handler(Looper.getMainLooper())
@@ -121,13 +121,18 @@ class AinaBleReader(
     @Volatile
     private var pendingConfigReadModifyWrite: Boolean = false
 
+    // A retry is queued: still working on the target (see isWorkingOn).
+    @Volatile
+    private var retryQueued: Boolean = false
+
     private val retryRunnable =
         Runnable {
+            retryQueued = false
             val device = targetDevice ?: return@Runnable
             if (!wantsReconnect()) return@Runnable
             if (!adapterEnabled()) {
                 // Pointless while the adapter is off; the plugin's STATE_ON
-                // reconnect pass restarts the reader.
+                // reconnect pass replaces the (now idle) reader.
                 Log.i(TAG, "Bluetooth adapter off — pausing reconnects until it is back on")
                 return@Runnable
             }
@@ -172,9 +177,27 @@ class AinaBleReader(
         cacheRefreshTried = false
         // Through the runnable so the settle gap, the adapter check and
         // the exception guard apply to the first attempt too.
-        handler.removeCallbacks(retryRunnable)
-        handler.post(retryRunnable)
+        postRetry(0L)
     }
+
+    private fun postRetry(delayMs: Long) {
+        retryQueued = true
+        handler.removeCallbacks(retryRunnable)
+        handler.postDelayed(retryRunnable, delayMs)
+    }
+
+    private fun cancelRetry() {
+        retryQueued = false
+        handler.removeCallbacks(retryRunnable)
+    }
+
+    private fun isTarget(mac: String): Boolean = targetDevice?.address.equals(mac, ignoreCase = true)
+
+    override fun isConnectedTo(mac: String): Boolean = isConnected() && isTarget(mac)
+
+    /** Still connecting to, or backing off on, [mac]; false once paused or torn down. */
+    override fun isWorkingOn(mac: String): Boolean =
+        !disposed && isTarget(mac) && wantsReconnect() && (gatt != null || retryQueued)
 
     private fun connectInternal(
         device: BluetoothDevice,
@@ -188,8 +211,7 @@ class AinaBleReader(
         val waitMs = GattSetup.reopenDelayMs(lastGattCloseMs, android.os.SystemClock.elapsedRealtime())
         if (waitMs > 0L) {
             Log.i(TAG, "tryConnect: deferring ${waitMs}ms since last close() (BLE stack settle)")
-            handler.removeCallbacks(retryRunnable)
-            handler.postDelayed(retryRunnable, waitMs)
+            postRetry(waitMs)
             return
         }
         abandonLink(expected = null, notifyAlways = false)
@@ -228,7 +250,7 @@ class AinaBleReader(
     // connect() (picker, STATE_ON pass, permission grant).
     private fun onConnectPermissionDenied(se: SecurityException?) {
         Log.e(TAG, "connectGatt refused — BLUETOOTH_CONNECT not granted; reconnects stopped", se)
-        handler.removeCallbacks(retryRunnable)
+        cancelRetry()
         if (!permissionReported && !disposed) {
             permissionReported = true
             try {
@@ -252,7 +274,7 @@ class AinaBleReader(
     fun disconnect() {
         intentionalDisconnect = true
         targetDevice = null
-        handler.removeCallbacks(retryRunnable)
+        cancelRetry()
         handler.removeCallbacks(setupWatchdog)
         abandonLink(expected = null, notifyAlways = true)
     }
@@ -360,8 +382,7 @@ class AinaBleReader(
             "Scheduling reconnect to ${redactMac(device.address)} in ${delayMs}ms " +
                 "($reason, autoConnect=$armed)",
         )
-        handler.removeCallbacks(retryRunnable)
-        handler.postDelayed(retryRunnable, delayMs)
+        postRetry(delayMs)
     }
 
     private fun dispatchConnectionState(state: Boolean) {
@@ -538,11 +559,20 @@ class AinaBleReader(
                 g: BluetoothGatt,
                 status: Int,
             ) {
-                if (!isCurrent(g)) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
-                    escalate(g, "service discovery failed: $status ${gattStatusName(status)}", status)
+                    escalate(g, "service discovery failed: $status ${gattStatusName(status)}", status) // no-op when stale
                     return
                 }
+                // Under [stateLock] with the handle re-checked: a link
+                // abandoned meanwhile must not have its closed handle read
+                // as "not recognised" (false notice + 5 min backoff).
+                synchronized(stateLock) {
+                    if (isCurrent(g)) startSubscription(g)
+                }
+            }
+
+            // Caller holds [stateLock] and has checked [g] is current.
+            private fun startSubscription(g: BluetoothGatt) {
                 val cccd = buttonCccd(g)
                 if (cccd == null) {
                     onUnrecognised(g)
