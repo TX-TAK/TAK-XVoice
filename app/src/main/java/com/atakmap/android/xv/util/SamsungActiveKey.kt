@@ -263,13 +263,11 @@ object SamsungActiveKey {
         action: String?,
         keyCode: Int,
         reportType: Int,
-    ): FallbackAction {
-        if (action != ACTION_HARD_KEY_REPORT) return FallbackAction.IGNORE
-        if (keyCode != KEY_CODE_PTT) return FallbackAction.IGNORE
-        return when (reportType) {
-            KEY_REPORT_TYPE_PRESSED -> FallbackAction.PTT_DOWN
-            KEY_REPORT_TYPE_RELEASED -> FallbackAction.PTT_UP
+    ): FallbackAction =
+        when {
+            action != ACTION_HARD_KEY_REPORT || keyCode != KEY_CODE_PTT -> FallbackAction.IGNORE
+            reportType == KEY_REPORT_TYPE_PRESSED -> FallbackAction.PTT_DOWN
+            reportType == KEY_REPORT_TYPE_RELEASED -> FallbackAction.PTT_UP
             else -> FallbackAction.IGNORE
         }
-    }
 }
