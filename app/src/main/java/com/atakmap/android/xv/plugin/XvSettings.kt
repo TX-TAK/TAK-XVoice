@@ -443,10 +443,23 @@ class XvSettings(
     // persistChannelMulticastConfig), so this only makes disk match. The
     // report's unconvertible list is current on every call.
     fun migrateMeshCryptoPolicy(): LegacyCryptoPolicyMigration.Report {
-        val empty = LegacyCryptoPolicyMigration.Report(emptyList(), emptyList())
-        val p = prefs() ?: return empty
+        val p = prefs()
+        // With no prefs there are no stored configs, so this is the empty report.
         val report = LegacyCryptoPolicyMigration.plan(rawChannelMulticastConfigs())
-        if (p.getBoolean(PREF_MESH_POLICY_MIGRATED, false)) return report.copy(normalized = emptyList())
+        return when {
+            p == null -> report
+            p.getBoolean(PREF_MESH_POLICY_MIGRATED, false) -> report.copy(normalized = emptyList())
+            else -> {
+                rewriteToMeshPolicy(p, report)
+                report
+            }
+        }
+    }
+
+    private fun rewriteToMeshPolicy(
+        p: SharedPreferences,
+        report: LegacyCryptoPolicyMigration.Report,
+    ) {
         report.normalized.forEach { persistChannelMulticastConfig(it) }
         val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
         val legacyKeys = p.all.keys.filter { it.startsWith(prefix) }
@@ -455,7 +468,6 @@ class XvSettings(
             putBoolean(PREF_MESH_POLICY_MIGRATED, true)
             apply()
         }
-        return report
     }
 
     // Sealed per-channel key vault. The bytes stored here are the output
