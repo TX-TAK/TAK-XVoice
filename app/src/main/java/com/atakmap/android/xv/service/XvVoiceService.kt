@@ -1080,6 +1080,13 @@ class XvVoiceService : Service() {
                 fanOut { it.onCaptureError(reason) }
             }
 
+            override fun onPttInput(
+                down: Boolean,
+                slot: Int,
+            ) {
+                fanOut { it.onPttInput(down, slot) }
+            }
+
             override fun onPttBlockedByCellularCall(reason: String) {
                 com.atakmap.android.xv.util.DiagnosticLogger.event(
                     tag = "XvVoiceSvc",

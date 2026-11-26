@@ -874,6 +874,9 @@ class XvMapComponent : AbstractMapComponent() {
                     transmitting: Boolean,
                     slot: Int,
                 ) {
+                    // A burst ending also clears that slot's held input, so a
+                    // lost up-edge can't block channel swap indefinitely.
+                    if (!transmitting) pttInputsHeld.remove(slot)
                     if (transmitting) {
                         beginMumbleVoiceBurst()
                         // Lock in the UI's "transmitting" state on whichever
@@ -1040,6 +1043,15 @@ class XvMapComponent : AbstractMapComponent() {
                     } catch (t: Throwable) {
                         Log.w(TAG, "capture-error toast threw", t)
                     }
+                }
+
+                override fun onPttInput(
+                    down: Boolean,
+                    slot: Int,
+                ) {
+                    // Any PTT input (speaker-mic, button, Samsung key,
+                    // on-screen) held or priming: the swap gate counts it.
+                    if (down) pttInputsHeld.add(slot) else pttInputsHeld.remove(slot)
                 }
 
                 override fun onPttBlockedByCellularCall(reason: String?) {
@@ -2643,10 +2655,12 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun isTransmittingOnSlot(slot: Int): Boolean = txActiveSlot == slot
 
-            override fun stopTx() {
-                // Slot is meaningless on the up-edge in momentary mode
-                // (we just release TX) and ignored in latched mode.
-                dispatchPttUp(slot = 0)
+            override fun stopTx(slot: Int) {
+                // The service's PttDispatcher keys held state by slot:
+                // release the slot that was pressed, or a channel-2
+                // press would never end.
+                Log.i(TAG, "Controller.stopTx(slot=$slot)")
+                dispatchPttUp(slot = slot)
             }
 
             override fun playTptPreview() {
@@ -6010,9 +6024,13 @@ class XvMapComponent : AbstractMapComponent() {
         // new suppress value almost immediately; in the
         // meantime, default to "can speak" so the next PTT
         // isn't spuriously denied during the cold instant.
-        voiceClient?.ifBound { it.setCanSpeakOnSlot(slot, true) }
         selfSuppressedBySlot.remove(slot)
-        if (slot == 0) pushSlot1CanSpeak()
+        // Mid-swap the gate stays closed (closeCanSpeakForSwap); the swap
+        // outcome reopens it.
+        if (mumbleTransport()?.isSwapInFlight() != true) {
+            voiceClient?.ifBound { it.setCanSpeakOnSlot(slot, true) }
+            if (slot == 0) pushSlot1CanSpeak()
+        }
         // Push the UI immediately — without this, the
         // dropdown sticks on the previous channel name
         // (notably "TAK PRIVATE - <hex>" after a call ends
@@ -6188,6 +6206,7 @@ class XvMapComponent : AbstractMapComponent() {
             toast(com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(decision.reason))
         } else {
             Log.i(TAG, "swap started: $decision")
+            closeCanSpeakForSwap()
         }
     }
 
@@ -6217,7 +6236,7 @@ class XvMapComponent : AbstractMapComponent() {
             // slots may be half-swapped. Keep the last settled pair.
             com.atakmap.android.xv.transport.ChannelSwap.Outcome.Cancelled -> {}
         }
-        pushSlot1CanSpeak()
+        reopenCanSpeakAfterSwap()
         dropDown?.refreshNow()
     }
 
@@ -6358,10 +6377,16 @@ class XvMapComponent : AbstractMapComponent() {
         name: String?,
         kind: String,
     ) {
-        disconnectAinaInternal()
+        // No up-front disconnect: VoicePlant.connectAina owns the
+        // keep-or-teardown decision. Tearing the primary reader down here
+        // first meant its "already live on this device" guard could never
+        // fire, so every ACL_CONNECTED / STATE_ON reconnect pass cut a
+        // live speaker-mic transmission. Plugin-side failures below still
+        // tear down explicitly, as before.
         val adapter = BluetoothAdapter.getDefaultAdapter()
         if (adapter == null) {
             Log.w(TAG, "no Bluetooth adapter")
+            disconnectAinaInternal()
             return
         }
         val device =
@@ -6374,11 +6399,13 @@ class XvMapComponent : AbstractMapComponent() {
                         (it.name ?: "").lowercase().contains(needle)
                     } ?: run {
                         Log.w(TAG, "no bonded device matching name '$name'")
+                        disconnectAinaInternal()
                         return
                     }
                 }
             } catch (t: Throwable) {
                 Log.w(TAG, "could not resolve AINA device", t)
+                disconnectAinaInternal()
                 return
             }
         Log.i(TAG, "resolved AINA: ${device.name} ${device.address}")
@@ -6556,9 +6583,29 @@ class XvMapComponent : AbstractMapComponent() {
         voiceClient?.ifBound { it.pttUp(slot) }
     }
 
-    // Transmitting for the swap gate: on the air, or an on-screen PTT is
-    // held and still priming (mic warm-up / talk-permit tone).
-    private fun keyedForSwap(): Boolean = txActiveSlot >= 0 || onScreenPttHeld
+    // PTT inputs currently held, per slot, as reported by the service's
+    // raw input edge (covers hardware PTT while it is still priming).
+    private val pttInputsHeld: MutableSet<Int> = java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    // Transmitting for the swap gate: on the air, an on-screen PTT held,
+    // or any service-owned PTT input held / priming.
+    private fun keyedForSwap(): Boolean = txActiveSlot >= 0 || onScreenPttHeld || pttInputsHeld.isNotEmpty()
+
+    // While a swap (or its rollback) is in flight both slots are moving:
+    // close the service's can-speak gate on both, so a hardware PTT
+    // pressed mid-swap gets the normal deny tone instead of keying a slot
+    // that is changing channel. reopenCanSpeakAfterSwap restores it.
+    private fun closeCanSpeakForSwap() {
+        voiceClient?.ifBound {
+            it.setCanSpeakOnSlot(0, false)
+            it.setCanSpeakOnSlot(1, false)
+        }
+    }
+
+    private fun reopenCanSpeakAfterSwap() {
+        voiceClient?.ifBound { it.setCanSpeakOnSlot(0, selfSuppressedBySlot[0] != true) }
+        pushSlot1CanSpeak()
+    }
 
     // Push slot 1's can-speak to the service. With channel 2 off it
     // mirrors channel 1 so PTT2 keys channel 1 (PttSlotGate).

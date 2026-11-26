@@ -89,4 +89,11 @@ interface IXvVoiceListener {
     // transmitted. The service side already throttles repeated fires
     // during rapid button mashing.
     void onPttBlockedByCellularCall(String reason);
+
+    // Raw PTT input edge from any source the service owns (speaker-mic,
+    // BLE button, Samsung key, on-screen), before mic priming and the
+    // talk-permit tone. onPttStateChanged only fires once audio is on the
+    // air; the plugin uses this edge so a channel swap can't start into a
+    // press that is still priming. Appended last (transaction order).
+    void onPttInput(boolean down, int slot);
 }

@@ -167,7 +167,10 @@ class XvDropDownReceiver(
         // slot 0 = VS1 (primary, current channel), slot 1 = VS2 (secondary).
         fun startTx(slot: Int)
 
-        fun stopTx()
+        // Release must name the same slot the press used: the service's
+        // PTT dispatcher keys held state by slot, so a slot-1 press
+        // released as slot 0 would leave channel 2 transmitting.
+        fun stopTx(slot: Int)
 
         fun playTptPreview()
 
@@ -659,7 +662,7 @@ class XvDropDownReceiver(
                 mapView = mapView,
                 pluginContext = pluginContext,
                 pttDown = { slot -> controller.startTx(slot) },
-                pttUp = { _ -> controller.stopTx() },
+                pttUp = { slot -> controller.stopTx(slot) },
                 state = { mapHudSnapshot() },
             ).also { it.attach() }
     }
@@ -1006,8 +1009,9 @@ class XvDropDownReceiver(
         android.util.Log.i("XV_PTT", ">>> ON-SCREEN PTT${slot + 1} (slot=$slot) UP ($why) <<<")
         heldPttButton?.isPressed = false
         heldPttButton = null
-        // Becomes stopTx(slot) when #145 (slot-keyed PttDispatcher) merges.
-        controller.stopTx()
+        // Release exactly the slot that was pressed: the service's
+        // PttDispatcher keys held state by slot (#145).
+        controller.stopTx(slot)
     }
 
     // Edge-docked PTT buttons sit inside Android 10+'s back-gesture zone;

@@ -5,6 +5,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import com.atakmap.android.xv.audio.PttDispatcher
+import com.atakmap.android.xv.audio.PttInputOwner
 import com.atakmap.android.xv.audio.PttSource
 import com.atakmap.android.xv.audio.StatusTones
 import com.atakmap.android.xv.audio.TxController
@@ -53,14 +54,16 @@ class BtTransportDropReleasesPttTest {
         )
 
     // Simulates the shape of the reader `onConn` lambda in
-    // [VoicePlant.connectAina] — on a false connection edge, forget
-    // the reader's source so the OR-gate can see an empty held set.
+    // [VoicePlant.connectAina] — on a false connection edge, forget the
+    // reader's OWNER (not its source) so the OR-gate can see an empty
+    // held set without touching another reader of the same source.
+    // Retired owners are ignored, as in VoicePlant.
     private fun readerConnCallback(
         dispatcher: PttDispatcher,
-        source: PttSource,
+        owner: PttInputOwner,
     ): (Boolean) -> Unit =
         { up ->
-            if (!up) dispatcher.forgetSource(source)
+            if (!up && !owner.retired) dispatcher.forgetOwner(owner)
         }
 
     @Test
@@ -68,12 +71,13 @@ class BtTransportDropReleasesPttTest {
         // Field-bug repro: AINA V2 keyed, then BT dies mid-burst.
         val tx = mockk<TxController>(relaxed = true)
         val dispatcher = buildDispatcher(tx)
+        val v2 = PttInputOwner("primary-v2")
         // Simulate an in-flight burst from the AINA V2 reader.
-        dispatcher.down(slot = 0, source = PttSource.AINA_V2)
+        dispatcher.down(slot = 0, source = PttSource.AINA_V2, owner = v2)
 
-        // Reader's onConn(false) fires — via the wire-up added in
-        // [VoicePlant.connectAina], this must forget PttSource.AINA_V2.
-        val callback = readerConnCallback(dispatcher, PttSource.AINA_V2)
+        // Reader's onConn(false) fires — via the wire-up in
+        // [VoicePlant.connectAina], this must forget the reader's owner.
+        val callback = readerConnCallback(dispatcher, v2)
         callback(false)
 
         // Burst terminated — TxController.stop() was invoked exactly
@@ -90,12 +94,57 @@ class BtTransportDropReleasesPttTest {
         // source's feet.
         val tx = mockk<TxController>(relaxed = true)
         val dispatcher = buildDispatcher(tx)
-        dispatcher.down(slot = 0, source = PttSource.AINA_V2)
-        dispatcher.down(slot = 0, source = PttSource.PRYME_BLE)
+        val helmet = PttInputOwner("primary-v2")
+        val puck = PttInputOwner("external-ble-hid")
+        dispatcher.down(slot = 0, source = PttSource.AINA_V2, owner = helmet)
+        dispatcher.down(slot = 0, source = PttSource.PRYME_BLE, owner = puck)
 
-        readerConnCallback(dispatcher, PttSource.AINA_V2)(false)
+        readerConnCallback(dispatcher, helmet)(false)
 
         verify(exactly = 0) { tx.stop() }
+    }
+
+    @Test
+    fun `same-source external drop leaves the primary burst engaged`() {
+        val tx = mockk<TxController>(relaxed = true)
+        val dispatcher = buildDispatcher(tx)
+        val primary = PttInputOwner("primary-v2")
+        val external = PttInputOwner("external-v2")
+        dispatcher.down(slot = 0, source = PttSource.AINA_V2, owner = primary)
+        dispatcher.down(slot = 0, source = PttSource.AINA_V2, owner = external)
+
+        readerConnCallback(dispatcher, external)(false)
+
+        verify(exactly = 0) { tx.stop() }
+    }
+
+    @Test
+    fun `adapter STATE_TURNING_OFF releases a BT02 burst`() {
+        val tx = mockk<TxController>(relaxed = true)
+        val dispatcher = buildDispatcher(tx)
+        dispatcher.down(slot = 0, source = PttSource.INRICO_BT02, owner = PttInputOwner("primary-bt02"))
+
+        makeAdapterReceiver { dispatcher.releaseAllBtSourcedPttTestHook() }
+            .onReceive(mockk(relaxed = true), turningOffIntent())
+
+        verify(exactly = 1) { tx.stop() }
+    }
+
+    @Test
+    fun `adapter STATE_TURNING_OFF leaves on-screen and Active Key bursts alone`() {
+        for (survivor in listOf(PttSource.ON_SCREEN, PttSource.SAMSUNG_ACTIVE_KEY)) {
+            val tx = mockk<TxController>(relaxed = true)
+            val dispatcher = buildDispatcher(tx)
+            dispatcher.down(slot = 0, source = PttSource.AINA_V2, owner = PttInputOwner("primary-v2"))
+            dispatcher.down(slot = 0, source = survivor)
+
+            makeAdapterReceiver { dispatcher.releaseAllBtSourcedPttTestHook() }
+                .onReceive(mockk(relaxed = true), turningOffIntent())
+
+            verify(exactly = 0) { tx.stop() }
+            dispatcher.up(slot = 0, source = survivor)
+            verify(exactly = 1) { tx.stop() }
+        }
     }
 
     @Test
@@ -167,5 +216,6 @@ class BtTransportDropReleasesPttTest {
         forgetSource(PttSource.AINA_V1)
         forgetSource(PttSource.AINA_V2)
         forgetSource(PttSource.PRYME_BLE)
+        forgetSource(PttSource.INRICO_BT02)
     }
 }
