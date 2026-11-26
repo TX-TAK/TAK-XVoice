@@ -680,33 +680,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#foreground-ptt-works-out-of-the-box" class="md-nav__link">
+  <a href="#setup-assign-the-key-to-xv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Foreground PTT — works out of the box
+        Setup — assign the key to XV
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#background-ptt-optional-accessibility-service" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Background PTT — optional accessibility service
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Background PTT — optional accessibility service">
+    <nav class="md-nav" aria-label="Setup — assign the key to XV">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#enable-it" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Enable it
+        How it works
       
     </span>
   </a>
@@ -1097,33 +1086,22 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#foreground-ptt-works-out-of-the-box" class="md-nav__link">
+  <a href="#setup-assign-the-key-to-xv" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Foreground PTT — works out of the box
+        Setup — assign the key to XV
       
     </span>
   </a>
   
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#background-ptt-optional-accessibility-service" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Background PTT — optional accessibility service
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Background PTT — optional accessibility service">
+    <nav class="md-nav" aria-label="Setup — assign the key to XV">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#enable-it" class="md-nav__link">
+  <a href="#how-it-works" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Enable it
+        How it works
       
     </span>
   </a>
@@ -1187,7 +1165,7 @@
 physical side button — that TAK-XVoice can use as a Push-To-Talk source
 alongside (or instead of) a Bluetooth speakermic.</p>
 <h2 id="supported-chassis">Supported chassis<a class="headerlink" href="#supported-chassis" title="Permanent link">&para;</a></h2>
-<p>The Active Key PTT toggle appears <strong>only</strong> on hardware that actually has
+<p>The <strong>Samsung Active Key PTT</strong> settings row appears <strong>only</strong> on hardware that actually has
 the key. XV recognizes:</p>
 <table>
 <thead>
@@ -1219,71 +1197,74 @@ the key. XV recognizes:</p>
 </tr>
 </tbody>
 </table>
-<p>On any other device the toggle is hidden and this feature is a no-op.</p>
+<p>On any other device the row is hidden and this feature is a no-op.</p>
 <h2 id="the-two-keys">The two keys<a class="headerlink" href="#the-two-keys" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Active Key (side)</strong> — keyCode <code>1015</code>. This is the PTT source.</li>
 <li><strong>Top / Emergency key</strong> — keyCode <code>1079</code>. <strong>Not</strong> wired to PTT or the
   emergency alert today; it keeps its Samsung-configured behavior.</li>
 </ul>
-<h2 id="foreground-ptt-works-out-of-the-box">Foreground PTT — works out of the box<a class="headerlink" href="#foreground-ptt-works-out-of-the-box" title="Permanent link">&para;</a></h2>
-<p>While ATAK holds the top window, the Active Key arrives as an ordinary
-<code>KeyEvent</code> (down on press, up on release) and XV keys PTT directly. No
-setup beyond enabling the <strong>Active Key</strong> row in XV settings.</p>
-<blockquote>
-<p>Note: Samsung's <em>Advanced features → Active Key</em> screen lets the OS map
-the key to "launch an app." Leave it unmapped (or mapped to XV) if you
-want XV to see the raw key press. A "launch app" mapping emits a single
-intent on press with no release, which is unusable as a PTT trigger.</p>
-</blockquote>
-<h2 id="background-ptt-optional-accessibility-service">Background PTT — optional accessibility service<a class="headerlink" href="#background-ptt-optional-accessibility-service" title="Permanent link">&para;</a></h2>
-<p>The foreground <code>KeyEvent</code> only reaches the top activity, so PTT stops the
-moment ATAK is backgrounded. On the validated firmware the Samsung
-<code>HARD_KEY_REPORT</code> broadcast is <strong>not</strong> emitted, so the only way to catch
-the key while backgrounded is an accessibility service.</p>
-<p>XV ships a <strong>tightly-scoped</strong> accessibility service that:</p>
-<ul>
-<li>acts <strong>only</strong> on the Active Key (keyCode 1015); every other key is
-  passed through untouched,</li>
-<li>reads <strong>no</strong> screen content, typed text, or window data
-  (<code>canRetrieveWindowContent="false"</code>), and</li>
-<li>exists solely to receive the key event
-  (<code>flagRequestFilterKeyEvents</code>).</li>
-</ul>
-<h3 id="enable-it">Enable it<a class="headerlink" href="#enable-it" title="Permanent link">&para;</a></h3>
+<h2 id="setup-assign-the-key-to-xv">Setup — assign the key to XV<a class="headerlink" href="#setup-assign-the-key-to-xv" title="Permanent link">&para;</a></h2>
+<p>Samsung's own setting is the single on/off switch. Once the key is
+assigned to XV it works as PTT in the foreground, with ATAK backgrounded,
+and with the screen off and locked. This uses Samsung's built-in "control
+the key with an app" mapping. It needs no accessibility service, no Knox
+SDK and no Knox license.</p>
 <ol>
-<li>In XV settings, tap <strong>Use Active Key while ATAK is in the
-   background</strong>. XV deep-links you to the system Accessibility page.</li>
-<li>Enable <strong>TAK-XVoice</strong> under <em>Installed services</em> and accept the
-   system dialog.</li>
+<li>In XV settings, tap <strong>Samsung Active Key PTT</strong>. XV opens Samsung's
+   Active button screen. (You can also go there yourself: <em>Settings →
+   Advanced features → Active button</em>.)</li>
+<li>Turn on <strong>Use Active button with app</strong> and pick <strong>Texas TAK-XVoice</strong>.</li>
+<li>Press and hold the key — XV now receives every press and release,
+   whatever is in the foreground.</li>
 </ol>
-<p>Android does not allow an app to enable its own accessibility service, so
-this is a one-time manual step. The XV settings row is read-only and
-reflects the live OS permission state — it is not a persisted preference.</p>
+<p>XV has no toggle of its own. The row shows <strong>Assigned</strong> when Samsung's
+setting points at XV and <strong>Set up</strong> otherwise. Turn the Samsung setting
+off to give the key back to Samsung.</p>
+<h3 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h3>
+<p>Samsung addresses a <code>HARD_KEY_REPORT</code> broadcast (keyCode <code>1015</code>, report
+type <code>1</code> = press, <code>2</code> = release) to <strong>only</strong> the app the operator
+assigned the key to. XV is offered in that picker because its manifest
+declares:</p>
+<ul>
+<li>a <code>&lt;meta-data&gt;</code> entry <code>com.samsung.android.knox.intent.action.HARD_KEY_PRESS</code>
+  set to <code>true</code>, and</li>
+<li>an exported receiver (<code>SamsungHardKeyReceiver</code>) for the
+  <code>com.samsung.android.knox.intent.action.HARD_KEY_REPORT</code> action.</li>
+</ul>
+<p>Without both, the app never appears in Samsung's picker and receives
+nothing.</p>
 <blockquote>
-<p>The OS-generated Accessibility consent dialog ("can observe your
-actions") cannot be customized by XV. The service's description string
-spells out exactly what it does and does not access.</p>
+<p>Samsung's "Use while screen locked" toggle is a separate setting for
+using the key to <em>open</em> an app over the lock screen. It was off during
+validation and PTT still worked with the screen locked.</p>
 </blockquote>
 <h2 id="on-device-validation">On-device validation<a class="headerlink" href="#on-device-validation" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Galaxy Tab Active5 (SM-X308U)</strong> — foreground Active Key PTT and the
-  background accessibility path are both field-verified. The descriptor
-  requires <code>android:canRequestFilterKeyEvents="true"</code>; without it the
-  flag is silently ignored and <code>onKeyEvent</code> is never dispatched, even
-  though the service binds.</li>
+<li><strong>Galaxy Tab Active5 (SM-X308U, Android 16)</strong> — validated end to end:
+  Active Key PTT transmits in the foreground, with ATAK backgrounded, and
+  with the screen off and locked, with the key assigned to XV and no
+  accessibility service installed.</li>
 </ul>
 <p>Other listed chassis are gated on by model prefix but have not yet been
 validated end-to-end — see the curated-hardware policy in the top-level
 README.</p>
 <h2 id="troubleshooting">Troubleshooting<a class="headerlink" href="#troubleshooting" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Toggle missing:</strong> the device model isn't in the supported list above,
+<li><strong>Row missing:</strong> the device model isn't in the supported list above,
   or <code>Build.MANUFACTURER</code> isn't <code>samsung</code>.</li>
-<li><strong>Works foreground, not backgrounded:</strong> the accessibility service isn't
-  enabled (or was disabled by the OS). Re-check the Accessibility page.</li>
-<li><strong>Nothing happens at all:</strong> confirm Samsung <em>Advanced features → Active
-  Key</em> isn't set to "launch app," which swallows the key press.</li>
+<li><strong>Key does nothing in XV:</strong> the key isn't assigned to XV (the XV row
+  shows <strong>Set up</strong>). Tap the row and confirm <strong>Use Active button with
+  app</strong> is on and set to XV.</li>
+<li><strong>XV isn't offered in Samsung's picker:</strong> the firmware may not offer
+  this mapping to third-party apps, or an older XV build without the
+  manifest entries is installed.</li>
+<li><strong>Nothing happens at all:</strong> confirm Samsung's Active button isn't set
+  to a "launch app" press or press-and-hold action, which swallows the
+  key press.</li>
+<li><strong>Seeing whether reports arrive:</strong> each report XV receives is logged
+  under the tag <code>XvSamsungHardKeyRx</code> (<code>adb logcat -s XvSamsungHardKeyRx</code>).
+  Reports are dropped, with a log line, when no voice session is running.</li>
 </ul>
 
 

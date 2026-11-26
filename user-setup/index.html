@@ -1244,21 +1244,20 @@ device:</p>
 <p>For device-specific pairing and button notes, see
 <a href="../hardware/">Supported Hardware</a>.</p>
 <h2 id="background-screen-off-hardware-ptt">Background &amp; Screen-Off Hardware PTT<a class="headerlink" href="#background-screen-off-hardware-ptt" title="Permanent link">&para;</a></h2>
-<p>On-device hardware PTT keys (such as the <strong>Samsung Active Key</strong>) work in the
-foreground out of the box. To keep hardware PTT keys working while ATAK is
-backgrounded or the phone screen is locked:</p>
+<p>The <strong>Samsung Active Key</strong> works as PTT in the foreground, with ATAK
+backgrounded, and with the screen locked once it is assigned to XV in
+Samsung's own settings:</p>
 <ol>
-<li>Open <strong>XV Settings</strong> and enable the hardware key toggle (visible only on
-   devices with supported physical keys).</li>
-<li>Tap the <strong>Accessibility Service</strong> prompt — XV deep-links directly to the
-   relevant Android system settings screen.</li>
-<li>Enable the tightly-scoped <strong>TAK-XVoice PTT</strong> accessibility service.</li>
+<li>Open <strong>XV Settings</strong> and tap <strong>Samsung Active Key PTT</strong> (visible only on
+   devices with the key). XV opens Samsung's Active button settings screen.</li>
+<li>Turn on <strong>Use Active button with app</strong> and pick <strong>Texas TAK-XVoice</strong>.</li>
+<li>Back in XV Settings the row shows <strong>Assigned</strong>.</li>
 </ol>
 <div class="admonition info">
-<p class="admonition-title">Privacy of the Accessibility Service</p>
-<p>The optional accessibility service reads <strong>no screen content</strong> and inspects
-no UI elements — it listens exclusively for the configured hardware PTT
-keycode so you can key up with the screen off.</p>
+<p class="admonition-title">No special permissions</p>
+<p>This uses Samsung's built-in key mapping. XV needs no accessibility
+service, Knox license or extra permission for it. Turn the Samsung setting
+off to give the key back to Samsung.</p>
 </div>
 <h2 id="auto-start-startup-mission">Auto-Start &amp; Startup Mission<a class="headerlink" href="#auto-start-startup-mission" title="Permanent link">&para;</a></h2>
 <ul>
