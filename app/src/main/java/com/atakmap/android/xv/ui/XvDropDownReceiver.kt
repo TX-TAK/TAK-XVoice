@@ -827,7 +827,9 @@ class XvDropDownReceiver(
         show()
     }
 
-    override fun onDropDownSelectionRemoved() {}
+    // DropDown.OnStateListener callbacks XV doesn't act on: XV has no map
+    // selection, and pane sizing is chosen at show time.
+    override fun onDropDownSelectionRemoved() = Unit
 
     override fun onDropDownClose() {
         releaseAnyOnScreenPtt("panel closed")
@@ -843,7 +845,7 @@ class XvDropDownReceiver(
     override fun onDropDownSizeChanged(
         p0: Double,
         p1: Double,
-    ) {}
+    ) = Unit
 
     override fun onDropDownVisible(visible: Boolean) {
         // Panel open hides the map PTT buttons (and releases a held one).
