@@ -138,13 +138,15 @@ When enabled in **XV Settings**:
 
 ## Low latency mode (not recommended)
 
-**Settings → TX/RX → Low latency mode** appears only while a Bluetooth
-speaker-mic or headset is the voice route. It is off by default.
+**Settings → TX/RX → Advanced → Low latency mode (not recommended)**
+appears only while a Bluetooth speaker-mic or headset is the voice route. It
+is off by default, and turning it on asks you to confirm.
 
-When on, XV keeps the headset's voice link open for 1 minute after you join
-a channel and after each time you talk, so the next press starts instantly
-instead of after the usual 0.5–1.5 s Bluetooth start-up. While the link is
-open:
+When on, XV keeps the headset's voice link open the whole time you're in a
+channel, so every press starts instantly instead of after the usual 0.5–1.5 s
+Bluetooth start-up. It lets go when you leave every channel, turn it off, the
+audio stops being Bluetooth, or a phone call needs the headset (a call always
+wins), and picks the link back up when that clears. The whole time it's on:
 
 - music and other media on the headset stay paused;
 - many headsets hiss or whine;

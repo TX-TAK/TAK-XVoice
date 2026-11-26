@@ -105,8 +105,8 @@ and feature polish.
    BYO headphones keep working on their normal paths. HFP/SCO is only
    engaged while you transmit. Plugin load and channel join do not engage
    SCO — unless you turn on the optional, not-recommended Low latency
-   mode, which holds the link open briefly after joining and after each
-   transmission (still no open mic).
+   mode (Settings › TX/RX › Advanced), which holds the link open the whole
+   time you're in a channel (still no open mic).
 
 2. **Auto-start.** XV remembers the last-used mission and auto-reconnects
    on plugin start. A configurable startup mission is also available for

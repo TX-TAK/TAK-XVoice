@@ -170,6 +170,7 @@ class VoicePlant(
             val xvOwnCallOrGrace =
                 xvHasActiveTelecomCallProvider() ||
                     recentOwnRx ||
+                    lowLatencyHoldActive ||
                     com.atakmap.android.xv.telecom.ActiveCallRegistry
                         .withinRecentCallGrace(
                             nowMs = nowMs,
@@ -1446,15 +1447,34 @@ class VoicePlant(
         }
 
     private fun reconcileHotMic() {
-        // Hot mic is a slot-0 (primary) concept — VS2 doesn't have its
-        // own SCO. Arm only when the operator has both Hot Mic on AND
-        // can transmit on the primary right now.
-        val shouldArm = hotMicEnabled && canTransmitOnSlot(0)
+        // Low latency mode (hot mic) is a slot-0 (primary) concept — VS2
+        // doesn't have its own SCO. Held the whole time in a channel
+        // (LowLatencyMode.HOLD_MS) while: the mode is on, we can transmit
+        // on channel 1, the route is Bluetooth voice, and no phone call
+        // has the link (a call always wins). Released when any of those
+        // stops; re-armed when they're all true again (reconnect, channel
+        // change, BT device back, call over).
+        val shouldArm =
+            hotMicEnabled && canTransmitOnSlot(0) && isBluetoothVoiceRoute() && !externalCallActive()
+        // XV entering IN_COMMUNICATION for this hold is XV's own audio,
+        // not somebody else's call (ExternalCallDetector).
+        lowLatencyHoldActive = shouldArm
         if (shouldArm) {
             txController.armHotMic()
         } else {
             txController.disarmHotMic()
         }
+        scheduleLowLatencyWatch()
+    }
+
+    // While the mode is on, re-check every few seconds: a phone call or a
+    // route change can take the link without any XV event.
+    private val lowLatencyHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val lowLatencyWatch = Runnable { reconcileHotMic() }
+
+    private fun scheduleLowLatencyWatch() {
+        lowLatencyHandler.removeCallbacks(lowLatencyWatch)
+        if (hotMicEnabled) lowLatencyHandler.postDelayed(lowLatencyWatch, LOW_LATENCY_WATCH_MS)
     }
 
     fun playTptPreview() {
@@ -2212,6 +2232,9 @@ class VoicePlant(
         // How often RX re-reads the audio mode for the phone-call rule.
         private const val PHONE_CALL_POLL_MS = 500L
 
+        // How often Low latency mode re-checks call / route state.
+        private const val LOW_LATENCY_WATCH_MS = 2_000L
+
         private const val TAG = "XvVoicePlant"
 
         // Operator-facing message for the cellular-call PTT gate. Kept
@@ -2237,6 +2260,11 @@ class VoicePlant(
 
         // The one "somebody else's call" latch (see ExternalCallDetector).
         internal val externalCall = ExternalCallDetector()
+
+        // Low latency mode is (about to be) holding the voice link: XV's
+        // own IN_COMMUNICATION, not an external call.
+        @Volatile
+        internal var lowLatencyHoldActive: Boolean = false
 
         // How recently RX must have played for comm-mode to count as
         // ours. Covers inter-burst gaps; after this much true RX

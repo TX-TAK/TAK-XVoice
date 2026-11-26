@@ -397,7 +397,8 @@ class MeshVoiceManager(
 
     // Operator rule: when the voice server REJECTS this device's credential
     // (access revoked, certificate or auth refused), the mesh stops too —
-    // no failover, no mesh TX in any mode — until access is restored. A
+    // every leg (patch and rendezvous included) is closed, so nothing is
+    // heard or sent and no keys are used — until access is restored. A
     // server that is merely down / unreachable still fails over as usual.
     @Volatile
     private var serverAccessRejected = false
@@ -413,6 +414,9 @@ class MeshVoiceManager(
             onMeshTxStateChanged(false)
             logDiag("failover TX -> MESH OFF (server access rejected)")
         }
+        // Close (or, on restore, rebuild) the legs now rather than on the
+        // next tick.
+        reconcileLegs()
     }
 
     /** Is mesh currently the active TX leg (failover engaged)? */
@@ -481,6 +485,9 @@ class MeshVoiceManager(
         sourceHost: String,
         isPatchLeg: Boolean,
     ) {
+        // Legs are closed while access is rejected; a frame already in
+        // flight from a closing leg must not play either.
+        if (serverAccessRejected) return
         val action = decideVoiceRx(channelName, speakerKey, sourceHost, isPatchLeg)
         if (!action.play) return
         // Burst-boundary diagnostics — OUTSIDE the manager lock, burst-gated
@@ -947,7 +954,9 @@ class MeshVoiceManager(
     // ---- internals ----
 
     private fun reconcileLegs() {
-        val enabled = meshEnabled()
+        // A rejected server credential stops the mesh entirely: no legs
+        // (so no listening, no TX, no key use) until access is restored.
+        val enabled = meshEnabled() && !serverAccessRejected
         val desired = mutableMapOf<String, ChannelMulticastConfig>()
         if (enabled) {
             primaryChannel?.let { channel ->

@@ -462,6 +462,22 @@
                 <!-- Low latency mode (internally "hot mic"; ids / pref key
                      unchanged). Shown only on a Bluetooth voice route;
                      marked Not recommended with an info dialog. -->
+                <!-- Advanced (collapsed): settings most operators should
+                     leave alone. -->
+                <TextView
+                    android:id="@+id/xv_settings_advanced_toggle"
+                    style="@style/XV.SectionHeader"
+                    android:minHeight="48dp"
+                    android:gravity="center_vertical"
+                    android:text="Advanced  ▸" />
+
+                <LinearLayout
+                    android:id="@+id/xv_settings_advanced"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
                 <LinearLayout
                     android:id="@+id/xv_group_low_latency"
                     android:layout_width="match_parent"
@@ -479,11 +495,7 @@
                             style="@style/XV.SectionHeader"
                             android:layout_width="0dp"
                             android:layout_weight="1"
-                            android:text="Low latency mode" />
-
-                        <TextView
-                            style="@style/XV.Chip"
-                            android:text="NOT RECOMMENDED" />
+                            android:text="Low latency mode (not recommended)" />
 
                         <TextView
                             android:id="@+id/xv_low_latency_info"
@@ -512,6 +524,7 @@
                     <TextView
                         android:id="@+id/xv_low_latency_summary"
                         style="@style/XV.CaptionBlock" />
+                </LinearLayout>
                 </LinearLayout>
 
                 <TextView

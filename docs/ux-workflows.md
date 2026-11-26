@@ -240,7 +240,7 @@ stateDiagram-v2
   - **Details…** opens the channel's settings. Server channels: mode (Off / Backup / Both) and the **interop patch (OpenMANET RTP)** — this device only, never shared, unencrypted — with **Clear patch**. Offline channels: name and fixed group/port, plus **Interop patch…** for the same patch dialog;
   - **long-press** an offline channel to forget it.
 - **Failover and back:** when the server drops, voice continues on the mesh leg of any channel set to Backup or Both. The voice-lost tone plays and the status shows `MESH ACTIVE`. When the server returns, voice moves back automatically.
-- **Not after a refusal:** if the server *rejects* this device (access revoked, certificate or login refused), the mesh stops too: no failover, and no mesh transmit even on Both, until access is restored. A server that is just down or unreachable still fails over as above.
+- **Not after a refusal:** if the server *rejects* this device (access revoked, certificate or login refused), the mesh stops too: every mesh leg (interop patch included) closes, so nothing is heard or sent, until access is restored. A server that is just down or unreachable still fails over as above.
 - **+ Add channel** presets:
   - **Private channel:** XV picks the name, group and key.
   - **Join a channel plan:** import a plan you were sent.
@@ -307,7 +307,7 @@ flowchart TD
 | Tab | What lives there | Why there |
 |---|---|---|
 | **Devices** (opens first) | Speaker-mic, PTT button, Phone Active key, + Add a PTT button, Audio device, Built-in fallback, Troubleshooting, Help | What keys the radio and where you hear it: touched most often |
-| **TX/RX** | Layout (Left-handed, map PTT buttons and their size), Low latency mode (Bluetooth only, not recommended), PTT timeout, Talk-permit tone | How transmitting feels |
+| **TX/RX** | Layout (Left-handed, map PTT buttons and their size), Advanced › Low latency mode (Bluetooth only, not recommended; holds the voice link the whole time in a channel), PTT timeout, Talk-permit tone | How transmitting feels |
 | **Server** | TAK server picker, voice Connect / Disconnect (Disconnect asks first), Mission auto-channels | Server-side behaviour: which server, and which channel a mission drives |
 | **Mesh** | Master switch + status, channel list (Off/Backup/Both), + Add channel, Share channel plan, Interop patch, Security & recovery | Everything that works without a server |
 
@@ -337,4 +337,4 @@ Other screens:
 10. **Texas Red text contrast.** Errors now use the one brand red. As text on Hive Black it's about 3:1, so red status text is bold and red chips use a filled background; worth an on-device sunlight check.
 11. **Terminology:** operator-facing text says *channel 1 / channel 2* everywhere. *VS1/VS2* survives only in logs and internal names.
 12. **Map PTT buttons aren't reachable with TalkBack.** They're ATAK map widgets, which aren't in the Android accessibility tree. TalkBack users key from the panel PTT or a hardware button.
-13. **One VoIP case isn't detected.** The phone-call rule covers ringing, cellular calls (including VoLTE calls, which run in the same audio mode as XV's own audio, once answered or placed), and another app's VoIP call that starts while XV is quiet. It can't see a VoIP call another app starts while XV is already playing or transmitting, because the audio mode doesn't change. Replaying channel audio missed during a call is a backlog item.
+13. **One VoIP case isn't detected.** The phone-call rule covers ringing, cellular calls (including VoLTE calls, which run in the same audio mode as XV's own audio, once answered or placed), and another app's VoIP call that starts while XV is quiet. It can't see a VoIP call another app starts while XV is already playing or transmitting, because the audio mode doesn't change. With Low latency mode on, XV holds that mode the whole time, so this also covers a call you *place* from the phone (an incoming call still rings first and is caught). Replaying channel audio missed during a call is a backlog item.

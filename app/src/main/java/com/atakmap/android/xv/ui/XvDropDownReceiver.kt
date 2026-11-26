@@ -2844,16 +2844,51 @@ class XvDropDownReceiver(
     // Marked Not recommended; the ⓘ explains the trade-off.
     private fun wireLowLatencyMode(v: View) {
         val sw = v.findViewById<Switch>(R.id.xv_switch_hot_mic) ?: return
-        sw.setOnCheckedChangeListener(null)
-        sw.isChecked = controller.hotMicMode()
-        sw.setOnCheckedChangeListener { _, on -> controller.setHotMicMode(on) }
-        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdPhrase()
+        wireCollapsible(v, R.id.xv_settings_advanced_toggle, R.id.xv_settings_advanced, "Advanced")
+        fun bind() {
+            sw.setOnCheckedChangeListener(null)
+            sw.isChecked = controller.hotMicMode()
+            sw.setOnCheckedChangeListener { _, on ->
+                if (!on) {
+                    controller.setHotMicMode(false)
+                } else {
+                    // One tap to confirm, repeating the key downsides.
+                    confirmLowLatencyOn(onConfirmed = { controller.setHotMicMode(true) }, onCancelled = { bind() })
+                }
+            }
+        }
+        bind()
+        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdSentence()
         v.findViewById<TextView>(R.id.xv_low_latency_summary)?.text =
-            "Keeps the headset's voice link open for $hold after you join a channel or talk, " +
-            "so the next press has no start-up delay. Pauses music and other media and uses more " +
-            "battery while open. Not an open mic: nothing is sent unless you press PTT."
+            "Keeps the headset's voice link open $hold, so a press has no start-up delay. " +
+            "Media stays paused and the battery drains faster all that time. " +
+            "Not an open mic: nothing is sent unless you press PTT."
         v.findViewById<View>(R.id.xv_low_latency_info)?.setOnClickListener { showLowLatencyInfo() }
         renderLowLatencyVisibility(v)
+    }
+
+    private fun confirmLowLatencyOn(
+        onConfirmed: () -> Unit,
+        onCancelled: () -> Unit,
+    ) {
+        var confirmed = false
+        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdSentence()
+        android.app.AlertDialog
+            .Builder(mapView.context)
+            .setTitle("Turn on low latency mode?")
+            .setMessage(
+                "Your headset's voice link stays open $hold:\n" +
+                    "• music and other media stay paused\n" +
+                    "• many headsets hiss or whine\n" +
+                    "• more battery use\n" +
+                    "• some headsets show \"on a call\"\n\n" +
+                    "Not an open mic: nothing is sent unless you press PTT.",
+            ).setPositiveButton("Turn on") { _, _ ->
+                confirmed = true
+                onConfirmed()
+            }.setNegativeButton("Cancel", null)
+            .showXv(pluginContext)
+            .setOnDismissListener { if (!confirmed) onCancelled() }
     }
 
     private fun renderLowLatencyVisibility(v: View) {
@@ -2862,16 +2897,16 @@ class XvDropDownReceiver(
     }
 
     private fun showLowLatencyInfo() {
-        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdPhrase()
+        val hold = com.atakmap.android.xv.audio.LowLatencyMode.holdSentence()
         android.app.AlertDialog
             .Builder(mapView.context)
             .setTitle("Low latency mode — not recommended")
             .setMessage(
                 "What it does\n" +
-                    "Keeps your Bluetooth headset's voice link open for $hold after you join a channel " +
-                    "and after each time you talk, so the next press starts instantly instead of after " +
-                    "the usual 0.5–1.5 s Bluetooth start-up. Only applies with a Bluetooth speaker-mic or headset.\n\n" +
-                    "Why to leave it off — while the link is open:\n" +
+                    "Keeps your Bluetooth headset's voice link open $hold, so every press starts " +
+                    "instantly instead of after the usual 0.5–1.5 s Bluetooth start-up. Only applies with a " +
+                    "Bluetooth speaker-mic or headset. A phone call always takes the link first.\n\n" +
+                    "Why to leave it off — the whole time the link is open:\n" +
                     "• Music and other media on the headset stay paused.\n" +
                     "• Many headsets hiss or whine.\n" +
                     "• Everything else on the headset is call quality.\n" +

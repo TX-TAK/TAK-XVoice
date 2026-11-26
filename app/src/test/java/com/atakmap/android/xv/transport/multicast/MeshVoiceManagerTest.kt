@@ -235,6 +235,45 @@ class MeshVoiceManagerTest {
     }
 
     @Test
+    fun `rejected credential closes every leg and plays no mesh audio`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false // server gone: mesh audio would normally play
+        val leg = h.channelLeg()
+        h.manager.setServerAccessRejected(true)
+        assertTrue("legs are closed while access is rejected", leg.closed)
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue("no mesh RX while rejected", h.playedRx.isEmpty())
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("legs stay down across ticks", h.legs.values.none { !it.closed && it !== leg })
+    }
+
+    @Test
+    fun `access restored brings mesh RX back`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false
+        h.manager.setServerAccessRejected(true)
+        h.manager.setServerAccessRejected(false)
+        h.now += 1_000
+        h.manager.tick()
+        assertFalse("a fresh leg is up again", h.channelLeg().closed)
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+    }
+
+    @Test
+    fun `server merely down still plays mesh RX`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false // outage, no rejection
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+        assertFalse(h.channelLeg().closed)
+    }
+
+    @Test
     fun `a rejection while already on mesh drops failover at once`() {
         val h = Harness()
         h.joinAndTick()
