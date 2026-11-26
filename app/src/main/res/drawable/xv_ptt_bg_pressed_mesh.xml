@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- On-screen PTT held, not yet on the air, while on mesh: neutral grey
+     with the Bluebonnet outline. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/xv_surface_alt"/>
+    <stroke android:width="1.5dp" android:color="@color/xv_net"/>
+    <corners android:radius="8dp"/>
+</shape>

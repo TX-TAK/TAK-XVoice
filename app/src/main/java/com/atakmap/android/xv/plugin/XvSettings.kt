@@ -63,6 +63,20 @@ class XvSettings(
         }
     }
 
+    // The operator turned the Bluetooth button slot OFF (picked "Off").
+    // Distinct from "never set up": while set, nothing auto-assigns a
+    // button to the slot (launch auto-connect, the Settings picker, a
+    // newly paired puck). Cleared only when the operator picks or adds a
+    // button again.
+    fun externalButtonOff(): Boolean = prefs()?.getBoolean(PREF_EXTERNAL_BUTTON_OFF, false) ?: false
+
+    fun persistExternalButtonOff(off: Boolean) {
+        prefs()?.edit()?.apply {
+            if (off) putBoolean(PREF_EXTERNAL_BUTTON_OFF, true) else remove(PREF_EXTERNAL_BUTTON_OFF)
+            apply()
+        }
+    }
+
     fun persistedExternalButtonKind(): String? =
         prefs()?.getString(PREF_EXTERNAL_BUTTON_KIND, null)?.takeIf { it.isNotBlank() }
 
@@ -253,6 +267,49 @@ class XvSettings(
 
     fun persistPrimaryChannel(name: String) {
         prefs()?.edit()?.putString(PREF_PRIMARY_CHANNEL, name)?.apply()
+    }
+
+    // Channel 2 (VS2 / secondary slot). Blank = channel 2 off. Written on
+    // every operator pick, completed swap, and server-confirmed slot-1
+    // move (temp private-call channels excluded); read on connect so
+    // channel 2 is restored alongside channel 1.
+    fun persistedSecondaryChannel(): String = prefs()?.getString(PREF_SECONDARY_CHANNEL, "").orEmpty()
+
+    fun persistSecondaryChannel(name: String) {
+        prefs()?.edit()?.putString(PREF_SECONDARY_CHANNEL, name)?.apply()
+    }
+
+    // Left-handed layout: main-panel PTT buttons sit at the start (left)
+    // of each channel row. Display-only; PTT → channel mapping unchanged.
+    fun persistedPttOnLeft(): Boolean = prefs()?.getBoolean(PREF_PTT_ON_LEFT, false) ?: false
+
+    /** Emergency-button alert (EmergencyAlertSetting): ATAK type name or OFF; default 911. */
+    fun persistedEmergencyAlert(): String = com.atakmap.android.xv.emergency.EmergencyAlertSetting.normalize(
+        prefs()?.getString(PREF_EMERGENCY_ALERT, null)
+    )
+
+    fun persistEmergencyAlert(choice: String) {
+        prefs()?.edit()?.putString(PREF_EMERGENCY_ALERT, choice)?.apply()
+    }
+
+    fun persistPttOnLeft(onLeft: Boolean) {
+        prefs()?.edit()?.putBoolean(PREF_PTT_ON_LEFT, onLeft)?.apply()
+    }
+
+    // On-map PTT buttons (map HUD). ON by default: a fresh install shows
+    // them; operators can turn them off in Settings › TX/RX.
+    fun persistedMapPttEnabled(): Boolean = prefs()?.getBoolean(PREF_MAP_PTT, true) ?: true
+
+    fun persistMapPttEnabled(enabled: Boolean) {
+        prefs()?.edit()?.putBoolean(PREF_MAP_PTT, enabled)?.apply()
+    }
+
+    // Map PTT button size: SMALL / MEDIUM / LARGE (share of the screen's
+    // shorter side). Default MEDIUM.
+    fun persistedMapPttSize(): String = prefs()?.getString(PREF_MAP_PTT_SIZE, "MEDIUM") ?: "MEDIUM"
+
+    fun persistMapPttSize(size: String) {
+        prefs()?.edit()?.putString(PREF_MAP_PTT_SIZE, size)?.apply()
     }
 
     // Snapshot of the server's channel directory, refreshed while
@@ -519,6 +576,9 @@ class XvSettings(
         private const val PREF_EXTERNAL_BUTTON_MAC = "aina_mac_secondary"
         private const val PREF_EXTERNAL_BUTTON_KIND = "aina_kind_secondary"
 
+        // Operator turned the button slot off — see externalButtonOff.
+        private const val PREF_EXTERNAL_BUTTON_OFF = "external_button_off"
+
         // Manually-added BLE PTT devices — see knownBlePttDevices.
         // Set<String> with "MAC|Name" entries.
         private const val PREF_BLE_PTT_KNOWN = "ble_ptt_known"
@@ -546,6 +606,17 @@ class XvSettings(
         // Last-joined primary channel. Used for auto-rejoin override
         // on reconnect.
         private const val PREF_PRIMARY_CHANNEL = "primary_channel"
+
+        // Last channel-2 (secondary slot) pick. Restored on connect.
+        private const val PREF_SECONDARY_CHANNEL = "secondary_channel"
+
+        // Left-handed main-panel layout (PTT buttons on the left).
+        private const val PREF_PTT_ON_LEFT = "ptt_on_left"
+        private const val PREF_EMERGENCY_ALERT = "emergency_alert"
+
+        // On-map PTT overlay (default on).
+        private const val PREF_MAP_PTT = "map_ptt_enabled"
+        private const val PREF_MAP_PTT_SIZE = "map_ptt_size"
 
         // Mesh-voice (multicast) master toggle + per-channel overrides.
         // See persistedMeshVoiceEnabled / channelMulticastConfigs.

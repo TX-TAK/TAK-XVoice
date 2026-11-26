@@ -190,4 +190,100 @@ class MissionChannelProvisionerTest {
         )
         assertNull(p.currentTarget())
     }
+
+    // ---- channel swap ----
+
+    @Test
+    fun `swap off the mission channel is not reverted`() {
+        val p = MissionChannelProvisioner()
+        // Operator on the mission channel (Alpha) as channel 1, Bravo as 2.
+        p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Alpha", allowCreate = true)
+        // Swap lands: channel 1 is now Bravo.
+        repeat(5) {
+            assertEquals(
+                MissionChannelProvisioner.Action.NoOp,
+                p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Bravo", allowCreate = true),
+            )
+        }
+    }
+
+    @Test
+    fun `swap before the provisioner ever observed the mission channel is not reverted`() {
+        val p = MissionChannelProvisioner()
+        // Mission set, first tick wants to Join; operator swaps instead.
+        assertEquals(
+            MissionChannelProvisioner.Action.Join("Alpha"),
+            p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Charlie", allowCreate = true),
+        )
+        p.yieldToOperator("Alpha")
+        assertEquals(
+            MissionChannelProvisioner.Action.NoOp,
+            p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Bravo", allowCreate = true),
+        )
+    }
+
+    @Test
+    fun `yield clears when the mission changes`() {
+        val p = MissionChannelProvisioner()
+        p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Charlie", allowCreate = true)
+        p.yieldToOperator("Alpha")
+        assertEquals(
+            MissionChannelProvisioner.Action.Join("Bravo"),
+            p.reconcile(listOf("Bravo"), dirOf("Alpha", "Bravo"), joinedChannel = "Charlie", allowCreate = true),
+        )
+    }
+
+    @Test
+    fun `yield with no mission is a no-op`() {
+        val p = MissionChannelProvisioner()
+        p.yieldToOperator(null)
+        assertEquals(
+            MissionChannelProvisioner.Action.Join("Alpha"),
+            p.reconcile(listOf("Alpha"), dirOf("Alpha"), joinedChannel = "Charlie", allowCreate = true),
+        )
+    }
+
+    @Test
+    fun `swap before the first tick sticks`() {
+        val p = MissionChannelProvisioner()
+        // SET_MISSIONS just arrived; operator swaps before any reconcile.
+        p.yieldToOperator("Alpha")
+        assertEquals(
+            MissionChannelProvisioner.Action.NoOp,
+            p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Bravo", allowCreate = true),
+        )
+        assertEquals("Alpha", p.currentTarget())
+    }
+
+    @Test
+    fun `without a yield the mission channel is still driven`() {
+        // Yield happens only on a completed swap; a rolled-back swap leaves
+        // the provisioner driving the mission channel as before.
+        val p = MissionChannelProvisioner()
+        repeat(2) {
+            assertEquals(
+                MissionChannelProvisioner.Action.Join("Alpha"),
+                p.reconcile(listOf("Alpha"), dirOf("Alpha"), joinedChannel = "Charlie", allowCreate = true),
+            )
+        }
+    }
+
+    @Test
+    fun `mission channel already on channel 2 yields once instead of looping`() {
+        val p = MissionChannelProvisioner()
+        val first = p.reconcile(listOf("Bravo"), dirOf("Bravo"), joinedChannel = "Alpha", allowCreate = true, secondaryChannel = "bravo")
+        assertEquals(MissionChannelProvisioner.Action.HeldByChannel2("Bravo"), first)
+        // The old behaviour re-emitted Join every tick; now it stays quiet.
+        repeat(5) {
+            assertEquals(
+                MissionChannelProvisioner.Action.NoOp,
+                p.reconcile(listOf("Bravo"), dirOf("Bravo"), joinedChannel = "Alpha", allowCreate = true, secondaryChannel = "Bravo"),
+            )
+        }
+        // A new mission drives again.
+        assertEquals(
+            MissionChannelProvisioner.Action.Join("Charlie"),
+            p.reconcile(listOf("Charlie"), dirOf("Charlie"), joinedChannel = "Alpha", allowCreate = true, secondaryChannel = "Bravo"),
+        )
+    }
 }

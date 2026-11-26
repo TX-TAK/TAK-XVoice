@@ -10,6 +10,7 @@ import com.atakmap.android.xv.aina.AinaButton
 import com.atakmap.android.xv.aina.AinaSppReader
 import com.atakmap.android.xv.aina.Bt02BleReader
 import com.atakmap.android.xv.aina.PrymeBleReader
+import com.atakmap.android.xv.aina.redactMac
 import com.atakmap.android.xv.audio.AinaA2dpController
 import com.atakmap.android.xv.audio.AinaA2dpWiring
 import com.atakmap.android.xv.audio.AudioCapture
@@ -32,6 +33,8 @@ import com.atakmap.android.xv.audio.StatusTones
 import com.atakmap.android.xv.audio.TptPlayer
 import com.atakmap.android.xv.audio.TptTone
 import com.atakmap.android.xv.audio.TxController
+import com.atakmap.android.xv.audio.TxRouteCheck
+import com.atakmap.android.xv.audio.TxRouteWarning
 import com.atakmap.android.xv.audio.logPrefixForPttSource
 
 // All of XV's audio + AINA + PTT-state subsystem, instantiated in our
@@ -170,17 +173,19 @@ class VoicePlant(
             val xvOwnCallOrGrace =
                 xvHasActiveTelecomCallProvider() ||
                     recentOwnRx ||
+                    lowLatencyHoldActive ||
                     com.atakmap.android.xv.telecom.ActiveCallRegistry
                         .withinRecentCallGrace(
                             nowMs = nowMs,
                             graceMs = com.atakmap.android.xv.telecom.ActiveCallRegistry
                                 .RECENT_OWN_CALL_GRACE_MS,
                         )
-            cellularCallStateFromAudioMode(
-                audioMode = am?.mode ?: AudioManager.MODE_NORMAL,
-                xvHasActiveTelecomCall = xvOwnCallOrGrace,
-                suppressInCommunicationDefensiveBlock = false,
-            )
+            // One latched verdict for gate, RX drop and the panel bar
+            // (ExternalCallDetector): an answered VoLTE call stays a call
+            // after RINGTONE becomes IN_COMMUNICATION, and audio XV
+            // dropped during a call never counts as XV's own.
+            val external = externalCall.sample(am?.mode ?: AudioManager.MODE_NORMAL, xvOwnCallOrGrace)
+            cellularCallStateFromExternalCall(external, ringing = externalCall.ringing())
         } catch (t: Throwable) {
             android.util.Log.w(
                 TAG,
@@ -209,6 +214,14 @@ class VoicePlant(
             transmitting: Boolean,
             slot: Int,
         )
+
+        // Raw PTT input edge (before priming / TPT). Default no-op.
+        // [input] keys the reader (see IXvVoiceListener.onPttInput).
+        fun onPttInput(
+            down: Boolean,
+            slot: Int,
+            input: String,
+        ) = Unit
 
         fun onAinaConnectionChanged(connected: Boolean)
 
@@ -268,6 +281,11 @@ class VoicePlant(
         // A BLE PTT reader hit a non-bond problem the operator must fix
         // (buttons not recognised, scan permission missing).
         fun onPttInputProblem(reason: String)
+
+        // A transmission started on a different input than the selected
+        // speaker-mic (phone mic, or another BT device). Throttled per
+        // kind; [reason] is operator-facing text.
+        fun onTxRouteWarning(reason: String)
     }
 
     private val audioManager =
@@ -332,6 +350,9 @@ class VoicePlant(
                     .firstOrNull { it.address.equals(mac, ignoreCase = true) }
                     ?.displayName
             },
+            // Same call verdict as the PTT gate and RX drop: an answered
+            // VoLTE call (IN_COMMUNICATION) keeps SCO off too.
+            externalCallActive = { externalCallActive() },
         ).also { link ->
             // Wire ScoLink into AudioControllerImpl so focus-loss
             // teardown publishes SUSPENDED instead of the controller
@@ -451,6 +472,7 @@ class VoicePlant(
             sendTerminator = { slot -> callbacks.onTxTerminator(slot) },
             onPttStateChanged = { transmitting, slot ->
                 callbacks.onPttStateChanged(transmitting, slot)
+                if (transmitting) checkTxRoute()
                 // TX-state edge → end Telecom call when transmitting
                 // turns false. Covers latched mode (where pttUp is a
                 // no-op but stopInternal still fires this callback on
@@ -577,6 +599,13 @@ class VoicePlant(
     // stale previous reader of either slot. Teardown forgets only the
     // dropped reader's keys.
     @Volatile private var primaryPttOwner: PttInputOwner? = null
+
+    // Primary speaker-mic's button link is up (from its reader's onConn).
+    // With it up, the operator expects TX audio on the speaker-mic too.
+    @Volatile private var primaryReaderUp: Boolean = false
+
+    // Last time each TxRouteWarning kind was raised (throttle).
+    private val lastTxRouteWarningAtMs = java.util.concurrent.ConcurrentHashMap<TxRouteWarning, Long>()
 
     @Volatile private var externalPttOwner: PttInputOwner? = null
 
@@ -753,6 +782,10 @@ class VoicePlant(
                 } catch (t: Throwable) {
                     Log.w(TAG, "ainaA2dpWiring.reconcileNotification threw", t)
                 }
+                // Low latency mode only applies on a Bluetooth voice
+                // route: arm when one appears (a speaker-mic connecting
+                // after the channel was joined), let go when it leaves.
+                reconcileHotMic()
                 val label = router.currentRouteLabel()
                 if (label == lastPublishedRouteLabel) return
                 lastPublishedRouteLabel = label
@@ -962,6 +995,11 @@ class VoicePlant(
             Log.i(TAG, "pttDown(slot=$slot) from retired reader $owner — ignored")
             return
         }
+        try {
+            callbacks.onPttInput(true, slot, inputKey(source, owner))
+        } catch (t: Throwable) {
+            Log.w(TAG, "onPttInput(down) threw", t)
+        }
         if (callRinging) {
             // Incoming call ringing: turn any PTT-like button press
             // (AINA PTT, BLE HID HEADSETHOOK, etc.) into an
@@ -1102,6 +1140,11 @@ class VoicePlant(
         source: PttSource,
         owner: Any = source,
     ) {
+        try {
+            callbacks.onPttInput(false, slot, inputKey(source, owner))
+        } catch (t: Throwable) {
+            Log.w(TAG, "onPttInput(up) threw", t)
+        }
         if (callRinging || privateCallActive) {
             // pttDown was the call-button trigger — just absorb the
             // matching up so PttDispatcher's edge-trigger state stays
@@ -1205,12 +1248,12 @@ class VoicePlant(
         val device =
             audioManager.availableCommunicationDevices.firstOrNull { it.address == mac }
         if (device == null) {
-            Log.i(TAG, "applyOutputBtOverride: $mac not currently a communication device")
+            Log.i(TAG, "applyOutputBtOverride: ${redactMac(mac)} not currently a communication device")
             return
         }
         try {
             val ok = audioManager.setCommunicationDevice(device)
-            Log.i(TAG, "applyOutputBtOverride: setCommunicationDevice(${device.productName}, $mac) → ok=$ok")
+            Log.i(TAG, "applyOutputBtOverride: setCommunicationDevice(${device.productName}, ${redactMac(mac)}) → ok=$ok")
         } catch (t: Throwable) {
             Log.w(TAG, "setCommunicationDevice for override threw", t)
         }
@@ -1263,14 +1306,14 @@ class VoicePlant(
                         Log.i(
                             TAG,
                             "applyNoScoCommDevice: setCommunicationDevice(${pinned.productName}, " +
-                                "override $overrideMac) → ok=$ok",
+                                "override ${redactMac(overrideMac)}) → ok=$ok",
                         )
                         return
                     } catch (t: Throwable) {
                         Log.w(TAG, "setCommunicationDevice for BT override threw", t)
                     }
                 } else {
-                    Log.i(TAG, "applyNoScoCommDevice: BT override $overrideMac not available, falling back to built-in route")
+                    Log.i(TAG, "applyNoScoCommDevice: BT override ${redactMac(overrideMac)} not available, falling back to built-in route")
                 }
             }
         }
@@ -1435,16 +1478,44 @@ class VoicePlant(
      * Mumble session state). Idempotent — TxController.armHotMic /
      * disarmHotMic are safe to call when nothing changes.
      */
+    /** A Bluetooth speaker-mic / headset is the voice (HFP) route. */
+    fun isBluetoothVoiceRoute(): Boolean =
+        try {
+            btPolicy.classify() == com.atakmap.android.xv.audio.BtAudioMode.HFP_ONLY
+        } catch (t: Throwable) {
+            Log.w(TAG, "isBluetoothVoiceRoute: classify threw", t)
+            false
+        }
+
     private fun reconcileHotMic() {
-        // Hot mic is a slot-0 (primary) concept — VS2 doesn't have its
-        // own SCO. Arm only when the operator has both Hot Mic on AND
-        // can transmit on the primary right now.
-        val shouldArm = hotMicEnabled && canTransmitOnSlot(0)
+        // Low latency mode (hot mic) is a slot-0 (primary) concept — VS2
+        // doesn't have its own SCO. Held the whole time in a channel
+        // (LowLatencyMode.HOLD_MS) while: the mode is on, we can transmit
+        // on channel 1, the route is Bluetooth voice, and no phone call
+        // has the link (a call always wins). Released when any of those
+        // stops; re-armed when they're all true again (reconnect, channel
+        // change, BT device back, call over).
+        val shouldArm =
+            hotMicEnabled && canTransmitOnSlot(0) && isBluetoothVoiceRoute() && !externalCallActive()
+        // XV entering IN_COMMUNICATION for this hold is XV's own audio,
+        // not somebody else's call (ExternalCallDetector).
+        lowLatencyHoldActive = shouldArm
         if (shouldArm) {
             txController.armHotMic()
         } else {
             txController.disarmHotMic()
         }
+        scheduleLowLatencyWatch()
+    }
+
+    // While the mode is on, re-check every few seconds: a phone call or a
+    // route change can take the link without any XV event.
+    private val lowLatencyHandler = android.os.Handler(android.os.Looper.getMainLooper())
+    private val lowLatencyWatch = Runnable { reconcileHotMic() }
+
+    private fun scheduleLowLatencyWatch() {
+        lowLatencyHandler.removeCallbacks(lowLatencyWatch)
+        if (hotMicEnabled) lowLatencyHandler.postDelayed(lowLatencyWatch, LOW_LATENCY_WATCH_MS)
     }
 
     fun playTptPreview() {
@@ -1596,6 +1667,7 @@ class VoicePlant(
                 Log.i(TAG, "AINA connection up=$up from retired $owner — ignored")
             } else {
                 Log.i(TAG, "AINA connection up=$up source=$source owner=$owner")
+                primaryReaderUp = up
                 callbacks.onAinaConnectionChanged(up)
             }
             if (!up && !owner.retired) {
@@ -1889,7 +1961,10 @@ class VoicePlant(
         // (or share a source), and a re-attach of a sleeping puck must
         // not cut the speaker-mic's live burst.
         try {
-            externalPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
+            externalPttOwner?.let {
+                pttDispatcher.forgetOwner(it, retire = true)
+                releaseInputEdges(ownerReleaseKey(it))
+            }
             externalPttOwner = null
         } catch (t: Throwable) {
             Log.w(TAG, "forgetOwner on external-button disconnect threw", t)
@@ -1966,6 +2041,7 @@ class VoicePlant(
 
     private fun disconnectAinaReaderOnlyLocked() {
         primaryReaderKind = null
+        primaryReaderUp = false
         val hadReader = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
         // Retire the owner FIRST so the old reader cannot deliver presses,
         // PTTE / MFB or a redundant up=false while it is being torn down.
@@ -1975,7 +2051,10 @@ class VoicePlant(
         // so an external button held on the same reader class keeps its
         // burst.
         try {
-            primaryPttOwner?.let { pttDispatcher.forgetOwner(it, retire = true) }
+            primaryPttOwner?.let {
+                pttDispatcher.forgetOwner(it, retire = true)
+                releaseInputEdges(ownerReleaseKey(it))
+            }
             primaryPttOwner = null
         } catch (t: Throwable) {
             Log.w(TAG, "forgetOwner on primary reader teardown threw", t)
@@ -2075,6 +2154,30 @@ class VoicePlant(
      * TRANSMITTING, and the transmit burst never ended. This helper
      * closes that gap.
      */
+    // Called when a burst starts transmitting: warn when it is not going
+    // out on the speaker-mic the operator selected.
+    private fun checkTxRoute() {
+        val expectedMac = router.outputBtOverrideMac ?: router.preferredBtMacHint
+        val warning =
+            TxRouteCheck.evaluate(
+                speakerMicExpected = primaryReaderUp,
+                scoConnected = scoLink.state == ScoLink.State.CONNECTED,
+                activeMac = scoLink.activeDeviceMac(),
+                expectedMac = expectedMac,
+            )
+        val message = TxRouteCheck.message(warning) ?: return
+        Log.w(TAG, "TX route warning: $warning")
+        val now = nowMsProvider()
+        val last = lastTxRouteWarningAtMs[warning] ?: 0L
+        if (last > 0L && now - last < TX_ROUTE_WARNING_THROTTLE_MS) return
+        lastTxRouteWarningAtMs[warning] = now
+        try {
+            callbacks.onTxRouteWarning(message)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onTxRouteWarning dispatch threw", t)
+        }
+    }
+
     private fun releaseStuckPttOnTransportDrop(
         source: PttSource,
         owner: PttInputOwner,
@@ -2085,6 +2188,7 @@ class VoicePlant(
                 "PTT source $source ($owner) transport dropped — releasing its held keys",
             )
             pttDispatcher.forgetOwner(owner)
+            releaseInputEdges(ownerReleaseKey(owner))
         } catch (t: Throwable) {
             Log.w(TAG, "forgetOwner on reader disconnect threw", t)
         }
@@ -2110,12 +2214,32 @@ class VoicePlant(
                 TAG,
                 "BluetoothAdapter STATE_TURNING_OFF — cascading PTT release across all BT sources",
             )
-            pttDispatcher.forgetSource(PttSource.AINA_V1)
-            pttDispatcher.forgetSource(PttSource.AINA_V2)
-            pttDispatcher.forgetSource(PttSource.PRYME_BLE)
-            pttDispatcher.forgetSource(PttSource.INRICO_BT02)
+            for (s in listOf(PttSource.AINA_V1, PttSource.AINA_V2, PttSource.PRYME_BLE, PttSource.INRICO_BT02)) {
+                pttDispatcher.forgetSource(s)
+                releaseInputEdges(s.name)
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "releaseAllBtSourcedPtt threw", t)
+        }
+    }
+
+    // Input key for the raw PTT edge: per reader instance where there is
+    // one (matching the dispatcher's per-owner held state), else the
+    // source alone (on-screen / default).
+    private fun inputKey(
+        source: PttSource,
+        owner: Any,
+    ): String = if (owner === source) source.name else "${source.name}@${System.identityHashCode(owner)}"
+
+    private fun ownerReleaseKey(owner: Any): String = "*@${System.identityHashCode(owner)}"
+
+    // Tell the plugin a reader's keys are gone (teardown / transport
+    // drop / BT off) so its swap gate never waits on a lost up edge.
+    private fun releaseInputEdges(input: String) {
+        try {
+            callbacks.onPttInput(false, -1, input)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onPttInput(release $input) threw", t)
         }
     }
 
@@ -2194,11 +2318,43 @@ class VoicePlant(
     private val perSpeakerDecoders: MutableMap<String, OpusDecoder> =
         java.util.concurrent.ConcurrentHashMap()
 
+    /** Somebody else's call is up (ExternalCallDetector verdict, sampled now). */
+    fun externalCallActive(): Boolean = cellularCallStateProvider() != android.telephony.TelephonyManager.CALL_STATE_IDLE
+
+    // Audio mode is a binder call; RX frames arrive ~50/s, so re-read it
+    // at most every PHONE_CALL_POLL_MS.
+    @Volatile private var phoneCallCheckedAtMs = 0L
+
+    @Volatile private var phoneCallCached = false
+
+    private fun phoneCallActiveCached(): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (now - phoneCallCheckedAtMs >= PHONE_CALL_POLL_MS) {
+            phoneCallCheckedAtMs = now
+            val active =
+                try {
+                    externalCallActive()
+                } catch (t: Throwable) {
+                    Log.w(TAG, "phone-call check: audio mode read failed — assuming no call", t)
+                    false
+                }
+            if (active !=
+                phoneCallCached
+            ) {
+                Log.i(TAG, "phone call ${if (active) "active — channel RX ignored" else "ended — channel RX resumes"}")
+            }
+            phoneCallCached = active
+        }
+        return phoneCallCached
+    }
+
     fun onRxOpus(
         slot: Int,
         opus: ByteArray,
         speakerName: String?,
     ) {
+        // Any phone call: channel RX is ignored (not played, not kept).
+        if (CallRxPolicy.dropChannelRx(slot, phoneCallActiveCached(), privateCallActive)) return
         val key = speakerName ?: "slot:$slot"
         val dec = perSpeakerDecoders.getOrPut(key) { opusDecoderFactory() }
         val pcm =
@@ -2298,8 +2454,17 @@ class VoicePlant(
     }
 
     companion object {
+        // How often RX re-reads the audio mode for the phone-call rule.
+        private const val PHONE_CALL_POLL_MS = 500L
+
+        // How often Low latency mode re-checks call / route state.
+        private const val LOW_LATENCY_WATCH_MS = 2_000L
+
         // One operator notice per slot and kind per window.
         private const val INPUT_NOTICE_THROTTLE_MS: Long = 10 * 60_000L
+
+        // One TX-route warning per kind per window.
+        private const val TX_ROUTE_WARNING_THROTTLE_MS: Long = 60_000L
 
         private const val TAG = "XvVoicePlant"
 
@@ -2323,6 +2488,14 @@ class VoicePlant(
         // the speaker route so the SCO suppression couldn't catch it).
         @Volatile
         internal var lastRxPlaybackElapsedMs: Long = 0L
+
+        // The one "somebody else's call" latch (see ExternalCallDetector).
+        internal val externalCall = ExternalCallDetector()
+
+        // Low latency mode is (about to be) holding the voice link: XV's
+        // own IN_COMMUNICATION, not an external call.
+        @Volatile
+        internal var lowLatencyHoldActive: Boolean = false
 
         // How recently RX must have played for comm-mode to count as
         // ours. Covers inter-burst gaps; after this much true RX

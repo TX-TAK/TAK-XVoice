@@ -109,4 +109,29 @@ class BridgeElectionTest {
         // we should elect ourselves and activate the bridge.
         assertTrue(e.evaluate(nowMs = 1_100, ourMumbleConnected = true))
     }
+
+    @Test
+    fun `election is per channel - a connected peer on another channel doesn't win`() {
+        val e = BridgeElection(ourUid = "mmm")
+        e.observePeer("aaa", mumbleConnected = true, nowMs = 1_000, channels = setOf("bees"))
+        e.observePeer("zzz", mumbleConnected = false, nowMs = 1_000, channels = setOf("lobby"))
+        assertTrue("we are the lowest connected uid ON lobby", e.evaluate(1_100, true, "lobby"))
+        assertFalse("nobody on bees needs a bridge", e.evaluate(1_100, true, "bees"))
+    }
+
+    @Test
+    fun `a beacon without a channel list counts for every channel`() {
+        val e = BridgeElection(ourUid = "mmm")
+        e.observePeer("aaa", mumbleConnected = true, nowMs = 1_000)
+        e.observePeer("zzz", mumbleConnected = false, nowMs = 1_000, channels = setOf("lobby"))
+        assertFalse(e.evaluate(1_100, true, "lobby"))
+    }
+
+    @Test
+    fun `another bridge is known per channel`() {
+        val e = BridgeElection(ourUid = "mmm")
+        e.observePeer("aaa", mumbleConnected = true, nowMs = 1_000, channels = setOf("lobby"), bridging = true)
+        assertTrue(e.otherBridgeOn("lobby", 1_100))
+        assertFalse(e.otherBridgeOn("bees", 1_100))
+    }
 }

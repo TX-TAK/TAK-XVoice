@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- On-screen PTT button, briefly, after a refused press: Texas Red
+     outline on Hive Black (never a solid red fill: that means TX). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/xv_bg"/>
+    <stroke android:width="2dp" android:color="@color/xv_ptt_active"/>
+    <corners android:radius="8dp"/>
+</shape>

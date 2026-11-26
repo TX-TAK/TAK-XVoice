@@ -65,6 +65,7 @@ Fans out to every authorized adb device so multi-device flashing takes one comma
 .\scripts\install-dev.ps1                        # build + install plugin on every attached device
 .\scripts\install-dev.ps1 -Baseline 5.6.0
 .\scripts\install-dev.ps1 -Serial <ID>           # single device
+.\scripts\install-dev.ps1 -Serial <ID> -LoadPlugin   # then cold-start ATAK with the plugin loaded (Developer ATAK; uses run-as)
 .\scripts\install-dev.ps1 -Uninstall             # signing cert change (e.g. after replacing a TPP-signed install)
 .\scripts\install-dev.ps1 -SkipBuild             # reinstall the last-built APK
 

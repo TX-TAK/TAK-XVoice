@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Alert chip (clear traffic, needs re-pair): solid Texas Red with Wax
+     White text (red text on Hive Black alone is too low-contrast). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/xv_err"/>
+    <corners android:radius="4dp"/>
+</shape>

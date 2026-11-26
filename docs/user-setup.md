@@ -9,17 +9,17 @@ tones, emergency alerts, and channel sharing.
 TAK-XVoice treats your paired Bluetooth speaker-mic as **XV-exclusive comms
 gear** while leaving the rest of your phone alone:
 
-- **No held audio resources:** HFP/SCO is engaged **only while the mic is
-  actively open** (PTT-down or hot-mic). Loading the plugin or joining a
-  channel does not hijack your audio route.
+- **No held audio resources:** HFP/SCO is engaged **only while you
+  transmit**. Loading the plugin or joining a channel does not hijack your
+  audio route (unless you turn on Low latency mode, below).
 - **Media & navigation keep working:** Spotify, podcasts, GPS turn-by-turn
   prompts, ATAK alerts, and personal headphones continue using their normal
   A2DP / phone audio paths between transmissions.
 
 ## Bluetooth Speaker-Mic Picker & Fallback
 
-Open **XV Settings → Primary Speaker-Mic** to pick your preferred Bluetooth
-device:
+Open **XV Settings → Devices** and use the **Speaker-mic** card to pick your
+preferred Bluetooth device:
 
 - **Reachability-aware picker:** On plugin load, XV restores your
   last-connected speaker-mic if it is reachable; otherwise it automatically
@@ -29,10 +29,12 @@ device:
   unreachable for **15 seconds** during a session, XV falls back to the phone
   speaker while remembering your preferred MAC address — audio automatically
   returns to the speaker-mic as soon as it reconnects.
-- **Per-MAC button defaults & overrides:** Each supported device ships
-  pre-mapped (PTT → Channel 1, secondary → Channel 2, emergency button,
-  prev/next channel) so a fresh pairing works out of the box. Any custom button
-  overrides you make persist per Bluetooth MAC address.
+- **Fixed button map:** Every supported device keys the same way — PTT →
+  channel 1, secondary PTT → channel 2 (channel 1 when channel 2 is off),
+  emergency button → ATAK alert — so a fresh pairing works out of the box.
+  The mapping is shown read-only on the device's card and is not
+  remappable; to change which net a button keys, **Swap** channels 1 and 2
+  in the channel list.
 
 For device-specific pairing and button notes, see
 [Supported Hardware](hardware/README.md).
@@ -43,8 +45,9 @@ The **Samsung Active Key** works as PTT in the foreground, with ATAK
 backgrounded, and with the screen locked once it is assigned to XV in
 Samsung's own settings:
 
-1. Open **XV Settings** and tap **Samsung Active Key PTT** (visible only on
-   devices with the key). XV opens Samsung's Active button settings screen.
+1. Open **XV Settings → Devices → Phone Active key** (visible only on
+   devices with the key) and tap it. XV opens Samsung's Active button settings
+   screen.
 2. Turn on **Use Active button with app** and pick **Texas TAK-XVoice**.
 3. Back in XV Settings the row shows **Assigned**.
 
@@ -87,14 +90,16 @@ into ATAK's **Alert Tool**:
     emergency from ATAK's Emergency / Alert tool. See
     [Inrico BT02](hardware/inrico-bt02.md).
 
-## Direct Calling
+## Direct Calling (not shipping)
 
-You can place private, 1-to-1 calls to peers on your server or mesh presence
-roster:
+!!! warning "Dormant in this release"
+    Private 1-to-1 calls are not available in this release: the call
+    signalling is switched off, and nothing in the UI places or receives a
+    direct call. The notes below describe the dormant design.
 
-- Uses a heads-up incoming-call notification with Answer / Decline actions.
-- Holds a proximity wake-lock when using the earpiece route so the screen turns
-  off when held to your ear.
+- Incoming calls would use a heads-up notification with Answer / Decline.
+- The earpiece route would hold a proximity wake-lock so the screen turns off
+  at your ear.
 
 ## Channel Sharing & Offline Comms Plans
 
@@ -130,3 +135,25 @@ When enabled in **XV Settings**:
   profile, RFC 3550 + 7587, for OpenMANET; raw-Opus wire mode for legacy VX
   peers). OpenMANET interop has not yet been verified on-air against a live
   node.
+
+## Low latency mode (not recommended)
+
+**Settings → TX/RX → Advanced → Low latency mode (not recommended)**
+appears only while a Bluetooth speaker-mic or headset is the voice route. It
+is off by default, and turning it on asks you to confirm.
+
+When on, XV keeps the headset's voice link open the whole time you're in a
+channel, so every press starts instantly instead of after the usual 0.5–1.5 s
+Bluetooth start-up. It lets go when you leave every channel, turn it off, the
+audio stops being Bluetooth, or a phone call needs the headset (a call always
+wins), and picks the link back up when that clears. The whole time it's on:
+
+- music and other media on the headset stay paused;
+- many headsets hiss or whine;
+- everything else on the headset is call quality;
+- the phone and headset use more battery;
+- some headsets show "on a call";
+- other calling apps may not get the headset until it closes.
+
+Use it only when the first words after a quiet spell must never be clipped.
+It is **not** an open mic: nothing is sent unless you press PTT.

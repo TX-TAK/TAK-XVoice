@@ -102,4 +102,19 @@ interface IXvVoiceListener {
     // (wrong device / protocol), or a needed permission is missing.
     // Fired at most once per condition, throttled per slot.
     oneway void onPttInputProblem(String reason);
+
+    // Raw PTT input edge from any source the service owns (speaker-mic,
+    // BLE button, Samsung key, on-screen), before mic priming and the
+    // talk-permit tone. onPttStateChanged only fires once audio is on the
+    // air; the plugin uses this edge so a channel swap can't start into a
+    // press that is still priming. [input] identifies the reader:
+    // "<SOURCE>@<reader id>", a bare "<SOURCE>" on an up edge releases every
+    // reader of that source, and "*@<reader id>" every key of that reader;
+    // slot -1 on an up edge = all slots. Appended after #146's methods.
+    oneway void onPttInput(boolean down, int slot, String input);
+
+    // A transmission started on a different input than the selected
+    // speaker-mic — the phone's own mic (SCO down) or another Bluetooth
+    // device. [reason] is operator-facing text; the service throttles it.
+    oneway void onTxRouteWarning(String reason);
 }

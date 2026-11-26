@@ -30,9 +30,10 @@ Mumble + multicast voice experience.
 ## What Makes TAK-XVoice Different
 
 - **Phone stays a phone:** Your Bluetooth speaker-mic is treated as
-  XV-exclusive comms gear. HFP/SCO only engages while the mic is actually open
-  (PTT-down or hot-mic), so music, navigation prompts, and ATAK alerts keep
-  flowing on their normal audio paths.
+  XV-exclusive comms gear. HFP/SCO only engages while you transmit (or the
+  whole time you're in a channel with the optional, not-recommended Low
+  latency mode), so music, navigation prompts, and ATAK alerts keep flowing
+  on their normal audio paths.
 - **Predictable auto-reconnect:** Remembers your last-used mission and
   auto-reconnects on plugin start, with an optional configurable startup
   mission for fleet-managed deployments.

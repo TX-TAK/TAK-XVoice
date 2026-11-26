@@ -1,1067 +1,957 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  XV Settings. Four tabs — Devices | TX/RX | Server | Mesh — over one
+  scrolling body; XvDropDownReceiver.wireSettingsTabs shows one section
+  at a time. Everything uses the shared style system (values/styles.xml):
+  cards and switch rows on Comb, section headers in tracked Signal Grey,
+  48dp touch targets, Honey for voice/brand, Bluebonnet for system state.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="@color/xv_bg">
+    android:background="@color/xv_bg"
+    android:orientation="vertical">
 
     <!-- Header: back + title -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:padding="12dp">
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingTop="8dp"
+        android:paddingEnd="12dp">
 
         <Button
             android:id="@+id/xv_settings_back"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="◀"
-            android:contentDescription="@string/xv_cd_back"
-            android:textColor="@color/xv_text"
-            android:textSize="14sp"
-            android:background="@android:color/transparent"
-            android:minWidth="40dp"/>
+            style="@style/XV.BackButton" />
 
         <TextView
+            style="@style/XV.Text.Title"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
             android:layout_weight="1"
-            android:text="Settings"
-            android:textColor="@color/xv_text"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:layout_marginStart="4dp"/>
+            android:text="Settings" />
     </LinearLayout>
 
-    <!-- Tab strip: Devices | TX/RX | Server.
-         Devices sits leftmost + is the default because the AINA
-         speakermic / external-button / audio-device pickers are the
-         controls operators touch every session; TX/RX (hot-mic,
-         timeouts, tone) is tuning; Server (TAK server picker, Mumble
-         connect/disconnect) is one-time enrollment. Tab IDs were
-         historically xv_tab_prefs / xv_tab_txrx / xv_tab_calls —
-         those IDs are preserved so the wireSettingsTabs findViewById
-         calls in XvDropDownReceiver don't break; only display order,
-         labels, and the default-selection index changed. -->
+    <!-- Tab strip. Order matches wireSettingsTabs. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:paddingStart="12dp"
-        android:paddingEnd="12dp">
+        android:paddingTop="8dp"
+        android:paddingEnd="8dp">
 
         <Button
-            android:id="@+id/xv_tab_prefs"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:text="Devices"
-            android:textColor="@color/xv_text"
-            android:textSize="13sp"
-            android:textAllCaps="false"
-            android:background="@drawable/xv_button_bg"/>
+            android:id="@+id/xv_tab_devices"
+            style="@style/XV.Tab"
+            android:text="Devices" />
 
         <Button
             android:id="@+id/xv_tab_txrx"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="TX/RX"
-            android:textColor="@color/xv_text"
-            android:textSize="13sp"
-            android:textAllCaps="false"
-            android:background="@drawable/xv_button_bg"/>
+            style="@style/XV.Tab"
+            android:text="TX/RX" />
 
         <Button
-            android:id="@+id/xv_tab_calls"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="Server"
-            android:textColor="@color/xv_text"
-            android:textSize="13sp"
-            android:textAllCaps="false"
-            android:background="@drawable/xv_button_bg"/>
+            android:id="@+id/xv_tab_server"
+            style="@style/XV.Tab"
+            android:text="Server" />
 
         <Button
             android:id="@+id/xv_tab_mesh"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginStart="6dp"
-            android:text="Mesh"
-            android:textColor="@color/xv_text"
-            android:textSize="13sp"
-            android:textAllCaps="false"
-            android:background="@drawable/xv_button_bg"/>
+            style="@style/XV.Tab"
+            android:text="Mesh" />
     </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="0dp"
+        android:layout_weight="1">
 
         <FrameLayout
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="12dp">
+            android:layout_height="wrap_content">
 
-            <!-- ============================================================ -->
-            <!-- Section 1: TX/RX  (latched mode + TX timeouts)              -->
-            <!-- ============================================================ -->
+            <!-- ============================================================
+                 Devices: one card per input, with a read-only button map.
+                 PTT1 → channel 1, PTT2 → channel 2 (channel 1 when 2 is
+                 off) is fixed; Swap in the channel list is the only way to
+                 invert it. The spinners inside the cards are the "Change"
+                 control (ids unchanged for wireAinaPicker /
+                 wireExternalButtonPicker). The NEEDS RE-PAIR chips are
+                 placeholders, GONE until the service reports a device
+                 that must be re-paired.
+                 ============================================================ -->
             <LinearLayout
-                android:id="@+id/xv_section_txrx"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
+                android:id="@+id/xv_section_devices"
+                style="@style/XV.Page">
 
-                <!-- Latched-mode toggle hidden from Settings UI per user
-                     direction (2026-05-10). Latched mode remains
-                     functional under the hood — direct calls default to
-                     latched, and the Switch ID is preserved (visibility
-                     gone) so wireTxRxSection's findViewById doesn't NPE.
-                     Re-expose by switching visibility back to "visible"
-                     when a non-call latched use case comes up. -->
-                <Switch
-                    android:id="@+id/xv_switch_latched"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone"/>
-
+                <!-- Shown only while the Bluetooth adapter is off; tap opens
+                     system BT settings (wireBtOffBanner). -->
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Hot mic (PTT latency)"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="4dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Hot mic mode (instant PTT)"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
-
-                    <Switch
-                        android:id="@+id/xv_switch_hot_mic"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Pre-warms the Bluetooth SCO link for the entire time you're in a channel so the first PTT after a long pause skips the 0.5-1.5s cold-start. Tradeoff: media apps (Spotify, podcasts) stay paused for the whole session, not just during PTT bursts."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="PTT timeout (seconds)"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <TextView
-                    android:id="@+id/xv_label_ptt_timeout"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="30 s"
-                    android:textColor="@color/xv_text"
-                    android:textSize="14sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
-
-                <SeekBar
-                    android:id="@+id/xv_slider_ptt_timeout"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:min="20"
-                    android:max="90"
-                    android:progress="30"
-                    android:layout_marginTop="4dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Auto-release a stuck PTT after this many seconds (20–90 s)."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Latched timeout slider — hidden alongside the latched
-                     toggle (2026-05-10). The SeekBar id is preserved so
-                     XvDropDownReceiver.wireTxRxSection's findViewById
-                     keeps working; only visibility is gone. -->
-                <SeekBar
-                    android:id="@+id/xv_slider_latched_timeout"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:max="600"
-                    android:progress="180"
-                    android:visibility="gone"/>
-
-                <TextView
-                    android:id="@+id/xv_label_latched_timeout"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="180 s"
-                    android:visibility="gone"/>
-
-                <!-- Talk permit tone lives on the TX/RX tab because
-                     it's a transmit behavior, not a device choice —
-                     the tone plays when the operator keys, regardless
-                     of which speakermic / route is active. Moved here
-                     from the Devices tab so the Devices tab is closer
-                     to what operators reach for every session. -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Talk permit tone"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <Spinner
-                    android:id="@+id/xv_spinner_tpt"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
-
-                <Button
-                    android:id="@+id/xv_btn_test_tpt"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Test tone"
-                    android:textColor="@color/xv_text"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="40dp"/>
-            </LinearLayout>
-
-            <!-- ============================================================ -->
-            <!-- Section 2: Server (TAK server + Mumble connect/disconnect).  -->
-            <!-- VS1/VS2 channel selection lives on the main view's PTT       -->
-            <!-- cards — operators pick channels there, not buried in         -->
-            <!-- settings. The legacy VS1/VS2 spinners were deleted per       -->
-            <!-- operator feedback that channel choice belongs front-of-     -->
-            <!-- screen, not behind a Settings tab.                           -->
-            <!-- ============================================================ -->
-            <LinearLayout
-                android:id="@+id/xv_section_calls"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="gone">
-
-                <!-- TAK server. Tappable: opens AlertDialog server picker
-                     (auto / per-host) so operators with >1 enrolled TAK
-                     server can pin which one XV uses for Mumble. Pick
-                     persists in SharedPreferences (PREF_TAK_SERVER_HOST)
-                     and is honored by connectMumbleWithDefaults on every
-                     plugin start. Click handler is bound in
-                     XvDropDownReceiver.wireSettings. -->
-                <!-- @noinspection KeyboardInaccessibleWidget -->
-                <!-- TextView is clickable at runtime; Studio lint nag
-                     about contentDescription is intentional — the label
-                     text already conveys the affordance. -->
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="TAK server"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"/>
-
-                <TextView
-                    android:id="@+id/xv_tak_server_label"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="4dp"
-                    android:text="—"
-                    android:textColor="@color/xv_text"
-                    android:fontFamily="monospace"
-                    android:textSize="13sp"/>
-
-                <!-- Mumble actions -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Mumble"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="4dp">
-
-                    <Button
-                        android:id="@+id/xv_btn_mumble_connect"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:text="Connect"
-                        android:textColor="@color/xv_text"
-                        android:background="@drawable/xv_button_bg"/>
-
-                    <Button
-                        android:id="@+id/xv_btn_mumble_disconnect"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="8dp"
-                        android:text="Disconnect"
-                        android:textColor="@color/xv_text"
-                        android:background="@drawable/xv_button_bg"/>
-                </LinearLayout>
-
-                <View
-                    android:layout_width="match_parent"
-                    android:layout_height="40dp"/>
-            </LinearLayout>
-
-            <!-- ============================================================ -->
-            <!-- Section 3: Preferences (TPT, audio output, AINA picker)     -->
-            <!-- ============================================================ -->
-            <LinearLayout
-                android:id="@+id/xv_section_prefs"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:visibility="visible">
-
-                <!-- Persistent banner shown ONLY when the Bluetooth
-                     adapter is off. Tapping opens the system BT
-                     settings so the operator can turn it back on
-                     without leaving XV. Visibility is driven by an
-                     ACTION_STATE_CHANGED receiver registered while
-                     the dropdown view is attached — see
-                     XvDropDownReceiver.wireBtOffBanner. Default is
-                     gone so it doesn't flash at inflate; the receiver
-                     sets the correct state on the initial poll. -->
-                <TextView
-                    android:id="@+id/xv_prefs_bt_off_banner"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:padding="12dp"
-                    android:layout_marginBottom="16dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:text="Bluetooth is off — tap to enable"
-                    android:textColor="@color/xv_text"
-                    android:textSize="13sp"
+                    android:id="@+id/xv_devices_bt_off_banner"
+                    style="@style/XV.Card"
+                    android:layout_marginTop="0dp"
+                    android:layout_marginBottom="8dp"
                     android:clickable="true"
                     android:focusable="true"
-                    android:visibility="gone"/>
-
-                <!-- Section header: Speaker mic input -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="SPEAKER MIC INPUT"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.15"/>
+                    android:minHeight="48dp"
+                    android:text="Bluetooth is off — tap to turn it on"
+                    android:textColor="@color/xv_net"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
 
                 <TextView
+                    style="@style/XV.Text.Caption"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="An audio-carrying PTT device — an AINA V1/V2 speakermic — that both keys the channel and carries your voice. Picked separately from audio output so a speakermic + car Bluetooth (or headphones) is one operator-tap apart."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
+                    android:text="What keys the radio, and on which channel." />
 
-                <!-- AINA picker — moved up to be visually paired with the
-                     "PTT INPUT" header. Wiring is unchanged; this is the
-                     same xv_spinner_aina the AINA picker code targets. -->
-                <Spinner
-                    android:id="@+id/xv_spinner_aina"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
+                <!-- Card: speaker-mic (audio + buttons) -->
+                <LinearLayout style="@style/XV.Card">
 
-                <TextView
-                    android:id="@+id/xv_label_aina_status"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="—"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
 
-                <!-- Section header: Button input -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="BUTTON INPUT"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.15"
-                    android:layout_marginTop="24dp"/>
+                        <ImageView
+                            android:layout_width="22dp"
+                            android:layout_height="22dp"
+                            android:layout_marginEnd="10dp"
+                            android:importantForAccessibility="no"
+                            android:src="@drawable/ic_xv_radio" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="A button-only BLE PTT puck (e.g. Pryme BT-PTT). Keys the channel with no audio of its own — pair it here rather than in Android Bluetooth Settings. Works alongside a speaker mic without one cutting off the other."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Speaker-mic" />
 
-                <Spinner
-                    android:id="@+id/xv_spinner_aina_secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
+                        <TextView
+                            android:id="@+id/xv_chip_aina_repair"
+                            style="@style/XV.Chip.Alert"
+                            android:text="NEEDS RE-PAIR"
+                            android:visibility="gone" />
 
-                <TextView
-                    android:id="@+id/xv_label_aina_secondary_status"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="—"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
+                        <TextView
+                            style="@style/XV.Chip"
+                            android:text="AUDIO + PTT" />
+                    </LinearLayout>
 
-                <!-- Shown only when the assigned Button-input device is
-                     paired in Android Bluetooth Settings (OS-bonded),
-                     which causes GATT pairing loops. Tapping opens the
-                     unpair dialog. Visibility is driven at runtime by
-                     wireExternalButtonPicker; default GONE. -->
-                <Button
-                    android:id="@+id/xv_btn_fix_bonded_button"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:minHeight="44dp"
-                    android:text="⚠ Fix this button — remove from Android Bluetooth"
-                    android:textColor="@color/xv_err"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:visibility="gone"/>
-
-                <!-- Scan for BLE PTT buttons that don't pair via the
-                     phone's system Bluetooth settings (they advertise a
-                     vendor service, not HID / HoGP). Opens a dialog that
-                     runs a BluetoothLeScanner filtered for the HM-10
-                     transparent-UART service UUID (Pryme BT-PTT-Z,
-                     PTT-Z01, similar HM-10 buttons) plus a name filter
-                     for anything advertising "PTT". On tap, operator
-                     picks the device + which slot (primary or external
-                     button) to assign it to; XV connects via unbonded
-                     GATT through PrymeBleReader. -->
-                <Button
-                    android:id="@+id/xv_btn_scan_ble_ptt"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="Scan for BLE PTT device"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:minHeight="44dp"/>
-                    
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Note: Do not pair Bluetooth buttons in Android Bluetooth Settings. Doing so causes pairing loops. Pair them here using the Scan button above. If you experience loops, 'Forget' the button in Android Settings."
-                    android:textColor="@color/xv_warn"
-                    android:textSize="12sp"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="6dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp" />
-
-                <!-- Remove a previously-added BLE PTT device. Shows a
-                     dialog listing every MAC the operator has added via
-                     the scan-and-pick flow above, then removes it from
-                     the picker + any slot assignment. -->
-                <Button
-                    android:id="@+id/xv_btn_remove_ble_ptt"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Remove BLE PTT device"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:minHeight="44dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="For BLE PTT buttons that won't pair via system Bluetooth (they advertise a vendor service, not HID)."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Auto-connect toggle for compatible BT speakermics / buttons -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="16dp">
+                    <Spinner
+                        android:id="@+id/xv_spinner_aina"
+                        style="@style/XV.Spinner"
+                        android:contentDescription="Speaker-mic device" />
 
                     <TextView
-                        android:layout_width="0dp"
+                        android:id="@+id/xv_label_aina_status"
+                        style="@style/XV.Text.Status"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Auto-connect compatible Bluetooth"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
+                        android:layout_marginTop="6dp"
+                        android:text="—" />
 
-                    <Switch
-                        android:id="@+id/xv_switch_auto_connect_bt"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                    <TextView
+                        android:id="@+id/xv_label_aina_button_map"
+                        style="@style/XV.Text.Mono"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/xv_button_map_speaker_mic" />
+
+                    <!-- Emergency button: which ATAK alert it sends
+                         (default 911), or Off behind a two-step confirm. -->
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="Emergency button sends" />
+
+                    <Spinner
+                        android:id="@+id/xv_spinner_emergency_alert"
+                        style="@style/XV.Spinner"
+                        android:contentDescription="Alert the emergency button sends" />
                 </LinearLayout>
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="When ON, XV automatically connects the first compatible bonded AINA / BLE PTT button it finds on launch. Turn OFF to control connections manually from the pickers above. Persists across launches."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- ============================================================
-                     Audio device section. Placed above the device-specific
-                     hardware-button rows below because audio routing is
-                     what the operator adjusts most often (add/swap BT
-                     speakermic, split PTT-input from audio-output for
-                     car-stereo, choose speaker vs. earpiece fallback),
-                     while the device-specific rows below are configure-
-                     once-and-forget.
-                     ============================================================ -->
-
-                <!-- Section header: Audio device -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="AUDIO DEVICE"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.15"
-                    android:layout_marginTop="24dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Where you hear (and speak) — speaker/mic pair. Auto follows the PTT input device when it has audio (e.g. AINA speakermic), otherwise falls back to the built-in route below. Pick a specific Bluetooth device to split: PTT from AINA, audio through car/headphones."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
-
-                <Spinner
-                    android:id="@+id/xv_spinner_bt_audio_override"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
-
-                <!-- Built-in fallback route (only used when Auto + no
-                     Bluetooth audio device is present) -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Built-in fallback (no BT)"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="16dp"/>
-
-                <Spinner
-                    android:id="@+id/xv_spinner_route"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:popupBackground="@color/xv_surface_alt"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Used when Audio Device above is Auto AND no Bluetooth or wired headset is connected. Choose phone speaker for hands-free, earpiece for hold-to-ear."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- ============================================================
-                     Device-specific hardware-button rows below. Each is
-                     hidden on unsupported hardware so operators only see
-                     the one that matches their device. Configure-once-and-
-                     forget, so intentionally below the more frequently-used
-                     Audio device section above.
-                     ============================================================ -->
-
-                <!-- Samsung ruggedized-device Active Key PTT. Visible
-                     ONLY on Samsung hardware with the programmable key
-                     (XvDropDownReceiver.wireSamsungActiveKeyRow consults
-                     `SamsungActiveKey.isSupported(context)`); hidden on
-                     everything else. Samsung's own "Use Active button
-                     with app" setting is the single on/off switch, so
-                     this row has no XV-side toggle: it shows whether the
-                     key is assigned to XV and opens Samsung's Active
-                     button screen when tapped. -->
+                <!-- Card: Samsung Active key. Visible only on Samsung
+                     hardware with the programmable key
+                     (wireSamsungActiveKeyRow). Samsung's own setting is the
+                     on/off switch; tapping the card opens it. -->
                 <LinearLayout
                     android:id="@+id/xv_row_samsung_active_key"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="12dp"
+                    style="@style/XV.Row"
                     android:clickable="true"
                     android:focusable="true"
                     android:visibility="gone">
 
                     <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Samsung Active Key PTT"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
+                        style="@style/XV.Row.Label"
+                        android:text="Phone Active key"
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/xv_label_samsung_active_key_status"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:textColor="@color/xv_text_dim"
-                        android:textSize="13sp"/>
+                        style="@style/XV.Chip.Net"
+                        android:textSize="11sp" />
                 </LinearLayout>
 
                 <TextView
                     android:id="@+id/xv_label_samsung_active_key_help"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. The key then works as PTT in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"
-                    android:visibility="gone"/>
+                    style="@style/XV.CaptionBlock"
+                    android:text="Active key  →  channel 1. Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. Works in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
+                    android:visibility="gone" />
 
-                <!-- ============================================================ -->
-                <!-- Help & Documentation                                        -->
-                <!-- Opens the public MkDocs/GitHub Pages site (xv_help_url) in  -->
-                <!-- the device browser via ACTION_VIEW. Wired in                -->
-                <!-- XvDropDownReceiver.wireSettings so operators have an        -->
-                <!-- in-app path to quick-start, hardware, server setup, and     -->
-                <!-- the privacy policy. -->
+                <!-- Card: button-only PTT (puck, handlebar, glove) -->
+                <LinearLayout style="@style/XV.Card">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="PTT button" />
+
+                        <TextView
+                            android:id="@+id/xv_chip_button_repair"
+                            style="@style/XV.Chip.Alert"
+                            android:text="NEEDS RE-PAIR"
+                            android:visibility="gone" />
+
+                        <TextView
+                            style="@style/XV.Chip"
+                            android:text="BUTTON ONLY" />
+                    </LinearLayout>
+
+                    <Spinner
+                        android:id="@+id/xv_spinner_aina_secondary"
+                        style="@style/XV.Spinner"
+                        android:contentDescription="PTT button device" />
+
+                    <TextView
+                        android:id="@+id/xv_label_aina_secondary_status"
+                        style="@style/XV.Text.Status"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="—" />
+
+                    <!-- Add / forget a Bluetooth PTT button, side by side
+                         under the picker. Pick Off above to turn the button
+                         slot off; XV then never assigns one on its own. -->
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <Button
+                            android:id="@+id/xv_btn_scan_ble_ptt"
+                            style="@style/XV.Button.Pill"
+                            android:layout_width="0dp"
+                            android:layout_marginEnd="8dp"
+                            android:layout_weight="1"
+                            android:text="+  Add a button" />
+
+                        <Button
+                            android:id="@+id/xv_btn_remove_ble_ptt"
+                            style="@style/XV.Button"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:text="Forget an added button" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="Add buttons here, not in Android Bluetooth settings: pairing one there causes connect loops. Pick Off to turn the button off — XV then never assigns one on its own." />
+
+                    <!-- Shown only when the assigned button is paired in
+                         Android Bluetooth Settings (OS-bonded), which causes
+                         GATT pairing loops (wireExternalButtonPicker). -->
+                    <Button
+                        android:id="@+id/xv_btn_fix_bonded_button"
+                        style="@style/XV.Button.Danger"
+                        android:text="⚠ Fix this button — remove it from Android Bluetooth"
+                        android:visibility="gone" />
+
+                    <TextView
+                        style="@style/XV.Text.Mono"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="@string/xv_button_map_button" />
+                </LinearLayout>
+
+                <!-- Audio device -->
                 <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Audio device" />
+
+                <TextView
+                    style="@style/XV.CaptionBlock"
+                    android:text="Where you hear and speak. Auto follows the speaker-mic when it has audio, otherwise the built-in route below. Pick a Bluetooth device to split: PTT from the speaker-mic, audio through a car or headphones." />
+
+                <Spinner
+                    android:id="@+id/xv_spinner_bt_audio_override"
+                    style="@style/XV.Spinner"
+                    android:contentDescription="Audio device" />
+
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:layout_marginTop="16dp"
+                    android:text="Built-in fallback (no Bluetooth)" />
+
+                <Spinner
+                    android:id="@+id/xv_spinner_route"
+                    style="@style/XV.Spinner"
+                    android:contentDescription="Built-in audio route" />
+
+                <TextView
+                    style="@style/XV.CaptionBlock"
+                    android:text="Used when Audio device is Auto and no Bluetooth or wired headset is connected: phone speaker for hands-free, earpiece for hold-to-ear." />
+
+                <!-- Troubleshooting: collapsed by default; the header
+                     toggles xv_devices_troubleshoot. -->
+                <TextView
+                    android:id="@+id/xv_devices_troubleshoot_toggle"
+                    style="@style/XV.Text.Body"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="16dp"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:text="Troubleshooting  ▸"
+                    android:textColor="@color/xv_text_dim" />
+
+                <LinearLayout
+                    android:id="@+id/xv_devices_troubleshoot"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="HELP"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:letterSpacing="0.15"
-                    android:layout_marginTop="24dp"/>
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/XV.Text.Warning"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Don't pair Bluetooth PTT buttons in Android Bluetooth Settings — it causes pairing loops. Add them on the PTT button card. If you see loops, forget the button in Android Bluetooth settings." />
+
+                    <LinearLayout style="@style/XV.Row">
+
+                        <TextView
+                            android:id="@+id/xv_label_auto_connect_bt"
+                            style="@style/XV.Row.Label"
+                            android:labelFor="@+id/xv_switch_auto_connect_bt"
+                            android:text="Auto-connect compatible Bluetooth" />
+
+                        <Switch
+                            android:id="@+id/xv_switch_auto_connect_bt"
+                            style="@style/XV.Switch" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/XV.CaptionBlock"
+                        android:text="When on, XV connects the first compatible paired speaker-mic or BLE PTT button it finds on launch. Turn off to control connections from the cards above." />
+                </LinearLayout>
+
+                <!-- Help & Documentation: opens the public docs site
+                     (xv_help_url) via ACTION_VIEW (wireSettings). -->
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Help" />
 
                 <Button
                     android:id="@+id/xv_btn_help_docs"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:minHeight="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/xv_help_label"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    style="@style/XV.Button"
+                    android:text="@string/xv_help_label" />
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/xv_help_caption"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    style="@style/XV.CaptionBlock"
+                    android:text="@string/xv_help_caption" />
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"/>
+                    android:layout_height="40dp" />
             </LinearLayout>
 
-            <!-- ============================================================ -->
-            <!-- Section 4: Mesh & Offline. Everything server-less lives      -->
-            <!-- here so the other tabs stay about hardware + the live        -->
-            <!-- server. Channels are provisioned by NAME (the multicast      -->
-            <!-- group/port derive deterministically — no manual IP/port      -->
-            <!-- pinning), then shared as a comms plan (QR / NFC / data       -->
-            <!-- package) or prepped ahead of time.                           -->
-            <!-- ============================================================ -->
+            <!-- ============================================================
+                 TX/RX: layout (left-handed, map PTT), low latency mode, PTT timeout,
+                 talk-permit tone.
+                 ============================================================ -->
             <LinearLayout
-                android:id="@+id/xv_section_mesh"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
+                android:id="@+id/xv_section_txrx"
+                style="@style/XV.Page"
+                android:visibility="gone">
+
+                <!-- Latched mode is hidden by design (wired, never shown). -->
+                <Switch
+                    android:id="@+id/xv_switch_latched"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:layout_marginTop="0dp"
+                    android:text="Layout" />
+
+                <!-- Left-handed: moves each PTT to the start of its row and
+                     docks the map PTT buttons on the left. Display only;
+                     the PTT → channel mapping is unchanged. -->
+                <LinearLayout style="@style/XV.Row">
+
+                    <TextView
+                        android:id="@+id/xv_label_ptt_left"
+                        style="@style/XV.Row.Label"
+                        android:labelFor="@+id/xv_switch_ptt_left"
+                        android:text="Left-handed (PTT on the left)" />
+
+                    <Switch
+                        android:id="@+id/xv_switch_ptt_left"
+                        style="@style/XV.Switch" />
+                </LinearLayout>
+
+                <!-- Map PTT buttons (map HUD). On by default. -->
+                <LinearLayout style="@style/XV.Row">
+
+                    <TextView
+                        android:id="@+id/xv_label_map_ptt"
+                        style="@style/XV.Row.Label"
+                        android:labelFor="@+id/xv_switch_map_ptt"
+                        android:text="PTT buttons on the map" />
+
+                    <Switch
+                        android:id="@+id/xv_switch_map_ptt"
+                        style="@style/XV.Switch" />
+                </LinearLayout>
+
+                <TextView
+                    style="@style/XV.CaptionBlock"
+                    android:text="Hex PTT buttons on the map edge while the XV panel is closed. Button 1 keys channel 1, button 2 keys channel 2. Size scales with the screen." />
+
+                <RadioGroup
+                    android:id="@+id/xv_map_ptt_size"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:contentDescription="Map PTT button size"
+                    android:orientation="horizontal">
+
+                    <RadioButton
+                        android:id="@+id/xv_map_ptt_size_s"
+                        style="@style/XV.Text.Body"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Small" />
+
+                    <RadioButton
+                        android:id="@+id/xv_map_ptt_size_m"
+                        style="@style/XV.Text.Body"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Medium" />
+
+                    <RadioButton
+                        android:id="@+id/xv_map_ptt_size_l"
+                        style="@style/XV.Text.Body"
+                        android:layout_width="0dp"
+                        android:layout_height="48dp"
+                        android:layout_weight="1"
+                        android:text="Large" />
+                </RadioGroup>
+
+
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="PTT timeout" />
+
+                <TextView
+                    android:id="@+id/xv_label_ptt_timeout"
+                    style="@style/XV.Text.CardTitle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="30 s" />
+
+                <SeekBar
+                    android:id="@+id/xv_slider_ptt_timeout"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:contentDescription="PTT timeout"
+                    android:max="90"
+                    android:min="20"
+                    android:progress="30" />
+
+                <TextView
+                    style="@style/XV.CaptionBlock"
+                    android:text="Releases a stuck PTT after this many seconds (20–90 s)." />
+
+                <!-- Latched timeout: hidden alongside the latched switch. -->
+                <SeekBar
+                    android:id="@+id/xv_slider_latched_timeout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/xv_label_latched_timeout"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Talk permit tone" />
+
+                <Spinner
+                    android:id="@+id/xv_spinner_tpt"
+                    style="@style/XV.Spinner"
+                    android:contentDescription="Talk permit tone" />
+
+                <Button
+                    android:id="@+id/xv_btn_test_tpt"
+                    style="@style/XV.Button"
+                    android:text="Play test tone" />
+
+                <!-- Low latency mode (internally "hot mic"; ids / pref key
+                     unchanged). Shown only on a Bluetooth voice route;
+                     marked Not recommended with an info dialog. -->
+                <!-- Advanced (collapsed): settings most operators should
+                     leave alone. -->
+                <TextView
+                    android:id="@+id/xv_settings_advanced_toggle"
+                    style="@style/XV.SectionHeader"
+                    android:minHeight="48dp"
+                    android:gravity="center_vertical"
+                    android:text="Advanced  ▸" />
+
+                <LinearLayout
+                    android:id="@+id/xv_settings_advanced"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/xv_group_low_latency"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            style="@style/XV.SectionHeader"
+                            android:layout_width="0dp"
+                            android:layout_marginTop="0dp"
+                            android:layout_marginBottom="0dp"
+                            android:layout_weight="1"
+                            android:text="Low latency mode (not recommended)" />
+
+                        <TextView
+                            android:id="@+id/xv_low_latency_info"
+                            android:layout_width="48dp"
+                            android:layout_height="48dp"
+                            android:contentDescription="About low latency mode"
+                            android:gravity="center"
+                            android:text="ⓘ"
+                            android:textColor="@color/xv_voice"
+                            android:textSize="20sp" />
+                    </LinearLayout>
+
+                    <LinearLayout style="@style/XV.Row">
+
+                        <TextView
+                            android:id="@+id/xv_label_hot_mic"
+                            style="@style/XV.Row.Label"
+                            android:labelFor="@+id/xv_switch_hot_mic"
+                            android:text="Low latency mode" />
+
+                        <Switch
+                            android:id="@+id/xv_switch_hot_mic"
+                            style="@style/XV.Switch" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/xv_low_latency_summary"
+                        style="@style/XV.CaptionBlock" />
+                </LinearLayout>
+                </LinearLayout>
+
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="40dp" />
+            </LinearLayout>
+
+            <!-- ============================================================
+                 Server: TAK server, voice connection, mission auto-channels.
+                 Channel choice lives on the main panel / channel list.
+                 ============================================================ -->
+            <LinearLayout
+                android:id="@+id/xv_section_server"
+                style="@style/XV.Page"
                 android:visibility="gone">
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Global Default"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-                    
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="4dp">
+                    style="@style/XV.SectionHeader"
+                    android:layout_marginTop="0dp"
+                    android:text="TAK server" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Mesh voice (multicast failover)"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
-
-                    <Switch
-                        android:id="@+id/xv_switch_mesh_voice"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
+                <!-- Tappable: opens the server picker (showTakServerPicker). -->
+                <TextView
+                    android:id="@+id/xv_tak_server_label"
+                    style="@style/XV.Card"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:fontFamily="monospace"
+                    android:minHeight="48dp"
+                    android:text="—"
+                    android:textColor="@color/xv_net"
+                    android:textSize="14sp" />
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="When the voice server is unreachable but devices still share a Wi-Fi or mesh network, voice fails over to encrypted IP multicast automatically — same PTT, no reconfiguration. Legs only run on Wi-Fi/Ethernet, never cellular."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
+                    style="@style/XV.CaptionBlock"
+                    android:text="Voice connects to the same host as your TAK server. Tap to choose when several are enrolled." />
+
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Voice connection" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="8dp">
+                    android:orientation="horizontal">
+
+                    <Button
+                        android:id="@+id/xv_btn_mumble_connect"
+                        style="@style/XV.Button"
+                        android:layout_width="0dp"
+                        android:layout_weight="1"
+                        android:text="Connect" />
+
+                    <Button
+                        android:id="@+id/xv_btn_mumble_disconnect"
+                        style="@style/XV.Button"
+                        android:layout_width="0dp"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:text="Disconnect" />
+                </LinearLayout>
+
+                <!-- Mission auto-channels: server-side behaviour (the mission
+                     channel is created / joined on the voice server). -->
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Missions" />
+
+                <LinearLayout style="@style/XV.Row">
 
                     <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Mission auto-channels"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
+                        android:id="@+id/xv_label_mission_channels"
+                        style="@style/XV.Row.Label"
+                        android:labelFor="@+id/xv_switch_mission_channels"
+                        android:text="Mission auto-channels" />
 
                     <Switch
                         android:id="@+id/xv_switch_mission_channels"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                        style="@style/XV.Switch" />
                 </LinearLayout>
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Your active ATAK Data Sync mission drives the primary voice channel: XV derives the channel name from the mission and joins it, so the whole mission team lands on one voice channel with no manual coordination."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="6dp"/>
+                    style="@style/XV.CaptionBlock"
+                    android:text="Your active ATAK Data Sync mission drives channel 1: XV derives the channel name from the mission and joins it, so the whole mission team lands on one voice channel with no manual coordination." />
 
-                <!-- Live mesh state (mirrors the main-panel status line). -->
-                <TextView
+                <View
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Status"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
+                    android:layout_height="40dp" />
+            </LinearLayout>
+
+            <!-- ============================================================
+                 Mesh (approved mesh settings mockup):
+                   1. One master switch + live status.
+                   2. Channels as a single-column list (cards built in
+                      refreshMeshSection): name, badges, and Off / Backup /
+                      Both per channel. Tap for details, long-press to
+                      forget an offline channel. "+ Add channel" opens the
+                      presets; sharing sits with the list.
+                   3. Interop patch (device-local) and Security & recovery
+                      collapsed out of the everyday path.
+                 The mesh leg is always encrypted: no policy choice here.
+                 ============================================================ -->
+            <LinearLayout
+                android:id="@+id/xv_section_mesh"
+                style="@style/XV.Page"
+                android:visibility="gone">
+
+                <!-- 1. Master switch + status -->
+                <LinearLayout
+                    style="@style/XV.Card"
+                    android:layout_marginTop="0dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:minHeight="48dp"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/xv_label_mesh_voice"
+                            style="@style/XV.Row.Label"
+                            android:labelFor="@+id/xv_switch_mesh_voice"
+                            android:text="Mesh voice"
+                            android:textStyle="bold" />
+
+                        <Switch
+                            android:id="@+id/xv_switch_mesh_voice"
+                            style="@style/XV.Switch" />
+                    </LinearLayout>
+
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Keeps voice working when the server is down. Wi-Fi and mesh networks only, never cellular. Always encrypted." />
+                </LinearLayout>
 
                 <TextView
                     android:id="@+id/xv_settings_mesh_status"
+                    style="@style/XV.Text.Status"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Mesh voice is off"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="14sp"
-                    android:fontFamily="monospace"
-                    android:layout_marginTop="4dp"/>
+                    android:layout_marginTop="8dp"
+                    android:drawablePadding="6dp"
+                    android:gravity="center_vertical"
+                    android:minHeight="32dp"
+                    android:text="Mesh voice is off" />
 
-                <!-- Channels known offline (last-joined + peer-advertised).
-                     Tapping one binds the mesh leg to it. Populated in
-                     wireMeshSection. These same channels also appear in the
-                     main channel selector now — this list is the offline
-                     management view (long-press or "Forget all" to prune). -->
+                <!-- 2. Channels -->
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Offline channels"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
+                    style="@style/XV.SectionHeader"
+                    android:layout_marginTop="16dp"
+                    android:text="Channels" />
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Also shown in the main channel selector. Long-press a channel to forget it."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="2dp"/>
+                    style="@style/XV.CaptionBlock"
+                    android:text="Backup (default) carries a channel only when the server is down. Tap a channel to change it." />
 
                 <LinearLayout
                     android:id="@+id/xv_mesh_channel_container"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:layout_marginTop="4dp"/>
-
-                <!-- Fast mass-clear. Long-press a single row to forget one;
-                     this clears the whole list at once. Shown only when
-                     there's something to clear (toggled in code). -->
-                <Button
-                    android:id="@+id/xv_btn_mesh_forget_all"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="end"
-                    android:layout_marginTop="4dp"
-                    android:text="Forget all"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="12sp"
-                    android:textAllCaps="false"
-                    android:background="@android:color/transparent"/>
-
-                <!-- Provision + share. A channel is provisioned by NAME
-                     (the multicast group/port derive automatically — no
-                     IP or port to enter); sharing hands the whole channel
-                     set + keys to peers as a passphrase-locked plan so a
-                     fully offline team converges with no manual pinning. -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Provision &amp; share"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Create a channel and XV picks everything — name, multicast group, and encryption key — so there's nothing to configure. Share the plan and everyone's device joins the same channels offline; import one you were sent."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    android:orientation="vertical" />
 
                 <Button
-                    android:id="@+id/xv_btn_mesh_provision"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Create a channel"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    android:id="@+id/xv_btn_mesh_add"
+                    style="@style/XV.Button.Pill"
+                    android:layout_marginTop="10dp"
+                    android:text="+  Add channel" />
 
-                <Button
-                    android:id="@+id/xv_btn_mesh_configure"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Configure manually / interop…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <Button
-                    android:id="@+id/xv_btn_mesh_share"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Share channel plan…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <Button
-                    android:id="@+id/xv_btn_mesh_import"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Import channel plan…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="External Patch (OpenManet)"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="20dp"/>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Bridge the current channel to a secondary cleartext group (e.g. 224.0.0.1:5007)."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
-
+                <!-- Add-channel presets (toggled by xv_btn_mesh_add). -->
                 <LinearLayout
+                    android:id="@+id/xv_mesh_add_presets"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginTop="8dp">
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                    <EditText
-                        android:id="@+id/xv_edit_patch_group"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:hint="Group IP"
-                        android:textSize="14sp"
+                    <LinearLayout
+                        android:id="@+id/xv_btn_mesh_provision"
+                        style="@style/XV.Card"
                         android:background="@drawable/xv_card_bg"
-                        android:paddingHorizontal="12dp"
-                        android:layout_marginEnd="4dp"
-                        android:singleLine="true"/>
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
 
-                    <EditText
-                        android:id="@+id/xv_edit_patch_port"
-                        android:layout_width="0dp"
-                        android:layout_height="44dp"
-                        android:layout_weight="1"
-                        android:hint="Port"
-                        android:inputType="number"
-                        android:textSize="14sp"
-                        android:background="@drawable/xv_card_bg"
-                        android:paddingHorizontal="12dp"
-                        android:layout_marginStart="4dp"
-                        android:singleLine="true"/>
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Private channel" />
+
+                        <TextView
+                            style="@style/XV.Text.Caption"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Encrypted. XV picks the name, group and key — nothing to type." />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/xv_btn_mesh_import"
+                        style="@style/XV.Card"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
+
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Join a channel plan" />
+
+                        <TextView
+                            style="@style/XV.Text.Caption"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="Import a plan a teammate shared with you." />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/xv_btn_mesh_configure"
+                        style="@style/XV.Card"
+                        android:clickable="true"
+                        android:focusable="true"
+                        android:minHeight="56dp">
+
+                        <TextView
+                            style="@style/XV.Text.CardTitle"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Custom address / interop" />
+
+                        <TextView
+                            style="@style/XV.Text.Caption"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="For other systems: enter the group address and port yourself." />
+                    </LinearLayout>
                 </LinearLayout>
 
                 <Button
-                    android:id="@+id/xv_btn_patch_save"
+                    android:id="@+id/xv_btn_mesh_share"
+                    style="@style/XV.Button"
+                    android:text="Share channel plan…" />
+
+                <!-- 3a. Interop patch: device-local OpenMANET / VX bridge for
+                     the current channel. Collapsed by default. -->
+                <TextView
+                    android:id="@+id/xv_mesh_patch_toggle"
+                    style="@style/XV.Text.Body"
                     android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Apply Patch to Current Channel"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="16dp"
+                    android:background="?android:attr/selectableItemBackground"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:text="Interop patch (this device)  ▸"
+                    android:textColor="@color/xv_text_dim" />
+
+                <LinearLayout
+                    android:id="@+id/xv_mesh_patch"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Bridge the current channel to an OpenMANET or VX group. This setting stays on this device and is never shared. Interop traffic is unencrypted." />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+
+                        <EditText
+                            android:id="@+id/xv_edit_patch_group"
+                            style="@style/XV.Field"
+                            android:layout_width="0dp"
+                            android:layout_weight="2"
+                            android:hint="Group IP"
+                            android:inputType="text" />
+
+                        <EditText
+                            android:id="@+id/xv_edit_patch_port"
+                            style="@style/XV.Field"
+                            android:layout_width="0dp"
+                            android:layout_marginStart="8dp"
+                            android:layout_weight="1"
+                            android:hint="Port"
+                            android:inputType="number" />
+                    </LinearLayout>
+
+                    <Button
+                        android:id="@+id/xv_btn_patch_save"
+                        style="@style/XV.Button"
+                        android:text="Apply patch to current channel" />
+                </LinearLayout>
+
+                <!-- 3b. Security & recovery: keys, forget, wipe. Collapsed. -->
+                <TextView
+                    style="@style/XV.SectionHeader"
+                    android:text="Security &amp; recovery" />
+
+                <TextView
+                    android:id="@+id/xv_mesh_security_toggle"
+                    style="@style/XV.Row"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:text="Keys, forget, wipe  ▸"
                     android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    android:textSize="14sp" />
 
-                <!-- Rotate key. Regenerates the active channel's key and
-                     re-keys every still-trusted (cert-holding) peer
-                     automatically; guests holding only the old key fall
-                     off at the next epoch (#92 / #95). Non-destructive to
-                     the honest team, so it is not styled as an error. -->
-                <TextView
+                <LinearLayout
+                    android:id="@+id/xv_mesh_security"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Rotate the active channel's key now. Everyone still trusted is re-keyed automatically; guests you shared the old key with are cut off. Use after sharing a key in the field, or if a device or passphrase may be exposed."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="12dp"/>
+                    android:orientation="vertical"
+                    android:visibility="gone">
 
-                <Button
-                    android:id="@+id/xv_btn_mesh_rotate_key"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Rotate key now…"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    <Button
+                        android:id="@+id/xv_btn_mesh_rotate_key"
+                        style="@style/XV.Button"
+                        android:text="Rotate the active channel's key…" />
 
-                <!-- Panic wipe. Destructive + local-only: shreds every
-                     stored channel key + config and the Keystore key that
-                     seals them, without a full ATAK data clear. Gated in
-                     code behind a double slide-to-confirm. -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Danger zone"
-                    android:textColor="@color/xv_err"
-                    android:textSize="11sp"
-                    android:textAllCaps="true"
-                    android:letterSpacing="0.1"
-                    android:layout_marginTop="24dp"/>
+                    <TextView
+                        style="@style/XV.CaptionBlock"
+                        android:text="Everyone still trusted is re-keyed automatically; guests you shared the old key with are cut off. Use after sharing a key in the field, or if a device or passphrase may be exposed." />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Immediately erase every mesh channel key and setting from this device. Use if the device may be lost or compromised. This can't be undone."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    <Button
+                        android:id="@+id/xv_btn_mesh_forget_all"
+                        style="@style/XV.Button"
+                        android:text="Forget all offline channels…" />
 
-                <Button
-                    android:id="@+id/xv_btn_mesh_wipe"
-                    android:layout_width="match_parent"
-                    android:layout_height="44dp"
-                    android:layout_marginTop="8dp"
-                    android:text="Wipe mesh keys…"
-                    android:textColor="@color/xv_err"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"/>
+                    <Button
+                        android:id="@+id/xv_btn_mesh_wipe"
+                        style="@style/XV.Button.Danger"
+                        android:layout_marginTop="16dp"
+                        android:text="Wipe mesh keys…" />
+
+                    <TextView
+                        style="@style/XV.CaptionBlock"
+                        android:text="Erases every mesh channel key and setting from this device. Use if the device may be lost or compromised. Can't be undone." />
+                </LinearLayout>
 
                 <View
                     android:layout_width="match_parent"
-                    android:layout_height="40dp"/>
+                    android:layout_height="40dp" />
             </LinearLayout>
         </FrameLayout>
     </ScrollView>

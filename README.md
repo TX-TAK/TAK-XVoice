@@ -8,10 +8,13 @@ foundation for bridging server-mediated voice to mesh radios.
 Published under the **Texas-TAK** banner — the project's public brand.
 The plugin carries Texas-TAK visual identity: the geometric
 walkie-talkie mark (an octagonal radio body with antenna, signal
-chevrons, a PTT bump, and a speaker waveform) and a gold-on-near-black
-palette, applied across the PTT page, Settings, the in-ATAK toolbar
-icon, and the app/launcher icon. The toolbar icon renders the same
-walkie-talkie as a silhouette so ATAK tints it with the brand gold.
+chevrons, a PTT bump, and a speaker waveform) and the Texas TAK brand
+kit palette — Honey (`#E8A33D`) on Hive Black — applied across the PTT
+page, Settings, the in-ATAK toolbar icon, and the app/launcher icon.
+Colour carries one meaning each and is kept quiet: Honey marks voice
+activity, Bluebonnet marks system / network state, and Texas Red means
+you are transmitting. The toolbar icon renders the same walkie-talkie
+as a silhouette so ATAK tints it with the brand Honey.
 
 The public app name — the Google Play listing title and the label ATAK
 shows when it discovers the plugin — is **Texas TAK-XVoice**. The
@@ -100,8 +103,10 @@ and feature polish.
 1. **Audio routing.** The plugin treats your Bluetooth speakermic as
    XV-exclusive comms gear while Spotify, navigation, ATAK alerts, and
    BYO headphones keep working on their normal paths. HFP/SCO is only
-   engaged while the mic is actually open (PTT-down or hot-mic). Plugin
-   load and channel join do not engage SCO.
+   engaged while you transmit. Plugin load and channel join do not engage
+   SCO — unless you turn on the optional, not-recommended Low latency
+   mode (Settings › TX/RX › Advanced), which holds the link open the whole
+   time you're in a channel (still no open mic).
 
 2. **Auto-start.** XV remembers the last-used mission and auto-reconnects
    on plugin start. A configurable startup mission is also available for
@@ -143,12 +148,52 @@ and feature polish.
 
 XV also adds:
 
-- **Per-device defaults with overrides** — each supported speakermic
-  ships pre-mapped (PTT → Channel 1, secondary → Channel 2, emergency
-  button, prev/next channel) so a fresh pairing "just works." Operators
-  edit the defaults; overrides persist by BT address.
-- **LMR-style emergency button** — short press fires the emergency
-  configured in ATAK's Alert Tool; long press (1 s) cancels.
+- **Fixed, predictable button map** — every supported speakermic
+  keys the same way: PTT → channel 1, secondary PTT → channel 2
+  (channel 1 when channel 2 is off), emergency button → ATAK alert.
+  The mapping is deliberately not remappable; Settings › Devices shows
+  it read-only on each device's card, and swapping channels is the one
+  way to invert which button keys which net.
+- **Compact main panel** — one row per channel (slot badge, channel
+  name, who is talking, and a large PTT button about half the row wide).
+  The panel opens only as tall as it needs instead of half the screen.
+  A pressed PTT greys instantly and turns red only once the
+  transmission is confirmed, so red always means on the air; a refused
+  press flashes DENIED with the deny tone. A row dims when its channel
+  has no live link, and the status line says why voice is off (with a
+  tap to connect or to fix a server refusal). During any phone call,
+  ringing included, channel audio is ignored (not played, not kept) and
+  the panel says so.
+  A **Left-handed** setting (Settings › TX/RX) moves the PTT buttons to
+  the left edge.
+- **PTT buttons on the map** — while the XV panel is closed, hex PTT
+  buttons for channel 1 (and channel 2 when on) sit on the map edge,
+  docked with ATAK's own widgets so they stay clear of the compass and
+  scale bar. They show who is talking and turn red while you transmit.
+  On by default; turn them off in Settings › TX/RX. They follow the
+  left-handed setting, and opening the panel hides them (releasing a
+  held button). Tapping a channel opens one searchable
+  channel list with **[1] [2]** pills per row, subchannels indented,
+  and **Swap** in its header; long-press a channel to share it or for
+  mesh options. Tapping **[2]** adds or removes channel 2 in one tap;
+  Swap can be undone for a few seconds.
+  With channel 2 off, its row becomes "+ Add channel 2". The 👥 count
+  on a row opens that channel's member list.
+- **Two live channels, swappable** — channel 1 (keyed by PTT1) and an
+  optional channel 2 (keyed by PTT2; PTT2 keys channel 1 when channel
+  2 is off; while channel 2 is on but not yet live, PTT2 is refused
+  rather than falling back to channel 1) are both remembered across
+  restarts. The button-to-channel
+  binding is fixed; **Swap** exchanges the two channels in place on the
+  live connection (no reconnect) and is unavailable while keyed or on a
+  direct call. If the server refuses one side, the swap is undone.
+- **LMR-style emergency button** — short press fires an ATAK alert;
+  long press (1 s) cancels. Which alert is set in Settings › Devices
+  (911 by default; Ring The Bell, Troops In Contact or Geo-fence
+  Breached), and the button can be turned off there behind a two-step
+  confirmation. (Inrico
+  BT02: the button sends a single pulse, so it fires only; cancel in
+  ATAK.)
 - **Configurable Talk Permit Tones** (ASTRO 25 / Nextel / DMR / MOTOTRBO
   / None) for operators transitioning from public-safety LMR systems.
 - **Mumble + multicast channels under a single UX** — transport is an
@@ -162,8 +207,8 @@ XV also adds:
   the same group and port with zero coordination. An operator can pin
   a specific group/port per channel instead — required for
   OpenMANET-compatible interop groups.
-- **Mission auto-channels (opt-in)** — behind a toggle that defaults
-  off. When enabled, the operator's active ATAK mission drives the
+- **Mission auto-channels (opt-in)** — behind a toggle on the
+  Settings › Server tab that defaults off. When enabled, the operator's active ATAK mission drives the
   primary voice channel: XV derives a deterministic channel name from
   the mission (the channel name simply *is* the mission), creates it on
   the server if it doesn't exist and the server allows it, and joins it

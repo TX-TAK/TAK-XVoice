@@ -73,7 +73,9 @@ class MeshVoiceManagerTest {
         val legs = mutableMapOf<String, FakeLeg>()
         val created = mutableListOf<FakeLeg>() // every leg ever built, patch legs included
         val playedRx = mutableListOf<String>() // speaker labels forwarded to service
+        val playedSlots = mutableListOf<Int>() // slot each played frame was routed to
         val relayedToMumble = mutableListOf<Boolean>() // burstStart flags
+        val relayedSlots = mutableListOf<Int>() // session slot each relay went to
         val meshTxStateChanges = mutableListOf<Boolean>()
         val peerSessions = mutableMapOf<Int, String>() // mumble session → uid
         val peerUids = mutableSetOf<String>()
@@ -98,8 +100,14 @@ class MeshVoiceManagerTest {
                         created += it
                     }
                 },
-                onRxOpus = { _, label -> playedRx += label },
-                relayToMumble = { _, burstStart -> relayedToMumble += burstStart },
+                onRxOpus = { _, label, slot ->
+                    playedRx += label
+                    playedSlots += slot
+                },
+                relayToMumble = { _, burstStart, slot ->
+                    relayedToMumble += burstStart
+                    relayedSlots += slot
+                },
                 onMeshTxStateChanged = { meshTxStateChanges += it },
                 deviceUidForMumbleSession = { peerSessions[it] },
                 uidMumbleConnected = { it in connectedUids },
@@ -213,6 +221,172 @@ class MeshVoiceManagerTest {
 
         h.manager.sendTxOpus(byteArrayOf(2), targetSlot = 0)
         assertEquals(1, h.channelLeg().sentOpus.size)
+    }
+
+    @Test
+    fun `revoked server credential blocks mesh failover and mesh TX`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setServerAccessRejected(true)
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertFalse("rejected credential: failover must not start", h.manager.isMeshTxActive())
+        h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
+        assertTrue(h.channelLeg().sentOpus.isEmpty())
+
+        // Access restored (good login / Connect): a still-down server fails over.
+        h.manager.setServerAccessRejected(false)
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue(h.manager.isMeshTxActive())
+    }
+
+    @Test
+    fun `rejected credential closes every leg and plays no mesh audio`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false // server gone: mesh audio would normally play
+        val leg = h.channelLeg()
+        h.manager.setServerAccessRejected(true)
+        assertTrue("legs are closed while access is rejected", leg.closed)
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue("no mesh RX while rejected", h.playedRx.isEmpty())
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("legs stay down across ticks", h.legs.values.none { !it.closed && it !== leg })
+    }
+
+    @Test
+    fun `access restored brings mesh RX back`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false
+        h.manager.setServerAccessRejected(true)
+        h.manager.setServerAccessRejected(false)
+        h.now += 1_000
+        h.manager.tick()
+        assertFalse("a fresh leg is up again", h.channelLeg().closed)
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+    }
+
+    @Test
+    fun `operator Disconnect stops the mesh until Connect`() {
+        val h = Harness()
+        h.joinAndTick()
+        val leg = h.channelLeg()
+        h.manager.setOperatorVoiceOff(true)
+        h.mumbleUp = false // the transport is down after Disconnect
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("legs closed after Disconnect", leg.closed)
+        assertFalse("no failover after Disconnect", h.manager.isMeshTxActive())
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue(h.playedRx.isEmpty())
+
+        h.manager.setOperatorVoiceOff(false) // Connect
+        h.now += 1_000
+        h.manager.tick()
+        assertFalse(h.channelLeg().closed)
+    }
+
+    @Test
+    fun `channel 2 gets its own leg, carried on failover, RX routed to slot 2`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setSecondaryChannel("Ops-2")
+        h.manager.tick()
+        val leg2 = h.legs.getValue("ops-2")
+        assertFalse("server up: channel 2 not on mesh", h.manager.carriesSlot(1))
+
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue(h.manager.carriesSlot(1))
+        assertTrue(h.manager.carriesSlot(0))
+        h.manager.sendTxOpus(byteArrayOf(7), targetSlot = 1)
+        assertEquals("PTT2 goes out on channel 2's leg", 1, leg2.sentOpus.size)
+        assertTrue("and not on channel 1's", h.channelLeg().sentOpus.isEmpty())
+
+        h.manager.onVoice("ops-2", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf(1), h.playedSlots)
+        assertEquals(1, h.manager.meshActiveSpeakers(1).size)
+        assertTrue(h.manager.meshActiveSpeakers(0).isEmpty())
+    }
+
+    @Test
+    fun `turning channel 2 off closes its leg`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setSecondaryChannel("Ops-2")
+        val leg2 = h.legs.getValue("ops-2")
+        h.manager.setSecondaryChannel(null)
+        assertTrue(leg2.closed)
+        assertFalse(h.manager.carriesSlot(1))
+    }
+
+    @Test
+    fun `channel 2 equal to channel 1 is ignored`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.setSecondaryChannel("Ops-1")
+        assertEquals(null, h.manager.channelForSlot(1))
+    }
+
+    @Test
+    fun `channel 2's mesh audio is relayed onto channel 2's session, never channel 1's`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.manager.setSecondaryChannel("Ops-2")
+        h.now += 1_000
+        h.manager.tick() // elects us for channel 2 too (the offline peer lists no channels)
+        h.manager.onVoice("ops-2", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf(1), h.relayedSlots)
+    }
+
+    @Test
+    fun `channel 2 server speakers are relayed to channel 2's leg when bridging it`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.manager.setSecondaryChannel("Ops-2")
+        h.now += 1_000
+        h.manager.tick()
+        h.manager.onMumbleRxFrame(1, speakerSession = 9, opus = byteArrayOf(5))
+        assertEquals(1, h.legs.getValue("ops-2").relayed.size)
+        assertTrue(h.channelLeg().relayed.isEmpty())
+    }
+
+    @Test
+    fun `server merely down still plays mesh RX`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false // outage, no rejection
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+        assertFalse(h.channelLeg().closed)
+    }
+
+    @Test
+    fun `a rejection while already on mesh drops failover at once`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.mumbleUp = false
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue(h.manager.isMeshTxActive())
+        h.manager.setServerAccessRejected(true)
+        assertFalse(h.manager.isMeshTxActive())
+        assertEquals(listOf(true, false), h.meshTxStateChanges)
+    }
+
+    @Test
+    fun `rejected credential also blocks Both-mode mesh TX`() {
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = MulticastMode.ALWAYS) })
+        h.joinAndTick()
+        h.manager.setServerAccessRejected(true)
+        h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
+        assertTrue(h.channelLeg().sentOpus.isEmpty())
     }
 
     @Test
@@ -470,6 +644,9 @@ class MeshVoiceManagerTest {
         val h = Harness()
         h.joinAndTick() // server healthy (mumbleUp=true), not the bridge
         h.manager.observeMumbleHealth() // server is actively delivering
+        // Another peer is bridging this channel: it relays mesh speakers onto
+        // Mumble, so this client hears them there.
+        h.beaconFrom("uid-aaa-bridge", mumbleConnected = true, bridging = true)
         // The failover playback gate: this client already hears everyone via
         // Mumble, so the multicast copy must NOT play — that copy is the
         // double audio the operator reported.
@@ -481,6 +658,36 @@ class MeshVoiceManagerTest {
         // so the failover copy plays cleanly.
         h.mumbleUp = false
         h.manager.onVoice("ops-1", byteArrayOf(2), "ssrc:cafebabe", seqInBurst = 1)
+        assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+    }
+
+    @Test
+    fun `Both mode with a live server and a bridge plays nothing from the mesh — Mumble is primary`() {
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = MulticastMode.ALWAYS) })
+        h.joinAndTick()
+        h.manager.observeMumbleHealth()
+        // Another peer bridges the channel: mesh-only speakers reach us over Mumble.
+        h.beaconFrom("uid-aaa-bridge", mumbleConnected = true, bridging = true)
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertTrue("Both mode must not play the mesh copy while Mumble is live", h.playedRx.isEmpty())
+        h.manager.sendTxOpus(byteArrayOf(1), targetSlot = 0)
+        assertEquals("Both mode still transmits on the mesh", 1, h.channelLeg().sentOpus.size)
+    }
+
+    @Test
+    fun `bridge with a live server drops the mesh copy of a server-connected speaker`() {
+        val h = Harness()
+        h.makeUsBridge()
+        h.manager.observeMumbleHealth()
+        h.peerUids += "uid-on-server"
+        h.connectedUids += "uid-on-server"
+        h.now += 1_000
+        h.manager.tick() // learns the ssrc -> uid mapping
+        h.manager.observeMumbleHealth()
+        h.manager.onVoice("ops-1", byteArrayOf(1), ssrcKeyOf("uid-on-server"), seqInBurst = 0)
+        assertTrue("heard over Mumble already", h.playedRx.isEmpty())
+        // A serverless peer is only reachable over the mesh: the bridge plays it.
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
         assertEquals(listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
     }
 
@@ -515,6 +722,46 @@ class MeshVoiceManagerTest {
     }
 
     // ---- bridge election + relay ----
+
+    private fun Harness.beaconFrom(
+        uid: String,
+        mumbleConnected: Boolean,
+        bridging: Boolean,
+        channel: String = "ops-1",
+    ) {
+        manager.onControl(
+            MeshVoiceManager.RENDEZVOUS_CHANNEL,
+            ControlPacket.Message.PeerBeacon(
+                uid = uid,
+                callsign = uid,
+                mumbleConnected = mumbleConnected,
+                bridging = bridging,
+                channels = listOf(ControlPacket.Message.PeerBeacon.Channel(name = channel, group = "239.255.0.1", port = 16_000)),
+            ),
+            sourceHost = "192.0.2.30",
+            isPatchLeg = false,
+        )
+    }
+
+    @Test
+    fun `a mesh-only speaker plays when nobody is bridging the channel`() {
+        val h = Harness()
+        h.joinAndTick()
+        h.manager.observeMumbleHealth() // server live, we are not the bridge
+        h.manager.onVoice("ops-1", byteArrayOf(1), "ssrc:cafebabe", seqInBurst = 0)
+        assertEquals("no Mumble copy will come: hear it on the mesh", listOf("mcast:ops-1:ssrc:cafebabe"), h.playedRx)
+    }
+
+    @Test
+    fun `a bridge on another channel doesn't take the bridge role from us`() {
+        val h = Harness(ourUid = "uid-mmm")
+        h.joinAndTick()
+        h.beaconFrom("uid-aaa", mumbleConnected = true, bridging = false, channel = "elsewhere")
+        h.beaconFrom("uid-zzz-mesh-only", mumbleConnected = false, bridging = false)
+        h.now += 1_000
+        h.manager.tick()
+        assertTrue("lowest server-connected uid on OUR channel", h.manager.isBridging())
+    }
 
     private fun Harness.observePeerConnectivity(uid: String, mumbleConnected: Boolean) {
         manager.onControl(

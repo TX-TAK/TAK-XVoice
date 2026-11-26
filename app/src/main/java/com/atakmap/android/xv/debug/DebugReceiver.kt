@@ -139,6 +139,16 @@ class DebugReceiver : BroadcastReceiver() {
                 handler.dumpMeshStatus()
             }
 
+            // Inject a Bluetooth PTT input problem (chips on Settings ›
+            // Devices) without a misbehaving device:
+            //   --es kind repair|problem --es reason "Bluetooth speaker-mic …"
+            ACTION_PTT_INPUT_ISSUE -> {
+                val repair = intent.getStringExtra("kind") != "problem"
+                val reason = intent.getStringExtra("reason") ?: "Bluetooth speaker-mic rejected the connection"
+                Log.i(TAG, "PTT_INPUT_ISSUE repair=$repair reason='$reason'")
+                handler.reportPttInputIssue(repair, reason)
+            }
+
             ACTION_MESH_PLAN_EXPORT -> {
                 Log.i(TAG, "MESH_PLAN_EXPORT")
                 handler.exportCommsPlan(intent.getStringExtra("passphrase"))
@@ -204,6 +214,11 @@ class DebugReceiver : BroadcastReceiver() {
                         "secondary='$secondary' vxcompat='$vxCompat'",
                 )
                 handler.connectMumble(host, takPattern, port, channel, secondary, vxCompat)
+            }
+
+            ACTION_MUMBLE_SWAP_CHANNELS -> {
+                Log.i(TAG, "MUMBLE_SWAP_CHANNELS")
+                handler.swapChannels()
             }
 
             ACTION_MUMBLE_SET_SECONDARY -> {
@@ -294,6 +309,12 @@ class DebugReceiver : BroadcastReceiver() {
         // TX state, bridge role, discovered channels.
         fun dumpMeshStatus()
 
+        // Report a Bluetooth PTT input problem as the service would.
+        fun reportPttInputIssue(
+            needsRepair: Boolean,
+            reason: String,
+        ) {}
+
         // Log the current channel set as a comms-plan carrier string
         // (cleartext, or KDF-locked when a passphrase is given).
         fun exportCommsPlan(passphrase: String?)
@@ -344,6 +365,9 @@ class DebugReceiver : BroadcastReceiver() {
         // Re-target VS2 on an already-connected session. Empty/null clears.
         fun setSecondaryChannel(channelName: String)
 
+        // Exchange channel 1 and channel 2 (same path as the UI's Swap).
+        fun swapChannels() {}
+
         // Set the persistent default for VX-compat handshake. Takes effect on
         // the next connect (call disconnect+connect to apply immediately).
         fun setDefaultVxCompat(mode: String?)
@@ -379,6 +403,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_STOP_MULTICAST = "com.atakmap.android.xv.debug.STOP_MULTICAST"
         const val ACTION_MESH_VOICE = "com.atakmap.android.xv.debug.MESH_VOICE"
         const val ACTION_MESH_STATUS = "com.atakmap.android.xv.debug.MESH_STATUS"
+        const val ACTION_PTT_INPUT_ISSUE = "com.atakmap.android.xv.debug.PTT_INPUT_ISSUE"
         const val ACTION_MESH_PLAN_EXPORT = "com.atakmap.android.xv.debug.MESH_PLAN_EXPORT"
         const val ACTION_MESH_PLAN_IMPORT = "com.atakmap.android.xv.debug.MESH_PLAN_IMPORT"
         const val ACTION_AUDIO_STATE = "com.atakmap.android.xv.debug.AUDIO_STATE"
@@ -389,6 +414,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_MUMBLE_CONNECT = "com.atakmap.android.xv.debug.MUMBLE_CONNECT"
         const val ACTION_MUMBLE_DISCONNECT = "com.atakmap.android.xv.debug.MUMBLE_DISCONNECT"
         const val ACTION_MUMBLE_SET_SECONDARY = "com.atakmap.android.xv.debug.MUMBLE_SET_SECONDARY"
+        const val ACTION_MUMBLE_SWAP_CHANNELS = "com.atakmap.android.xv.debug.MUMBLE_SWAP_CHANNELS"
         const val ACTION_MUMBLE_VX_COMPAT = "com.atakmap.android.xv.debug.MUMBLE_VX_COMPAT"
         const val ACTION_MUMBLE_AUTO_ACCEPT = "com.atakmap.android.xv.debug.MUMBLE_AUTO_ACCEPT"
         const val ACTION_PRESENCE_DUMP = "com.atakmap.android.xv.debug.PRESENCE_DUMP"

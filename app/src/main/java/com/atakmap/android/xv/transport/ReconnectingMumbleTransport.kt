@@ -3,6 +3,7 @@ package com.atakmap.android.xv.transport
 import android.util.Log
 import com.atakmap.android.xv.transport.mumble.FatalMumbleException
 import com.atakmap.android.xv.transport.mumble.MumbleSession
+import com.atakmap.android.xv.transport.mumble.RejectSummary
 import com.atakmap.android.xv.transport.mumble.SelfKickedException
 import com.atakmap.android.xv.transport.mumble.UsernameInUseException
 import java.util.concurrent.Executors
@@ -113,6 +114,21 @@ class ReconnectingMumbleTransport(
     // operator-initiated connect() or by a successful onConnected
     // (network swap / manual retry re-arms the wrapper).
     private val fatalRejected = AtomicBoolean(false)
+
+    // Why the server last refused us for good (RejectSummary wording);
+    // null once connected. Drives the panel's "refused: …" status line.
+    @Volatile
+    private var fatalReason: String? = null
+
+    // Channel 1 and channel 2 share one server + certificate: a credential
+    // rejection on either is a verdict on both (see SharedIdentityState).
+    private val identity = SharedIdentityState()
+
+    /** The server rejected this device's credential (shared by both channels). */
+    fun credentialRejected(): Boolean = identity.rejected
+
+    /** Why voice was refused for good: the shared-identity verdict first. */
+    fun fatalReason(): String? = identity.rejectedReason ?: fatalReason
 
     @Volatile
     private var lastScheduledDelayMs: Long = 0L
@@ -244,6 +260,8 @@ class ReconnectingMumbleTransport(
         policy.reset()
         secondaryUsernameInUseAttempts.set(0)
         fatalRejected.set(false)
+        // The operator asked to connect: try the credential again.
+        identity.onOperatorConnect()
         executor.submit { runAttempt() }
     }
 
@@ -426,7 +444,7 @@ class ReconnectingMumbleTransport(
      * in-flight primary reconnect work.
      */
     private fun scheduleSecondaryGhostCleanup() {
-        if (teardownRequested) return
+        if (teardownRequested || !identity.mayRetry()) return
         val attempt = secondaryUsernameInUseAttempts.incrementAndGet()
         when (attempt) {
             1 -> {
@@ -465,6 +483,10 @@ class ReconnectingMumbleTransport(
      */
     private fun restartSecondary(reason: String) {
         if (teardownRequested) return
+        if (!identity.mayRetry()) {
+            Log.w(TAG, "restartSecondary($reason): identity rejected (${identity.rejectedReason}) — not retrying")
+            return
+        }
         val current =
             inner ?: run {
                 Log.w(TAG, "restartSecondary($reason): no live inner — full reconnect will handle")
@@ -495,6 +517,8 @@ class ReconnectingMumbleTransport(
                 reconnecting.set(false)
                 secondaryUsernameInUseAttempts.set(0)
                 fatalRejected.set(false)
+                fatalReason = null
+                identity.onAuthenticated()
                 upstream?.onConnected()
             }
 
@@ -510,20 +534,35 @@ class ReconnectingMumbleTransport(
                     return
                 }
                 // Plain disconnect (server closed socket, link blip,
-                // ping timeout) is always transient. Fatal events
-                // come through onConnectionFailed instead.
-                executor.submit { scheduleRetry(ReconnectPolicy.Outcome.Transient) }
+                // ping timeout) is transient — unless the shared identity
+                // was already rejected (e.g. channel 2's session was told
+                // our certificate is revoked): then retrying channel 1
+                // would just hammer the server with a dead credential.
+                val outcome =
+                    if (identity.rejected) {
+                        ReconnectPolicy.Outcome.Fatal("identity rejected: ${identity.rejectedReason}")
+                    } else {
+                        ReconnectPolicy.Outcome.Transient
+                    }
+                executor.submit { scheduleRetry(outcome) }
             }
 
             override fun onConnectionFailed(error: Throwable) {
+                if (identity.onFailure(error)) {
+                    Log.w(TAG, "primary credential rejected (${identity.rejectedReason}) — applies to both channels")
+                }
                 upstream?.onConnectionFailed(error)
                 if (teardownRequested) return
                 val outcome =
                     when (error) {
-                        is FatalMumbleException ->
+                        is FatalMumbleException -> {
+                            fatalReason = RejectSummary.of(error.rejectType)
                             ReconnectPolicy.Outcome.Fatal(error.message ?: "fatal reject")
-                        is SelfKickedException ->
+                        }
+                        is SelfKickedException -> {
+                            fatalReason = RejectSummary.REMOVED
                             ReconnectPolicy.Outcome.Fatal(error.message ?: "self-kicked")
+                        }
                         is UsernameInUseException -> {
                             // Primary uses a stable device-UID-derived
                             // username (see MumbleAuth.mumbleUsername).
@@ -552,6 +591,17 @@ class ReconnectingMumbleTransport(
             override fun onSecondaryFailed(error: Throwable) {
                 Log.w(TAG, "secondary failed: ${error.message}")
                 if (teardownRequested) return
+                if (identity.onFailure(error)) {
+                    // Same server + certificate as channel 1: no VS2
+                    // retries, and channel 1 won't retry once the server
+                    // drops it. Channel 1's live session is left alone.
+                    Log.w(
+                        TAG,
+                        "secondary credential rejected (${identity.rejectedReason}) — shared identity " +
+                            "rejected; channel 1 keeps its session until the server drops it",
+                    )
+                    return
+                }
                 // Fatal classes localized to VS2 just stop trying VS2 —
                 // they don't disturb primary. Auth failure that
                 // applies to BOTH identities (e.g. a server-wide ban)

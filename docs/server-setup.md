@@ -80,8 +80,8 @@ the TAK Server on the same hostname and automate channel/group management.)*
 
 ### Mission Auto-Channels (Opt-In)
 
-TAK-XVoice also includes an opt-in **Mission Auto-Channels** toggle (off by
-default):
+TAK-XVoice also includes an opt-in **Mission Auto-Channels** toggle on the
+**XV Settings → Server** tab (off by default):
 
 - When enabled, the operator's active ATAK mission drives the primary voice
   channel — XV derives a deterministic channel name from the mission name,

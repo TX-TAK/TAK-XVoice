@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One channel in Settings › Mesh (single column; replaces the old 3-column
+  chip grid so long names never wrap mid-word). Name + badges, a line of
+  context, and Off / Backup / Both (collapsed to one line with a mode
+  chip until tapped). The mesh leg is always encrypted. The
+  card shows ENCRYPTED, or CLEAR instead when a device-local interop patch
+  adds an unencrypted leg (never both: two chips that disagree read as a
+  contradiction). Filled by
+  XvDropDownReceiver.buildMeshChannelCard.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    style="@style/XV.Card"
+    android:clickable="true"
+    android:focusable="true"
+    tools:background="@drawable/xv_card_bg">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/xv_mesh_card_name"
+            style="@style/XV.Text.CardTitle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="2"
+            tools:text="ALPHA" />
+
+        <TextView
+            android:id="@+id/xv_mesh_card_badge_interop"
+            style="@style/XV.Chip"
+            android:visibility="gone"
+            tools:text="OPENMANET"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/xv_mesh_card_badge_clear"
+            style="@style/XV.Chip.Alert"
+            android:text="CLEAR"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+        <TextView
+            android:id="@+id/xv_mesh_card_mode"
+            style="@style/XV.Chip"
+            tools:text="BACKUP" />
+
+        <TextView
+            android:id="@+id/xv_mesh_card_badge_encrypted"
+            style="@style/XV.Chip.Net"
+            android:text="ENCRYPTED" />
+    </LinearLayout>
+
+    <!-- Expanded on tap (one card at a time): context line, the mode
+         choice and a link to the channel's details. Collapsed, the card
+         is one line with the current mode chip. -->
+    <LinearLayout
+        android:id="@+id/xv_mesh_card_expanded"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/xv_mesh_card_detail"
+            style="@style/XV.Text.Caption"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            tools:text="Server channel · mesh leg auto-derived" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/xv_mesh_card_off"
+                style="@style/XV.Segment"
+                android:text="Off" />
+
+            <TextView
+                android:id="@+id/xv_mesh_card_backup"
+                style="@style/XV.Segment"
+                android:text="Backup" />
+
+            <TextView
+                android:id="@+id/xv_mesh_card_both"
+                style="@style/XV.Segment"
+                android:layout_marginEnd="0dp"
+                android:text="Both" />
+        </LinearLayout>
+
+        <TextView
+            android:id="@+id/xv_mesh_card_details"
+            style="@style/XV.Text.Caption"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:gravity="center_vertical"
+            android:text="Details…"
+            android:textColor="@color/xv_voice" />
+    </LinearLayout>
+</LinearLayout>

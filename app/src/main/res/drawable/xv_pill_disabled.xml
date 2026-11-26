@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Non-tappable pill: no access to the channel, or action unavailable. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/xv_line_strong"/>
+    <corners android:radius="16dp"/>
+</shape>

@@ -1080,6 +1080,14 @@ class XvVoiceService : Service() {
                 fanOut { it.onCaptureError(reason) }
             }
 
+            override fun onPttInput(
+                down: Boolean,
+                slot: Int,
+                input: String,
+            ) {
+                fanOut { it.onPttInput(down, slot, input) }
+            }
+
             override fun onPttBlockedByCellularCall(reason: String) {
                 com.atakmap.android.xv.util.DiagnosticLogger.event(
                     tag = "XvVoiceSvc",
@@ -1109,6 +1117,15 @@ class XvVoiceService : Service() {
                     message = "PTT input problem: $reason",
                 )
                 fanOut { it.onPttInputProblem(reason) }
+            }
+
+            override fun onTxRouteWarning(reason: String) {
+                com.atakmap.android.xv.util.DiagnosticLogger.event(
+                    tag = "XvVoiceSvc",
+                    severity = 'W',
+                    message = "TX route warning: $reason",
+                )
+                fanOut { it.onTxRouteWarning(reason) }
             }
 
             override fun onPlaceTelecomCall(tag: String) {
@@ -2094,6 +2111,16 @@ class XvVoiceService : Service() {
             override fun isAinaConnected(): Boolean {
                 assertAuthorizedCaller()
                 return plant().isAinaConnected()
+            }
+
+            override fun isExternalCallActive(): Boolean {
+                assertAuthorizedCaller()
+                return plant().externalCallActive()
+            }
+
+            override fun isBluetoothVoiceRoute(): Boolean {
+                assertAuthorizedCaller()
+                return plant().isBluetoothVoiceRoute()
             }
 
             override fun connectExternalButton(

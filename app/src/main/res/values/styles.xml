@@ -1,0 +1,251 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  XV style system (Texas TAK brand kit). Layouts use these styles rather
+  than repeating per-view attributes, so every screen and dialog reads the
+  same. Colour meanings (colors.xml): Honey = voice activity / brand
+  accent, Bluebonnet = system / network, Texas Red = transmitting and
+  destructive actions. Every interactive style keeps a 48dp minimum
+  touch target.
+-->
+<resources>
+
+    <!-- Roots of the dotted names below (XV.Card inherits XV, etc.). -->
+    <style name="XV" />
+
+    <style name="XV.Text" />
+
+    <!-- ===== Text ===== -->
+
+    <!-- Screen title ("Settings", "Channels", dialog titles). -->
+    <style name="XV.Text.Title">
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">20sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- Section header: small, tracked, all caps, Signal Grey. -->
+    <style name="XV.Text.Section">
+        <item name="android:textColor">@color/xv_text_dim</item>
+        <item name="android:textSize">11sp</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:letterSpacing">0.12</item>
+    </style>
+
+    <!-- Row label inside a card. -->
+    <style name="XV.Text.Body">
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- Card title (device name, channel name). -->
+    <style name="XV.Text.CardTitle">
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">15sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- Explanatory caption under a row. -->
+    <style name="XV.Text.Caption">
+        <item name="android:textColor">@color/xv_text_dim</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <!-- System / network status line (Bluebonnet, monospace). -->
+    <style name="XV.Text.Status">
+        <item name="android:textColor">@color/xv_net</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">monospace</item>
+    </style>
+
+    <!-- Values, endpoints, button maps. -->
+    <style name="XV.Text.Mono">
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:lineSpacingExtra">2dp</item>
+    </style>
+
+    <!-- Warning callout (Honey). -->
+    <style name="XV.Text.Warning" parent="XV.Text.Caption">
+        <item name="android:textColor">@color/xv_warn</item>
+    </style>
+
+    <!-- ===== Containers ===== -->
+
+    <!-- A card: Comb surface, hairline border, 12dp padding. -->
+    <style name="XV.Card">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/xv_card_bg</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">12dp</item>
+    </style>
+
+    <!-- Section header placement. -->
+    <style name="XV.SectionHeader" parent="XV.Text.Section">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">20dp</item>
+    </style>
+
+    <!-- Caption placement under a row / card. -->
+    <style name="XV.CaptionBlock" parent="XV.Text.Caption">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">4dp</item>
+    </style>
+
+    <!-- Card row: label on the left, control on the right (switch row). -->
+    <style name="XV.Row">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/xv_card_bg</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:minHeight">56dp</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">8dp</item>
+    </style>
+
+    <!-- Row label filling the space left of the control. -->
+    <style name="XV.Row.Label" parent="XV.Text.Body">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+    </style>
+
+    <!-- ===== Controls ===== -->
+
+    <style name="XV.Switch">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:minWidth">48dp</item>
+    </style>
+
+    <!-- Standard action button: outline on Line, Honey stroke. -->
+    <style name="XV.Button">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/xv_button_bg</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- Quiet secondary action: outline pill, Signal Grey text. -->
+    <style name="XV.Button.Pill">
+        <item name="android:background">@drawable/xv_pill_off</item>
+        <item name="android:textColor">@color/xv_text_dim</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- Destructive action (wipe, forget all): red label. -->
+    <style name="XV.Button.Danger">
+        <item name="android:textColor">@color/xv_err</item>
+    </style>
+
+    <!-- Header back arrow. -->
+    <style name="XV.BackButton">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:background">@android:color/transparent</item>
+        <item name="android:contentDescription">@string/xv_cd_back</item>
+        <item name="android:text">◀</item>
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- Settings tab. -->
+    <style name="XV.Tab">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginEnd">4dp</item>
+        <item name="android:background">@drawable/xv_button_bg</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- Dropdown spinner on a field surface. -->
+    <style name="XV.Spinner">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/xv_field_bg</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:popupBackground">@color/xv_surface_alt</item>
+    </style>
+
+    <!-- Text input on a field surface. -->
+    <style name="XV.Field">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginTop">8dp</item>
+        <item name="android:background">@drawable/xv_field_bg</item>
+        <item name="android:importantForAutofill">no</item>
+        <item name="android:minHeight">48dp</item>
+        <item name="android:paddingStart">12dp</item>
+        <item name="android:paddingEnd">12dp</item>
+        <item name="android:singleLine">true</item>
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textColorHint">@color/xv_text_dim</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- Chips / badges on cards. -->
+    <style name="XV.Chip">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_marginStart">6dp</item>
+        <item name="android:background">@drawable/xv_chip</item>
+        <item name="android:letterSpacing">0.1</item>
+        <item name="android:paddingStart">6dp</item>
+        <item name="android:paddingTop">2dp</item>
+        <item name="android:paddingEnd">6dp</item>
+        <item name="android:paddingBottom">2dp</item>
+        <item name="android:textColor">@color/xv_voice</item>
+        <item name="android:textSize">10sp</item>
+    </style>
+
+    <!-- System / network chip (ENCRYPTED, CONNECTED, ASSIGNED). -->
+    <style name="XV.Chip.Net">
+        <item name="android:background">@drawable/xv_chip_net</item>
+        <item name="android:textColor">@color/xv_net</item>
+    </style>
+
+    <!-- Alert chip (CLEAR traffic, NEEDS RE-PAIR). -->
+    <style name="XV.Chip.Alert">
+        <item name="android:background">@drawable/xv_chip_alert</item>
+        <item name="android:textColor">@color/xv_text</item>
+    </style>
+
+    <!-- Segmented choice pill (Off / Backup / Both, Small / Medium / Large). -->
+    <style name="XV.Segment">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:layout_marginEnd">6dp</item>
+        <item name="android:background">@drawable/xv_pill_off</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">@color/xv_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- Page padding for a settings / dialog body. -->
+    <style name="XV.Page">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:orientation">vertical</item>
+        <item name="android:padding">12dp</item>
+    </style>
+</resources>

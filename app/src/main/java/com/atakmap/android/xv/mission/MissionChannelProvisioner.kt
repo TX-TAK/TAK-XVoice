@@ -68,12 +68,17 @@ class MissionChannelProvisioner(
      * @param allowCreate whether the server permits client-initiated
      *   channel creation (operator/config signal; conservative default
      *   is true, degrade to [Action.Unavailable] when the server rejects).
+     * @param secondaryChannel channel 2's channel, or null when off. When
+     *   it already holds the mission channel, channel 1 can't join it (the
+     *   two slots never share a channel) and swapping is the operator's
+     *   call: emit [Action.HeldByChannel2] once and stop driving.
      */
     fun reconcile(
         activeMissions: List<String>,
         directoryContains: (String) -> Boolean,
         joinedChannel: String?,
         allowCreate: Boolean,
+        secondaryChannel: String? = null,
     ): Action {
         tick++
         val desired =
@@ -107,6 +112,11 @@ class MissionChannelProvisioner(
         }
         if (yielded) return Action.NoOp
 
+        if (secondaryChannel != null && sameChannel(secondaryChannel, desired)) {
+            yielded = true
+            return Action.HeldByChannel2(desired)
+        }
+
         if (directoryContains(desired)) {
             return Action.Join(desired)
         }
@@ -125,6 +135,30 @@ class MissionChannelProvisioner(
         createAttempts++
         lastCreateTick = tick
         return Action.Create(desired)
+    }
+
+    /**
+     * The operator explicitly re-arranged channel 1 (a completed channel
+     * swap). Treat it like a manual move off the mission channel: stop
+     * driving until the mission itself changes.
+     *
+     * [activeMission] is the primary active mission at the time. When the
+     * provisioner hasn't reconciled it yet (swap before the first 1 Hz
+     * tick, or right after SET_MISSIONS) its target is recorded here, so
+     * the next tick sees "same mission, yielded" instead of a fresh drive
+     * cycle that would immediately Join and revert the swap. No-op when
+     * no mission is active.
+     */
+    fun yieldToOperator(activeMission: String?) {
+        val desired = activeMission?.let { channelNameForMission(it) }?.takeIf { it.isNotBlank() }
+        if (desired != null && !sameChannel(desired, target)) {
+            target = desired
+            reachedTarget = false
+            createAttempts = 0
+            lastCreateTick = Int.MIN_VALUE
+            unavailableEmitted = false
+        }
+        if (target != null) yielded = true
     }
 
     /** Forget all state (transport teardown / feature disabled). */
@@ -164,6 +198,14 @@ class MissionChannelProvisioner(
 
         /** Join the (now-existing) mission channel. */
         data class Join(
+            val channelName: String,
+        ) : Action()
+
+        /**
+         * The mission channel is already channel 2. Emitted once per
+         * mission (the provisioner then yields); tell the operator to Swap.
+         */
+        data class HeldByChannel2(
             val channelName: String,
         ) : Action()
 

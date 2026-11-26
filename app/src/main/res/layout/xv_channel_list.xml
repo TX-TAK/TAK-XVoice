@@ -1,0 +1,231 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Unified channel list (approved UX v2). Replaces the two per-slot
+  ExpandableListView pickers and their per-row gear icons.
+
+  One searchable list; each row carries [1] and [2] pills (rules in
+  xv_channel_row.xml). The assignment bar at the top shows the current
+  slots and carries Swap, so "clear 2, move 1, re-add 2" is one tap.
+  Subchannels are indented under their parent. Mesh options are a
+  long-press on the row.
+
+  Slot rules: channel 1 is never blank (its lit pill can't be tapped off;
+  pick another channel to move it). Channel 2 is optional; tapping its
+  lit pill clears it, and both speaker-mic PTT buttons then key channel 1.
+  PTT1/PTT2 are fixed to channels 1/2; Swap is the only way to invert them.
+  A channel already on one slot has the other slot's pill greyed out, so
+  a pick never swaps by side effect.
+
+  Rows are added by XvDropDownReceiver.populateChannelList into
+  xv_channel_rows.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/xv_bg"
+    android:focusable="true"
+    android:focusableInTouchMode="true"
+    android:orientation="vertical">
+
+    <!-- Header -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="12dp">
+
+        <Button
+            android:id="@+id/xv_channels_back"
+            android:layout_width="wrap_content"
+            android:layout_height="44dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/xv_cd_back"
+            android:minWidth="48dp"
+            android:text="◀"
+            android:textColor="@color/xv_text"
+            android:textSize="16sp" />
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="4dp"
+            android:layout_weight="1"
+            android:text="@string/xv_channels_title"
+            android:textColor="@color/xv_text"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Current assignment + Swap -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="60dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginEnd="12dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:background="@drawable/xv_card_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="10dp"
+        android:paddingEnd="6dp">
+
+        <TextView
+            android:layout_width="22dp"
+            android:layout_height="25dp"
+            android:background="@drawable/xv_hex_badge"
+            android:gravity="center"
+            android:text="1"
+            android:textColor="@color/xv_bg"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/xv_channels_slot_1"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:breakStrategy="balanced"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="2"
+            android:textColor="@color/xv_text"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            tools:text="ALPHA" />
+
+        <TextView
+            android:id="@+id/xv_channels_slot_2_badge"
+            android:layout_width="22dp"
+            android:layout_height="25dp"
+            android:background="@drawable/xv_hex_badge"
+            android:gravity="center"
+            android:text="2"
+            android:textColor="@color/xv_bg"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/xv_channels_slot_2"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="6dp"
+            android:layout_marginEnd="6dp"
+            android:layout_weight="1"
+            android:breakStrategy="balanced"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="2"
+            android:textColor="@color/xv_text"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            tools:text="COMMAND" />
+
+        <Button
+            android:id="@+id/xv_channels_swap"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:minWidth="48dp"
+            android:background="@drawable/xv_pill_off"
+            android:contentDescription="@string/xv_cd_swap"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:text="@string/xv_channels_swap"
+            android:textAllCaps="false"
+            android:textColor="@color/xv_text"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Search -->
+    <EditText
+        android:id="@+id/xv_channels_search"
+        android:layout_width="match_parent"
+        android:layout_height="44dp"
+        android:layout_marginStart="12dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/xv_field_bg"
+        android:hint="@string/xv_channels_search_hint"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:paddingStart="12dp"
+        android:paddingEnd="12dp"
+        android:singleLine="true"
+        android:textColor="@color/xv_text"
+        android:textColorHint="@color/xv_text_dim"
+        android:textSize="14sp" />
+
+    <ScrollView
+        android:id="@+id/xv_channels_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_marginTop="6dp"
+        android:layout_weight="1">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/xv_channels_rows"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingStart="12dp"
+                android:paddingTop="14dp"
+                android:paddingEnd="12dp"
+                android:paddingBottom="14dp"
+                android:text="@string/xv_channels_footer"
+                android:textColor="@color/xv_text_dim"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Undo bar: Swap acts on one tap; this
+         offers ~5 s to take it back (XvDropDownReceiver.showUndo). -->
+    <LinearLayout
+        android:id="@+id/xv_undo_bar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="8dp"
+        android:background="@drawable/xv_card_bg"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="4dp"
+        android:visibility="gone"
+        tools:visibility="visible">
+
+        <TextView
+            android:id="@+id/xv_undo_text"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textColor="@color/xv_text"
+            android:textSize="14sp"
+            tools:text="Channels 1 and 2 swapped" />
+
+        <Button
+            android:id="@+id/xv_undo_action"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:minWidth="64dp"
+            android:background="@android:color/transparent"
+            android:text="@string/xv_undo"
+            android:textAllCaps="true"
+            android:textColor="@color/xv_voice"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+</LinearLayout>

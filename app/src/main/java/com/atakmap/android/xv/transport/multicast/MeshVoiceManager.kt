@@ -60,9 +60,11 @@ class MeshVoiceManager(
     private val mumbleConnected: () -> Boolean,
     private val legFactory: MeshLegFactory,
     /** Forward one playable Opus frame to the service plant (AIDL onRxOpus). */
-    private val onRxOpus: (opus: ByteArray, speakerLabel: String) -> Unit,
+    /** [slot] = the channel slot whose leg heard it (0 = channel 1, 1 = channel 2). */
+    private val onRxOpus: (opus: ByteArray, speakerLabel: String, slot: Int) -> Unit,
     /** Bridge relay: push one mesh-originated Opus frame onto the Mumble leg. */
-    private val relayToMumble: (opus: ByteArray, burstStart: Boolean) -> Unit = { _, _ -> },
+    /** [slot] = the session to relay onto (0 = channel 1, 1 = channel 2). */
+    private val relayToMumble: (opus: ByteArray, burstStart: Boolean, slot: Int) -> Unit = { _, _, _ -> },
     /** Mesh TX became (un)available — service uses it to keep PTT live server-less. */
     private val onMeshTxStateChanged: (meshTxActive: Boolean) -> Unit = {},
     /** CoT presence: Mumble session → device uid. */
@@ -253,6 +255,7 @@ class MeshVoiceManager(
     private data class MeshTalker(
         val speakerKey: String,
         var lastFrameMs: Long,
+        var slot: Int = 0,
     )
 
     private val meshTalking = HashMap<String, MeshTalker>()
@@ -287,6 +290,56 @@ class MeshVoiceManager(
         // different channel once the server returns.
         reconcileLegs()
     }
+
+    /**
+     * Channel 2 (slot 1) as the operator has it now: set, swapped or turned
+     * off (null). Its leg carries channel 2 over the mesh exactly as channel
+     * 1's does (Off / Backup / Both per channel). Like channel 1, a server
+     * drop does NOT clear it — only the operator's own change does.
+     */
+    @Synchronized
+    fun setSecondaryChannel(channelName: String?) {
+        val canonical =
+            channelName
+                ?.takeIf { it.isNotBlank() }
+                ?.let { MulticastGroupDerivation.canonicalChannelName(it) }
+                ?.takeIf { it != primaryChannel }
+        if (canonical == secondaryChannel) return
+        secondaryChannel = canonical
+        reconcileLegs()
+    }
+
+    /** Canonical channel on [slot], or null. */
+    @Synchronized
+    fun channelForSlot(slot: Int): String? =
+        when (slot) {
+            0 -> primaryChannel
+            1 -> secondaryChannel
+            else -> null
+        }
+
+    /**
+     * Mesh is carrying [slot]'s channel right now: failover is engaged (the
+     * server is gone) and that channel has a leg. Channel 1 uses the
+     * status snapshot's `active`; this answers it for either slot.
+     */
+    @Synchronized
+    fun carriesSlot(slot: Int): Boolean {
+        val channel = channelForSlot(slot)?.takeIf { !meshStopped && meshTxActive }
+        return channel != null && (legs.containsKey(channel) || patchLegs.containsKey(channel))
+    }
+
+    // We are the elected bridge for [slot]'s channel.
+    private var bridgingSecondary = false
+
+    private fun bridgingSlot(slot: Int): Boolean = if (slot == 1) bridgingSecondary else bridging
+
+    private fun channelForSlotLocked(slot: Int): String? = if (slot == 1) secondaryChannel else primaryChannel
+
+    // Channel 2's leg reports slot 1; everything else (channel 1, or a
+    // channel on both slots, which never happens) is slot 0.
+    private fun slotForChannel(channelName: String): Int =
+        if (channelName == secondaryChannel && channelName != primaryChannel) 1 else 0
 
     /**
      * Operator forgot a single channel: tear down its leg, drop any
@@ -366,6 +419,8 @@ class MeshVoiceManager(
         opus: ByteArray,
         targetSlot: Int,
     ) {
+        // Revoked / rejected server credential: no mesh TX in any mode.
+        if (meshStopped) return
         val targetChannel = if (targetSlot == 0) primaryChannel else secondaryChannel
         if (targetChannel == null) return
         if (legs.isEmpty() && patchLegs.isEmpty()) return
@@ -393,6 +448,52 @@ class MeshVoiceManager(
         }
     }
 
+    // Operator rules: the mesh stops entirely — every leg (patch and
+    // rendezvous included) is closed, so nothing is heard or sent and no
+    // keys are used — while EITHER:
+    //  - the voice server REJECTS this device's credential (access
+    //    revoked, certificate or auth refused), until access is restored;
+    //  - the operator turned voice off (Disconnect), until they Connect.
+    // A server that is merely down / unreachable still fails over as usual.
+    @Volatile
+    private var serverAccessRejected = false
+
+    @Volatile
+    private var operatorVoiceOff = false
+
+    private val meshStopped: Boolean get() = serverAccessRejected || operatorVoiceOff
+
+    /** Set from the plugin's shared-identity verdict; clears on a good login / Connect. */
+    @Synchronized
+    fun setServerAccessRejected(rejected: Boolean) {
+        if (rejected == serverAccessRejected) return
+        serverAccessRejected = rejected
+        applyMeshStopped("server access ${if (rejected) "rejected" else "restored"}")
+    }
+
+    /** The operator chose "All voice off". */
+    fun isOperatorVoiceOff(): Boolean = operatorVoiceOff
+
+    /** The operator chose "All voice off" (true) / started voice again (false). */
+    @Synchronized
+    fun setOperatorVoiceOff(off: Boolean) {
+        if (off == operatorVoiceOff) return
+        operatorVoiceOff = off
+        applyMeshStopped("operator voice ${if (off) "off" else "on"}")
+    }
+
+    private fun applyMeshStopped(why: String) {
+        logDiag("$why — mesh ${if (meshStopped) "stopped" else "allowed"}")
+        if (meshStopped && meshTxActive) {
+            meshTxActive = false
+            onMeshTxStateChanged(false)
+            logDiag("failover TX -> MESH OFF ($why)")
+        }
+        // Close (or, on restore, rebuild) the legs now rather than on the
+        // next tick.
+        reconcileLegs()
+    }
+
     /** Is mesh currently the active TX leg (failover engaged)? */
     @Synchronized
     fun isMeshTxActive(): Boolean = meshTxActive
@@ -415,8 +516,17 @@ class MeshVoiceManager(
         val now = nowMs()
         failoverPolicy.observeMumbleRx(now)
         lastMumbleActivityMs = now
-        if (slot != 0) return true // VS2 has no mesh leg to collide with
         val canonical = deviceUidForMumbleSession(speakerSession) ?: "mumble:$speakerSession"
+        if (slot != 0) {
+            // Channel 2: no dedup against it (its mesh copy is gated by
+            // the Mumble-primary rule), but as channel 2's bridge we relay
+            // its server speakers to the mesh-only peers.
+            if (bridgingSecondary) {
+                ssrcKeyToUid["ssrc:%08x".format(RtpFraming.fnv1aSsrc(canonical))] = canonical
+                relayServerFrameToMesh(canonical, opus, now, slot = 1)
+            }
+            return true
+        }
         // Bind this speaker's SSRC to their canonical id for every
         // Mumble speaker, INCLUDING non-XV clients whose synthetic
         // "mumble:<session>" uid never appears in CoT presence (so
@@ -459,6 +569,9 @@ class MeshVoiceManager(
         sourceHost: String,
         isPatchLeg: Boolean,
     ) {
+        // Legs are closed while access is rejected; a frame already in
+        // flight from a closing leg must not play either.
+        if (meshStopped) return
         val action = decideVoiceRx(channelName, speakerKey, sourceHost, isPatchLeg)
         if (!action.play) return
         // Burst-boundary diagnostics — OUTSIDE the manager lock, burst-gated
@@ -476,7 +589,7 @@ class MeshVoiceManager(
                     (if (meshTxActive) " [FULL-DUPLEX: local mesh TX active]" else ""),
             )
         }
-        onRxOpus(opus, "mcast:$channelName:$speakerKey")
+        onRxOpus(opus, "mcast:$channelName:$speakerKey", action.slot)
         if (action.relay) {
             if (action.relayBurstStart) {
                 logDiag(
@@ -485,7 +598,7 @@ class MeshVoiceManager(
                         "meshTx=$meshTxActive bridging=$bridging",
                 )
             }
-            relayToMumble(opus, action.relayBurstStart)
+            relayToMumble(opus, action.relayBurstStart, action.slot)
             if (!isPatchLeg) {
                 patchLegs[channelName]?.sendRelayOpus(action.canonical, opus, action.relayBurstStart)
             } else {
@@ -493,6 +606,20 @@ class MeshVoiceManager(
             }
         }
     }
+
+    // A speaker reachable only over the mesh, and no other bridge is putting
+    // them on Mumble for us: play the mesh copy.
+    private fun meshOnlySpeakerAudible(
+        canonical: String,
+        channelName: String,
+        now: Long,
+    ): Boolean =
+        !speakerOnServer(canonical) && (bridgingSlot(slotForChannel(channelName)) || !bridgeElection.otherBridgeOn(channelName, now))
+
+    // The speaker is heard on the server: a Mumble session id, our own uid,
+    // or a peer whose presence says it is server-connected.
+    private fun speakerOnServer(canonical: String): Boolean =
+        canonical.startsWith("mumble:") || canonical == ourUid || uidMumbleConnected(canonical)
 
     private data class VoiceRxAction(
         val play: Boolean,
@@ -507,6 +634,8 @@ class MeshVoiceManager(
          * not influence any play/relay/drop decision.
          */
         val playBurstStart: Boolean = false,
+        /** Channel slot whose leg heard the frame (0 = channel 1, 1 = channel 2). */
+        val slot: Int = 0,
     )
 
     @Synchronized
@@ -541,12 +670,18 @@ class MeshVoiceManager(
         // the grace is comfortably longer than the ~5 s ping interval, so a
         // healthy-but-idle server stays gated with no flap while a truly
         // silent one lifts the gate after the grace.
-        val mode = legs[channelName]?.config?.mode
         val serverLive = mumbleConnected() && lastMumbleActivityMs != Long.MIN_VALUE && now - lastMumbleActivityMs <= MUMBLE_LIVE_GRACE_MS
-        if (mode == MulticastMode.FAILOVER && serverLive && !meshTxActive && !bridging) {
+        val canonical = ssrcKeyToUid[speakerKey] ?: speakerKey
+        // Operator rule: Mumble is primary. While the server is live and
+        // failover isn't engaged, a speaker who is on the server is heard
+        // over Mumble only — never the mesh copy too, in ANY mode (Both
+        // included): that doubled audio is what operators hear as collisions.
+        // A speaker who is only on the mesh must still be heard: by the
+        // bridge (which also relays them onto Mumble), or by anyone when no
+        // other peer is bridging the channel (no Mumble copy will come).
+        if (serverLive && !meshTxActive && !meshOnlySpeakerAudible(canonical, channelName, now)) {
             return VoiceRxAction(play = false, relay = false, relayBurstStart = false)
         }
-        val canonical = ssrcKeyToUid[speakerKey] ?: speakerKey
         // The dedup leg id includes the datagram's SOURCE: during a
         // bridge handoff two bridges relay the SAME server speaker
         // (same SSRC, independent sequence bases) for a few seconds,
@@ -586,7 +721,10 @@ class MeshVoiceManager(
                 )
             }
         }
-        val relay = bridging && canonical != ourUid && !serverOriginated && !uidMumbleConnected(canonical)
+        val slot = slotForChannel(channelName)
+        // A leg's audio is relayed onto the session of ITS slot (channel 2's
+        // leg onto channel 2's session), never onto the other channel.
+        val relay = bridgingSlot(slot) && canonical != ourUid && !serverOriginated && !uidMumbleConnected(canonical)
         var relayBurstStart = false
         if (relay) {
             // A speaker key still in raw "ssrc:" form means we never
@@ -622,7 +760,10 @@ class MeshVoiceManager(
         // getOrPut below still runs exactly as before — decision behaviour
         // is unchanged; this is pure observability.
         val playBurstStart = !meshTalking.containsKey(canonical)
-        meshTalking.getOrPut(canonical) { MeshTalker(speakerKey, now) }.lastFrameMs = now
+        meshTalking.getOrPut(canonical) { MeshTalker(speakerKey, now, slot) }.also {
+            it.lastFrameMs = now
+            it.slot = slot
+        }
         return VoiceRxAction(
             play = true,
             relay = relay,
@@ -630,6 +771,7 @@ class MeshVoiceManager(
             canonical = canonical,
             serverOriginated = serverOriginated,
             playBurstStart = playBurstStart,
+            slot = slot,
         )
     }
 
@@ -643,10 +785,12 @@ class MeshVoiceManager(
      * row's talker list alongside the Mumble roster names.
      */
     @Synchronized
-    fun meshActiveSpeakers(): List<String> {
+    fun meshActiveSpeakers(slot: Int? = null): List<String> {
         val now = nowMs()
         meshTalking.entries.removeAll { now - it.value.lastFrameMs > TALKING_TTL_MS }
-        return meshTalking.map { (canonical, talker) -> displayNameFor(canonical, talker.speakerKey) }
+        return meshTalking
+            .filter { slot == null || it.value.slot == slot }
+            .map { (canonical, talker) -> displayNameFor(canonical, talker.speakerKey) }
     }
 
     private fun displayNameFor(
@@ -719,7 +863,7 @@ class MeshVoiceManager(
         // resolvable primary (no server identity to derive it from) and
         // runs on its patch leg alone, which must still take failover TX.
         val anyLeg = legs.isNotEmpty() || patchLegs.isNotEmpty()
-        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST
+        val newMeshTx = anyLeg && decision.active == FailoverPolicy.Leg.MULTICAST && !meshStopped
         if (newMeshTx != meshTxActive) {
             meshTxActive = newMeshTx
             onMeshTxStateChanged(newMeshTx)
@@ -733,11 +877,24 @@ class MeshVoiceManager(
         // mesh beacons via handleBeacon — see the note above [tick] on
         // why CoT presence must not feed it.
         val wasBridging = bridging
-        bridging = anyLeg && bridgeElection.evaluate(now, mumbleConnected())
+        // Elected per channel: only peers on OUR channel 1 count (the bridge
+        // relays channel 1 to and from our channel-1 session).
+        bridging = anyLeg && primaryChannel?.let { bridgeElection.evaluate(now, mumbleConnected(), it) } == true
+        // Channel 2 has its own leg and its own election.
+        val wasBridgingSecondary = bridgingSecondary
+        bridgingSecondary =
+            secondaryChannel?.let { legs.containsKey(it) && bridgeElection.evaluate(now, mumbleConnected(), it) } == true
+        if (bridgingSecondary != wasBridgingSecondary) {
+            logDiag("bridge role (channel 2) -> ${if (bridgingSecondary) "ON" else "OFF"}")
+        }
+        // Server connectivity goes into the bridge CoT on every tick (the
+        // setter is a no-op when unchanged). It used to update only when
+        // the bridge role flipped, so a device that connected without ever
+        // changing role kept advertising mumbleConnected=false.
+        bridgeCotPublisher?.setMumbleSession(if (mumbleConnected()) 0 else null)
         if (bridging != wasBridging) {
             // Notify local-mesh peers of our bridge role change via CoT.
             bridgeCotPublisher?.setBridging(bridging)
-            bridgeCotPublisher?.setMumbleSession(if (mumbleConnected()) 0 else null)
             logDiag(
                 "bridge role -> ${if (bridging) "ON" else "OFF"} " +
                     "(mumbleConnected=${mumbleConnected()}, legs=${legs.size})",
@@ -925,7 +1082,9 @@ class MeshVoiceManager(
     // ---- internals ----
 
     private fun reconcileLegs() {
-        val enabled = meshEnabled()
+        // A rejected server credential stops the mesh entirely: no legs
+        // (so no listening, no TX, no key use) until access is restored.
+        val enabled = meshEnabled() && !meshStopped
         val desired = mutableMapOf<String, ChannelMulticastConfig>()
         if (enabled) {
             primaryChannel?.let { channel ->
@@ -1242,6 +1401,8 @@ class MeshVoiceManager(
             uid = msg.uid,
             mumbleConnected = msg.mumbleConnected,
             nowMs = now,
+            channels = msg.channels.map { MulticastGroupDerivation.canonicalChannelName(it.name) }.toSet(),
+            bridging = msg.bridging,
         )
         // Callsign directory for talker attribution — covers mesh-only
         // peers whose CoT presence hasn't reached us. Beacons default
@@ -1454,7 +1615,7 @@ class MeshVoiceManager(
                 uid = ourUid,
                 callsign = ourCallsign() ?: ourUid,
                 mumbleConnected = mumbleConnected(),
-                bridging = bridging,
+                bridging = bridging || bridgingSecondary,
                 channels = channelInfos,
             )
         legs.values.forEach { it.safeSendControl(beacon) }
@@ -1465,8 +1626,9 @@ class MeshVoiceManager(
         canonicalSpeaker: String,
         opus: ByteArray,
         now: Long,
+        slot: Int = 0,
     ) {
-        val channel = primaryChannel ?: return
+        val channel = channelForSlotLocked(slot) ?: return
         val leg = legs[channel]
         val patchLeg = patchLegs[channel]
         if (leg == null && patchLeg == null) return
