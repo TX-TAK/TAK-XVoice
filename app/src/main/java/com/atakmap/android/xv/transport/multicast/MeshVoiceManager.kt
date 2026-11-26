@@ -324,9 +324,8 @@ class MeshVoiceManager(
      */
     @Synchronized
     fun carriesSlot(slot: Int): Boolean {
-        if (meshStopped || !meshTxActive) return false
-        val channel = channelForSlot(slot) ?: return false
-        return legs.containsKey(channel) || patchLegs.containsKey(channel)
+        val channel = channelForSlot(slot)?.takeIf { !meshStopped && meshTxActive }
+        return channel != null && (legs.containsKey(channel) || patchLegs.containsKey(channel))
     }
 
     // Channel 2's leg reports slot 1; everything else (channel 1, or a
