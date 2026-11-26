@@ -68,12 +68,17 @@ class MissionChannelProvisioner(
      * @param allowCreate whether the server permits client-initiated
      *   channel creation (operator/config signal; conservative default
      *   is true, degrade to [Action.Unavailable] when the server rejects).
+     * @param secondaryChannel channel 2's channel, or null when off. When
+     *   it already holds the mission channel, channel 1 can't join it (the
+     *   two slots never share a channel) and swapping is the operator's
+     *   call: emit [Action.HeldByChannel2] once and stop driving.
      */
     fun reconcile(
         activeMissions: List<String>,
         directoryContains: (String) -> Boolean,
         joinedChannel: String?,
         allowCreate: Boolean,
+        secondaryChannel: String? = null,
     ): Action {
         tick++
         val desired =
@@ -106,6 +111,11 @@ class MissionChannelProvisioner(
             return Action.NoOp
         }
         if (yielded) return Action.NoOp
+
+        if (secondaryChannel != null && sameChannel(secondaryChannel, desired)) {
+            yielded = true
+            return Action.HeldByChannel2(desired)
+        }
 
         if (directoryContains(desired)) {
             return Action.Join(desired)
@@ -188,6 +198,14 @@ class MissionChannelProvisioner(
 
         /** Join the (now-existing) mission channel. */
         data class Join(
+            val channelName: String,
+        ) : Action()
+
+        /**
+         * The mission channel is already channel 2. Emitted once per
+         * mission (the provisioner then yields); tell the operator to Swap.
+         */
+        data class HeldByChannel2(
             val channelName: String,
         ) : Action()
 

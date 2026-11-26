@@ -1544,16 +1544,39 @@ class XvDropDownReceiver(
         mainHandler.postDelayed({ if (token == undoToken) bar.visibility = View.GONE }, UNDO_MS)
     }
 
+    // The list waiting on a forward swap's outcome to offer Undo (null =
+    // none, or the swap in flight is itself an Undo: no undo-of-undo).
+    private var swapAwaitingUndo: View? = null
+
     private fun swapWithUndo(list: View) {
         if (controller.swapUnavailableReason() != null) {
             controller.swapChannels() // toasts the reason
             return
         }
+        // Undo is offered once the swap has actually landed (both server
+        // moves acked), not on the tap: tapping Undo while it's still in
+        // flight would be refused and burn the bar.
+        swapAwaitingUndo = list
         controller.swapChannels()
         armPtt1Hint()
-        showUndo(list, "Channels 1 and 2 swapped") {
-            controller.swapChannels()
-            armPtt1Hint()
+    }
+
+    /** The plugin reports a swap's outcome (completed / rolled back / failed). */
+    fun onSwapSettled(completed: Boolean) {
+        mainHandler.post {
+            val list = swapAwaitingUndo
+            swapAwaitingUndo = null
+            if (list == null || channelListRoot !== list) return@post
+            if (!completed) {
+                undoToken++
+                list.findViewById<View>(R.id.xv_undo_bar)?.visibility = View.GONE
+                return@post
+            }
+            showUndo(list, "Channels 1 and 2 swapped") {
+                // The reverse swap offers no further Undo.
+                controller.swapChannels()
+                armPtt1Hint()
+            }
         }
     }
 

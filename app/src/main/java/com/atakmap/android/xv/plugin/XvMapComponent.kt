@@ -87,6 +87,18 @@ class XvMapComponent : AbstractMapComponent() {
     // (Bluetooth reader-health PR) via [reportPttInputIssue].
     private val pttInputHealth = com.atakmap.android.xv.ui.PttInputHealth()
 
+    // The operator re-paired a device (plugin-lifetime bond watcher, and
+    // Settings' own): clear the problem chip on the card it backs.
+    private fun onDeviceBonded(mac: String) {
+        if (mac.equals(settings.persistedAinaMac(), ignoreCase = true)) {
+            pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.SPEAKER_MIC)
+        }
+        if (mac.equals(settings.persistedExternalButtonMac(), ignoreCase = true)) {
+            pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.BUTTON)
+        }
+        dropDown?.onDeviceConnectivityChanged()
+    }
+
     /**
      * Record a Bluetooth PTT input problem and refresh Settings. Every
      * report is also toasted (a reason that names no input gets no chip).
@@ -609,7 +621,9 @@ class XvMapComponent : AbstractMapComponent() {
             androidx.core.content.ContextCompat.registerReceiver(
                 requireNotNull(heldPluginContext) { "plugin context not attached yet" },
                 receiver,
-                IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED),
+                IntentFilter(BluetoothAdapter.ACTION_STATE_CHANGED).apply {
+                    addAction(android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED)
+                },
                 androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED,
             )
             Log.i(TAG, "btAdapterStateReceiver registered — will auto-reconnect readers on STATE_ON")
@@ -949,6 +963,8 @@ class XvMapComponent : AbstractMapComponent() {
                 override fun onAinaConnectionChanged(connected: Boolean) {
                     Log.i(TAG, "service: AINA connection changed connected=$connected")
                     serviceAinaConnected = connected
+                    // A clean (re)connect means its problem is gone.
+                    if (connected) pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.SPEAKER_MIC)
                     // Repopulate the Settings device pickers so a
                     // speakermic that finishes reconnecting (e.g. after a
                     // BT power-cycle) stops rendering "unavailable /
@@ -962,6 +978,7 @@ class XvMapComponent : AbstractMapComponent() {
                 override fun onExternalButtonConnectionChanged(connected: Boolean) {
                     Log.i(TAG, "service: External Button connection changed connected=$connected")
                     lastExternalButtonConnected = connected
+                    if (connected) pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.BUTTON)
                     dropDown?.onDeviceConnectivityChanged()
                 }
 
@@ -1498,6 +1515,25 @@ class XvMapComponent : AbstractMapComponent() {
                     ctx: Context,
                     intent: Intent,
                 ) {
+                    // Re-pair seen for the plugin's lifetime (not only
+                    // while Settings is open): clear that card's chip.
+                    if (intent.action == android.bluetooth.BluetoothDevice.ACTION_BOND_STATE_CHANGED) {
+                        val bonded =
+                            intent.getIntExtra(android.bluetooth.BluetoothDevice.EXTRA_BOND_STATE, -1) ==
+                                android.bluetooth.BluetoothDevice.BOND_BONDED
+                        val mac =
+                            try {
+                                @Suppress("DEPRECATION")
+                                intent.getParcelableExtra<android.bluetooth.BluetoothDevice>(
+                                    android.bluetooth.BluetoothDevice.EXTRA_DEVICE
+                                )?.address
+                            } catch (t: SecurityException) {
+                                Log.w(TAG, "bond broadcast: device address not readable", t)
+                                null
+                            }
+                        if (bonded && mac != null) onDeviceBonded(mac)
+                        return
+                    }
                     if (intent.action != BluetoothAdapter.ACTION_STATE_CHANGED) return
                     val state =
                         intent.getIntExtra(
@@ -2863,15 +2899,7 @@ class XvMapComponent : AbstractMapComponent() {
             // and drops channel RX, so the bar can't disagree with them.
             override fun phoneCallActive(): Boolean = voiceClient?.query(false) { it.isExternalCallActive } == true
 
-            override fun onBluetoothBonded(mac: String) {
-                // The operator re-paired a device: clear the card it backs.
-                if (mac.equals(settings.persistedAinaMac(), ignoreCase = true)) {
-                    pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.SPEAKER_MIC)
-                }
-                if (mac.equals(settings.persistedExternalButtonMac(), ignoreCase = true)) {
-                    pttInputHealth.clear(com.atakmap.android.xv.ui.PttInputHealth.Card.BUTTON)
-                }
-            }
+            override fun onBluetoothBonded(mac: String) = onDeviceBonded(mac)
 
             override fun setAinaButtonProtocol(kind: com.atakmap.android.xv.aina.AinaDeviceInfo.ButtonProtocol?) {
                 Log.i(TAG, "Controller.setAinaButtonProtocol('$kind')")
@@ -4509,9 +4537,17 @@ class XvMapComponent : AbstractMapComponent() {
                 directoryContains = { name -> directory.any { it.equals(name, ignoreCase = true) } },
                 joinedChannel = transport.joinedChannelName(),
                 allowCreate = true,
+                secondaryChannel = lastSecondaryChannel,
             )
         when (action) {
             MissionChannelProvisioner.Action.NoOp -> {}
+            is MissionChannelProvisioner.Action.HeldByChannel2 -> {
+                // Once per mission (the provisioner yields): channel 1 can't
+                // share channel 2's channel, and swapping is the operator's
+                // call — never a side effect.
+                Log.i(TAG, "mission channel '${action.channelName}' is channel 2 — yielding")
+                toastOnMain("Mission channel '${action.channelName}' is your channel 2 — use Swap to make it channel 1")
+            }
             is MissionChannelProvisioner.Action.Create -> {
                 Log.i(TAG, "mission channel: creating '${action.channelName}'")
                 // Non-temporary top-level channel; the next tick's Join
@@ -6343,6 +6379,7 @@ class XvMapComponent : AbstractMapComponent() {
             com.atakmap.android.xv.transport.ChannelSwap.Outcome.Cancelled -> {}
         }
         reopenCanSpeakAfterSwap()
+        dropDown?.onSwapSettled(outcome is com.atakmap.android.xv.transport.ChannelSwap.Outcome.Completed)
         dropDown?.refreshNow()
     }
 

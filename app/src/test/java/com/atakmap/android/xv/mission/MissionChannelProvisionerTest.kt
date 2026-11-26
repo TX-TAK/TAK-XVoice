@@ -267,4 +267,23 @@ class MissionChannelProvisionerTest {
             )
         }
     }
+
+    @Test
+    fun `mission channel already on channel 2 yields once instead of looping`() {
+        val p = MissionChannelProvisioner()
+        val first = p.reconcile(listOf("Bravo"), dirOf("Bravo"), joinedChannel = "Alpha", allowCreate = true, secondaryChannel = "bravo")
+        assertEquals(MissionChannelProvisioner.Action.HeldByChannel2("Bravo"), first)
+        // The old behaviour re-emitted Join every tick; now it stays quiet.
+        repeat(5) {
+            assertEquals(
+                MissionChannelProvisioner.Action.NoOp,
+                p.reconcile(listOf("Bravo"), dirOf("Bravo"), joinedChannel = "Alpha", allowCreate = true, secondaryChannel = "Bravo"),
+            )
+        }
+        // A new mission drives again.
+        assertEquals(
+            MissionChannelProvisioner.Action.Join("Charlie"),
+            p.reconcile(listOf("Charlie"), dirOf("Charlie"), joinedChannel = "Alpha", allowCreate = true, secondaryChannel = "Bravo"),
+        )
+    }
 }
