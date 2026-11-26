@@ -1022,6 +1022,25 @@ class XvMapComponent : AbstractMapComponent() {
                     }
                 }
 
+                override fun onPttInputNeedsRepair(reason: String?) {
+                    // A BLE PTT reader's device keeps rejecting the link
+                    // for security reasons. Without this the slot just
+                    // looks "disconnected" forever and the operator has
+                    // no hint that re-pairing is the fix.
+                    val msg = reason ?: "Bluetooth PTT device needs to be re-paired"
+                    Log.w(TAG, "onPttInputNeedsRepair: $msg")
+                    val target = MapView.getMapView() ?: return
+                    try {
+                        target.post {
+                            android.widget.Toast
+                                .makeText(target.context, msg, android.widget.Toast.LENGTH_LONG)
+                                .show()
+                        }
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "needs-repair toast threw", t)
+                    }
+                }
+
                 override fun onPrivateCallEnded() {
                     cancelPendingAnswerTimeout("call ended")
                     cancelPendingRingback("call ended")

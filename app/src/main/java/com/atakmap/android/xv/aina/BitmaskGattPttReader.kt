@@ -13,6 +13,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import java.util.UUID
 
@@ -26,9 +27,14 @@ import java.util.UUID
  *   - Service discovery, matching against a list of candidate service
  *     UUIDs (so a single reader class covers hardware revisions that
  *     differ only in advertised UUID).
- *   - CCCD subscription on every notify-capable characteristic in the
- *     matched service (broad subscription — the vendor decides which
- *     characteristic actually carries button state; extras are harmless).
+ *   - CCCD subscription on the button characteristic(s), written one at
+ *     a time (Android GATT allows a single outstanding operation). Where
+ *     the vendor's button characteristic is known
+ *     ([Config.buttonCharacteristicUuids]) only it is subscribed;
+ *     otherwise every notify characteristic in the matched service.
+ *   - "Connected" is reported only once every CCCD write is confirmed.
+ *     Any failure before that (discovery, missing characteristic or
+ *     CCCD, a rejected or failed write) drops the link and reconnects.
  *   - Edge-triggered PER-BUTTON down/up events derived from bitmask
  *     transitions between successive notifications, so a device that
  *     only reports "current mask" (no separate down/up packets) works
@@ -53,6 +59,12 @@ open class BitmaskGattPttReader(
     private val config: Config,
     private val onEvent: (AinaButton, isDown: Boolean) -> Unit,
     private val onConnectionState: (Boolean) -> Unit = {},
+    // Fired at most once per connect() when the device rejects the link
+    // for security reasons (stale / one-sided bond). The operator has
+    // to forget and re-pair; the reader keeps retrying slowly.
+    private val onNeedsRepair: (String) -> Unit = {},
+    // Test seam shared with [AinaBleReader].
+    private val gattConnector: AinaBleReader.GattConnector = AinaBleReader.DefaultGattConnector,
 ) {
     /**
      * Static per-vendor configuration passed to the reader at
@@ -106,10 +118,31 @@ open class BitmaskGattPttReader(
          * immediately by `down=false` without mutating [lastHeld].
          */
         val decodePulse: (mask: Int) -> Set<AinaButton> = { emptySet() },
+        /**
+         * Button characteristic(s) per matched service UUID. When the
+         * matched service has an entry, only those characteristics are
+         * subscribed — other notify characteristics in the same service
+         * (UART echo, battery, status) can carry non-zero bytes that a
+         * permissive mask decoder would read as a phantom PTT. A service
+         * with no entry keeps the broad "every notify characteristic"
+         * subscription. Ignored when [candidateCharacteristicUuids] is
+         * set.
+         */
+        val buttonCharacteristicUuids: Map<UUID, List<UUID>> = emptyMap(),
     )
 
     private val handler = Handler(Looper.getMainLooper())
+
+    // Guards [gatt] so a GATT callback can tell whether it belongs to the
+    // current connection. connectGatt + assignment happen under the lock,
+    // so a callback racing the assignment waits for it instead of being
+    // mistaken for a stale handle.
+    private val gattLock = Any()
+
+    @Volatile
     private var gatt: BluetoothGatt? = null
+
+    @Volatile
     private var targetDevice: BluetoothDevice? = null
 
     @Volatile
@@ -121,14 +154,42 @@ open class BitmaskGattPttReader(
     // stale GATT callback closure can still be live for a few ms
     // after we've closed the gatt handle, and if VoicePlant has
     // already swapped in a fresh reader those late events would fire
-    // into the plugin with a stale [PttSource] identity. Any
-    // callback dispatch path (connection state, button events) short-
-    // circuits when this is true.
+    // into the plugin with a stale identity. Any callback dispatch
+    // path (connection state, button events) short-circuits when
+    // this is true.
     @Volatile
     private var disposed: Boolean = false
 
+    @Volatile
     private var directRetryCount: Int = 0
+
+    @Volatile
     private var autoConnectArmed: Boolean = false
+
+    // CCCD writes for the current connection, issued one at a time.
+    @Volatile
+    private var subscription: CccdSubscriptionSequencer<BluetoothGattDescriptor>? = null
+
+    // Characteristics this connection subscribed to. Notifications from
+    // anything else are dropped before the mask decoder sees them.
+    @Volatile
+    private var subscribedChars: Set<UUID> = emptySet()
+
+    // True once onConnectionState(true) has been delivered for the
+    // current connection — i.e. the button subscription is confirmed.
+    @Volatile
+    private var reportedConnected: Boolean = false
+
+    // Last setup failure was a security/bond failure: retry slowly and
+    // don't nag the operator more than once per connect().
+    @Volatile
+    private var lastFailureWasAuth: Boolean = false
+
+    @Volatile
+    private var repairReported: Boolean = false
+
+    @Volatile
+    private var lastGattCloseMs: Long = 0L
 
     // Previous "buttons currently held" set, used to derive
     // edge-triggered down/up events. Starts empty (nothing held);
@@ -143,7 +204,15 @@ open class BitmaskGattPttReader(
         Runnable {
             val device = targetDevice ?: return@Runnable
             if (intentionalDisconnect) return@Runnable
-            connectInternal(device, useAutoConnect = autoConnectArmed)
+            try {
+                connectInternal(device, useAutoConnect = autoConnectArmed)
+            } catch (t: Throwable) {
+                // A SecurityException (permission revoked) or a stack
+                // RuntimeException on the main looper would otherwise
+                // take ATAK down with it.
+                Log.w(config.tag, "reconnect attempt threw", t)
+                scheduleReconnect("reconnect attempt threw ${t.javaClass.simpleName}")
+            }
         }
 
     fun connect(device: BluetoothDevice) {
@@ -156,20 +225,50 @@ open class BitmaskGattPttReader(
         targetDevice = device
         directRetryCount = 0
         autoConnectArmed = false
-        connectInternal(device, useAutoConnect = false)
+        lastFailureWasAuth = false
+        repairReported = false
+        // Goes through the runnable so the close→reopen settle gap and
+        // the exception guard apply to the first attempt too.
+        handler.removeCallbacks(retryRunnable)
+        val wait = GattSetup.reopenDelayMs(lastGattCloseMs, SystemClock.elapsedRealtime())
+        handler.postDelayed(retryRunnable, wait)
     }
 
     private fun connectInternal(
         device: BluetoothDevice,
         useAutoConnect: Boolean,
     ) {
+        val wait = GattSetup.reopenDelayMs(lastGattCloseMs, SystemClock.elapsedRealtime())
+        if (wait > 0L) {
+            Log.i(config.tag, "deferring connect ${wait}ms — BLE stack settle after close()")
+            handler.removeCallbacks(retryRunnable)
+            handler.postDelayed(retryRunnable, wait)
+            return
+        }
         lastHeld = emptySet()
+        subscription = null
+        reportedConnected = false
         Log.i(
             config.tag,
-            "Connecting to ${device.address} " +
+            "Connecting to ${redactMac(device.address)} " +
                 "(autoConnect=$useAutoConnect, attempt=${directRetryCount + 1})",
         )
-        gatt = device.connectGatt(context, useAutoConnect, callback, BluetoothDevice.TRANSPORT_LE)
+        val opened =
+            synchronized(gattLock) {
+                val g =
+                    try {
+                        gattConnector.connect(context, device, useAutoConnect, callback)
+                    } catch (se: SecurityException) {
+                        Log.w(config.tag, "connectGatt threw SecurityException — BLUETOOTH_CONNECT revoked?", se)
+                        null
+                    } catch (t: Throwable) {
+                        Log.w(config.tag, "connectGatt threw", t)
+                        null
+                    }
+                gatt = g
+                g != null
+            }
+        if (!opened) scheduleReconnect("connectGatt returned no handle")
     }
 
     open fun disconnect() {
@@ -177,10 +276,14 @@ open class BitmaskGattPttReader(
         targetDevice = null
         handler.removeCallbacks(retryRunnable)
         closeGatt()
+        reportedConnected = false
         dispatchConnectionState(false)
     }
 
     protected fun isReaderDisposed(): Boolean = disposed
+
+    /** Consecutive failed attempts since the last confirmed subscription. */
+    protected fun failedAttempts(): Int = directRetryCount
 
     /**
      * Permanent teardown. Marks the reader disposed so any late
@@ -197,13 +300,27 @@ open class BitmaskGattPttReader(
     }
 
     /**
+     * Hook for subclasses: called (on the main looper) just before a
+     * reconnect is scheduled for a link that never came up or dropped.
+     * Return true to take over — the base then schedules nothing.
+     */
+    protected open fun onReconnectNeeded(
+        reason: String,
+        failedAttempts: Int,
+    ): Boolean = false
+
+    /**
      * Single choke point for connection-state fan-out so [disposed]
      * gates every path — direct call from [disconnect] as well as
      * the GATT-callback path.
      */
     private fun dispatchConnectionState(up: Boolean) {
         if (disposed) return
-        onConnectionState(up)
+        try {
+            onConnectionState(up)
+        } catch (t: Throwable) {
+            Log.w(config.tag, "onConnectionState($up) handler threw", t)
+        }
     }
 
     /**
@@ -218,25 +335,64 @@ open class BitmaskGattPttReader(
         onEvent(button, isDown)
     }
 
+    private fun isCurrent(g: BluetoothGatt): Boolean = synchronized(gattLock) { g === gatt }
+
     private fun closeGatt() {
-        gatt?.let {
-            try {
-                it.disconnect()
-            } catch (_: Throwable) {
+        val g =
+            synchronized(gattLock) {
+                val old = gatt
+                gatt = null
+                old
             }
-            try {
-                it.close()
-            } catch (_: Throwable) {
-            }
+        subscription = null
+        if (g == null) return
+        try {
+            g.disconnect()
+        } catch (_: Throwable) {
         }
-        gatt = null
+        try {
+            g.close()
+        } catch (_: Throwable) {
+        }
+        lastGattCloseMs = SystemClock.elapsedRealtime()
+    }
+
+    /**
+     * Setup or post-connect failure: drop the half-configured link and
+     * go back through the reconnect backoff. Auth failures are surfaced
+     * once as "needs re-pair" and retried at the slow cadence.
+     */
+    private fun escalate(
+        reason: String,
+        status: Int? = null,
+    ) {
+        Log.w(config.tag, "setup failed: $reason — reconnecting")
+        val auth = GattSetup.isAuthFailure(status)
+        lastFailureWasAuth = auth
+        if (auth) reportNeedsRepair("status=$status")
+        if (reportedConnected) {
+            reportedConnected = false
+            dispatchConnectionState(false)
+        }
+        scheduleReconnect(reason)
+    }
+
+    private fun reportNeedsRepair(detail: String) {
+        if (repairReported || disposed) return
+        repairReported = true
+        Log.e(config.tag, "button link rejected by device security ($detail) — operator must re-pair")
+        try {
+            onNeedsRepair(detail)
+        } catch (t: Throwable) {
+            Log.w(config.tag, "onNeedsRepair handler threw", t)
+        }
     }
 
     private fun scheduleReconnect(reason: String) {
-        if (intentionalDisconnect) return
+        if (intentionalDisconnect || disposed) return
         val device = targetDevice ?: return
         closeGatt()
-        if (directRetryCount >= MAX_DIRECT_RETRIES) {
+        if (directRetryCount >= MAX_DIRECT_RETRIES || lastFailureWasAuth) {
             autoConnectArmed = true
         }
         val delayMs =
@@ -247,13 +403,111 @@ open class BitmaskGattPttReader(
                 base.coerceAtMost(MAX_DIRECT_RETRY_DELAY_MS)
             }
         directRetryCount++
-        Log.i(
-            config.tag,
-            "Scheduling reconnect to ${device.address} in ${delayMs}ms " +
-                "($reason, autoConnect=$autoConnectArmed)",
-        )
-        handler.removeCallbacks(retryRunnable)
-        handler.postDelayed(retryRunnable, delayMs)
+        val attempts = directRetryCount
+        handler.post {
+            if (intentionalDisconnect || disposed || targetDevice !== device) return@post
+            if (onReconnectNeeded(reason, attempts)) return@post
+            Log.i(
+                config.tag,
+                "Scheduling reconnect to ${redactMac(device.address)} in ${delayMs}ms " +
+                    "($reason, autoConnect=$autoConnectArmed)",
+            )
+            handler.removeCallbacks(retryRunnable)
+            handler.postDelayed(retryRunnable, delayMs)
+        }
+    }
+
+    private fun onSubscribed() {
+        directRetryCount = 0
+        autoConnectArmed = false
+        lastFailureWasAuth = false
+        repairReported = false
+        reportedConnected = true
+        Log.i(config.tag, "button subscription ACTIVE — PTT ready")
+        dispatchConnectionState(true)
+    }
+
+    private fun writeCccd(
+        g: BluetoothGatt,
+        cccd: BluetoothGattDescriptor,
+    ): Boolean {
+        val enableValue = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeDescriptor(cccd, enableValue) == BluetoothGatt.GATT_SUCCESS
+            } else {
+                @Suppress("DEPRECATION")
+                cccd.value = enableValue
+                @Suppress("DEPRECATION")
+                g.writeDescriptor(cccd)
+            }
+        } catch (t: Throwable) {
+            Log.w(config.tag, "writeDescriptor threw", t)
+            false
+        }
+    }
+
+    private fun runStep(
+        g: BluetoothGatt,
+        step: CccdSubscriptionSequencer.Step<BluetoothGattDescriptor>,
+    ) {
+        when (step) {
+            is CccdSubscriptionSequencer.Step.Write -> {
+                if (!writeCccd(g, step.target)) {
+                    escalate("writeDescriptor(enable) rejected for ${step.target.characteristic?.uuid}")
+                }
+            }
+            CccdSubscriptionSequencer.Step.Done -> onSubscribed()
+            CccdSubscriptionSequencer.Step.NothingToSubscribe ->
+                escalate("no subscribable button characteristic — wrong device or firmware")
+            CccdSubscriptionSequencer.Step.Ignore -> Unit
+        }
+    }
+
+    // Matched characteristics for this device, restricted to the
+    // configured button characteristic(s) where the vendor's is known.
+    private fun selectTargetCharacteristics(g: BluetoothGatt): List<BluetoothGattCharacteristic> {
+        if (config.candidateCharacteristicUuids.isNotEmpty()) {
+            // Characteristic-first matching: locate the known
+            // button-state characteristic(s) wherever they live in the
+            // GATT tree, without needing to know (or trust) the parent
+            // vendor service UUID.
+            val found =
+                g.services
+                    .asSequence()
+                    .flatMap { it.characteristics.asSequence() }
+                    .filter { it.uuid in config.candidateCharacteristicUuids }
+                    .toList()
+            if (found.isEmpty()) {
+                Log.w(
+                    config.tag,
+                    "no known characteristic on device " +
+                        "(tried ${config.candidateCharacteristicUuids}) — wrong device or firmware",
+                )
+            }
+            return found
+        }
+        val service =
+            config.candidateServiceUuids
+                .asSequence()
+                .mapNotNull { uuid -> g.getService(uuid) }
+                .firstOrNull()
+        if (service == null) {
+            Log.w(
+                config.tag,
+                "no known service on device " +
+                    "(tried ${config.candidateServiceUuids}) — bond may be wrong protocol",
+            )
+            return emptyList()
+        }
+        Log.i(config.tag, "matched service ${service.uuid}")
+        val wanted =
+            selectButtonCharacteristicUuids(
+                serviceUuid = service.uuid,
+                available = service.characteristics.map { it.uuid },
+                buttonCharacteristicUuids = config.buttonCharacteristicUuids,
+            )
+        return service.characteristics.filter { it.uuid in wanted }
     }
 
     private val callback =
@@ -263,6 +517,18 @@ open class BitmaskGattPttReader(
                 status: Int,
                 newState: Int,
             ) {
+                if (!isCurrent(g)) {
+                    // Late callback for a handle we already closed or
+                    // replaced. Never let it drive the current link.
+                    Log.i(config.tag, "ignoring stale GATT callback (state=$newState status=$status)")
+                    if (newState == BluetoothProfile.STATE_CONNECTED) {
+                        try {
+                            g.close()
+                        } catch (_: Throwable) {
+                        }
+                    }
+                    return
+                }
                 when (newState) {
                     BluetoothProfile.STATE_CONNECTED -> {
                         Log.i(config.tag, "Connected (status=$status), discovering services")
@@ -271,14 +537,21 @@ open class BitmaskGattPttReader(
                         } catch (e: SecurityException) {
                             Log.w(config.tag, "Lacking BLUETOOTH_CONNECT permission to request high priority", e)
                         }
-                        directRetryCount = 0
-                        autoConnectArmed = false
-                        dispatchConnectionState(true)
-                        g.discoverServices()
+                        // Not "connected" yet: that waits for the CCCD
+                        // write confirmation in onDescriptorWrite.
+                        val started =
+                            try {
+                                g.discoverServices()
+                            } catch (t: Throwable) {
+                                Log.w(config.tag, "discoverServices threw", t)
+                                false
+                            }
+                        if (!started) escalate("discoverServices() refused")
                     }
                     BluetoothProfile.STATE_DISCONNECTED -> {
                         Log.i(config.tag, "Disconnected (status=$status)")
                         lastHeld = emptySet()
+                        subscription = null
                         // Two paths can land here in the same
                         // millisecond during a controlled teardown:
                         //   1. [disconnect] already fired the false
@@ -296,6 +569,11 @@ open class BitmaskGattPttReader(
                         // the callback AND scheduleReconnect.
                         when (classifyDisconnect(intentionalDisconnect, disposed)) {
                             DisconnectAction.NOTIFY_AND_RECONNECT -> {
+                                if (GattSetup.isAuthFailure(status)) {
+                                    lastFailureWasAuth = true
+                                    reportNeedsRepair("status=$status")
+                                }
+                                reportedConnected = false
                                 dispatchConnectionState(false)
                                 scheduleReconnect("status=$status")
                             }
@@ -311,8 +589,9 @@ open class BitmaskGattPttReader(
                 g: BluetoothGatt,
                 status: Int,
             ) {
+                if (!isCurrent(g)) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
-                    Log.w(config.tag, "Service discovery failed: $status")
+                    escalate("service discovery failed status=$status", status)
                     return
                 }
                 // One-time enumeration of every service + characteristic
@@ -321,84 +600,44 @@ open class BitmaskGattPttReader(
                 for (svc in g.services) {
                     Log.i(config.tag, "service: ${svc.uuid}")
                     for (ch in svc.characteristics) {
-                        val props = describeProps(ch.properties)
-                        Log.i(config.tag, "  char: ${ch.uuid} [$props]")
+                        Log.i(config.tag, "  char: ${ch.uuid} [${describeProps(ch.properties)}]")
                     }
                 }
-                val targetChars: List<BluetoothGattCharacteristic> =
-                    if (config.candidateCharacteristicUuids.isNotEmpty()) {
-                        // Characteristic-first matching: locate the known
-                        // button-state characteristic(s) wherever they
-                        // live in the GATT tree, without needing to know
-                        // (or trust) the parent vendor service UUID.
-                        val found =
-                            g.services
-                                .asSequence()
-                                .flatMap { it.characteristics.asSequence() }
-                                .filter { it.uuid in config.candidateCharacteristicUuids }
-                                .toList()
-                        if (found.isEmpty()) {
-                            Log.w(
-                                config.tag,
-                                "no known characteristic on device " +
-                                    "(tried ${config.candidateCharacteristicUuids}) — wrong device or firmware",
-                            )
-                        } else {
-                            for (ch in found) Log.i(config.tag, "matched characteristic ${ch.uuid}")
-                        }
-                        found
-                    } else {
-                        val service =
-                            config.candidateServiceUuids
-                                .asSequence()
-                                .mapNotNull { uuid ->
-                                    g.getService(uuid)?.also {
-                                        Log.i(config.tag, "matched service $uuid")
-                                    }
-                                }.firstOrNull()
-                        if (service == null) {
-                            Log.w(
-                                config.tag,
-                                "no known service on device " +
-                                    "(tried ${config.candidateServiceUuids}) — bond may be wrong protocol",
-                            )
-                            emptyList()
-                        } else {
-                            service.characteristics
-                        }
-                    }
-                var subscribed = 0
-                for (ch in targetChars) {
+                val cccds = mutableListOf<BluetoothGattDescriptor>()
+                for (ch in selectTargetCharacteristics(g)) {
                     val notify = (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
-                    val notifyEnabled = notify && g.setCharacteristicNotification(ch, true)
-                    if (notify && !notifyEnabled) {
+                    if (!notify) continue
+                    if (!g.setCharacteristicNotification(ch, true)) {
                         Log.w(config.tag, "setCharacteristicNotification(true) failed for ${ch.uuid}")
+                        continue
                     }
-                    val cccd = if (notifyEnabled) ch.getDescriptor(CCCD_UUID) else null
-                    if (notifyEnabled && cccd == null) {
+                    val cccd = ch.getDescriptor(CCCD_UUID)
+                    if (cccd == null) {
                         Log.w(config.tag, "CCCD missing on ${ch.uuid} — cannot enable notifications")
+                        continue
                     }
-                    if (cccd == null) continue
-                    val enableValue = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
-                    val ok =
-                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                            g.writeDescriptor(cccd, enableValue) == BluetoothGatt.GATT_SUCCESS
-                        } else {
-                            @Suppress("DEPRECATION")
-                            cccd.value = enableValue
-                            @Suppress("DEPRECATION")
-                            g.writeDescriptor(cccd)
-                        }
-                    if (ok) {
-                        subscribed++
-                        Log.i(config.tag, "subscribed to notifications on ${ch.uuid}")
-                    } else {
-                        Log.w(config.tag, "writeDescriptor(enable) failed for ${ch.uuid}")
-                    }
+                    Log.i(config.tag, "subscribing to ${ch.uuid}")
+                    cccds += cccd
                 }
-                if (subscribed == 0) {
-                    Log.w(config.tag, "no notify-capable characteristics matched — protocol mismatch")
+                subscribedChars = cccds.mapNotNull { it.characteristic?.uuid }.toSet()
+                val seq = CccdSubscriptionSequencer(cccds)
+                subscription = seq
+                runStep(g, seq.start())
+            }
+
+            override fun onDescriptorWrite(
+                g: BluetoothGatt,
+                descriptor: BluetoothGattDescriptor,
+                status: Int,
+            ) {
+                if (!isCurrent(g)) return
+                if (descriptor.uuid != CCCD_UUID) return
+                val seq = subscription ?: return
+                if (status != BluetoothGatt.GATT_SUCCESS) {
+                    escalate("CCCD write failed status=$status on ${descriptor.characteristic?.uuid}", status)
+                    return
                 }
+                runStep(g, seq.onWritten(descriptor))
             }
 
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")
@@ -406,6 +645,7 @@ open class BitmaskGattPttReader(
                 g: BluetoothGatt,
                 ch: BluetoothGattCharacteristic,
             ) {
+                if (!isCurrent(g)) return
                 handleNotification(ch, ch.value)
             }
 
@@ -414,6 +654,7 @@ open class BitmaskGattPttReader(
                 ch: BluetoothGattCharacteristic,
                 value: ByteArray,
             ) {
+                if (!isCurrent(g)) return
                 handleNotification(ch, value)
             }
 
@@ -422,6 +663,10 @@ open class BitmaskGattPttReader(
                 bytes: ByteArray?,
             ) {
                 if (bytes == null) return
+                if (ch.uuid !in subscribedChars) {
+                    Log.i(config.tag, "ignoring notify on unsubscribed ${ch.uuid}")
+                    return
+                }
                 Log.i(config.tag, "notify ${ch.uuid}: ${bytes.toHexString()}")
                 if (bytes.isEmpty()) return
                 val mask = bytes[0].toInt() and 0xFF
@@ -493,6 +738,22 @@ open class BitmaskGattPttReader(
         private const val AUTO_CONNECT_DELAY_MS = 5_000L
 
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
+
+        /**
+         * Which characteristic UUIDs of a matched service to subscribe
+         * to. A service listed in [buttonCharacteristicUuids] is
+         * restricted to its button characteristic(s) that are actually
+         * present; any other service keeps every characteristic (the
+         * caller still filters to notify-capable ones).
+         */
+        fun selectButtonCharacteristicUuids(
+            serviceUuid: UUID,
+            available: List<UUID>,
+            buttonCharacteristicUuids: Map<UUID, List<UUID>>,
+        ): List<UUID> {
+            val known = buttonCharacteristicUuids[serviceUuid] ?: return available
+            return available.filter { it in known }
+        }
 
         fun diffEdges(
             prev: Set<AinaButton>,

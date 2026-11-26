@@ -68,11 +68,13 @@ class ZelloBleReader(
     context: Context,
     onEvent: (AinaButton, isDown: Boolean) -> Unit,
     onConnectionState: (Boolean) -> Unit = {},
+    onNeedsRepair: (String) -> Unit = {},
 ) : BitmaskGattPttReader(
     context = context,
     config = ZELLO_CONFIG,
     onEvent = onEvent,
     onConnectionState = onConnectionState,
+    onNeedsRepair = onNeedsRepair,
 ) {
     companion object {
         /**

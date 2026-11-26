@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -72,16 +73,32 @@ class Bt02BleReader(
     private val appContext: Context,
     onEvent: (AinaButton, isDown: Boolean) -> Unit,
     onConnectionState: (Boolean) -> Unit = {},
+    onNeedsRepair: (String) -> Unit = {},
 ) : BitmaskGattPttReader(
     context = appContext,
     config = BT02_CONFIG,
     onEvent = onEvent,
     onConnectionState = onConnectionState,
+    onNeedsRepair = onNeedsRepair,
 ) {
     private val scanHandler = Handler(Looper.getMainLooper())
     private var discoveryCallback: ScanCallback? = null
     private var targetBleName: String? = null
     private var discoveryStopped: Boolean = true
+
+    // Exact BT02 local name to re-resolve the companion LE peripheral
+    // by when its cached address stops answering (the BT02 uses a
+    // random LE address). Null when we only know the address — then
+    // the reader keeps retrying that address rather than guess at a
+    // co-located operator's BT02.
+    @Volatile
+    private var rescanName: String? = null
+
+    // Alternates name-filtered and unfiltered scan windows: a filtered
+    // scan keeps working with the screen off (Android drops unfiltered
+    // scan results then), an unfiltered one tolerates a name whose
+    // case differs from the Classic pairing name.
+    private var discoveryWindows: Int = 0
 
     private val stopDiscoveryRunnable =
         Runnable {
@@ -127,7 +144,9 @@ class Bt02BleReader(
         if (devType == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
             disconnect()
             discoveryStopped = false
+            discoveryWindows = 0
             targetBleName = devName?.takeIf { it.isNotBlank() }
+            rescanName = targetBleName?.takeIf { isBt02Name(it) }
             Log.i(
                 TAG,
                 "connectBt02: Classic device ${redactMac(device.address)} (name=$targetBleName) " +
@@ -136,12 +155,35 @@ class Bt02BleReader(
             startBleDiscovery()
         } else {
             connect(device)
+            // A saved LE address: remember the name (if this is a BT02)
+            // so a rotated address can be re-resolved later.
+            rescanName = devName?.takeIf { isBt02Name(it) }
         }
+    }
+
+    /**
+     * The cached LE address has failed [RESCAN_AFTER_FAILURES] times in
+     * a row: the BT02 has most likely rotated its random address.
+     * Re-resolve by name instead of retrying a dead address forever.
+     */
+    override fun onReconnectNeeded(
+        reason: String,
+        failedAttempts: Int,
+    ): Boolean {
+        val name = rescanName ?: return false
+        if (!shouldRescanByName(failedAttempts)) return false
+        Log.i(TAG, "companion LE address unresponsive after $failedAttempts attempts ($reason) — re-scanning for $name")
+        discoveryStopped = false
+        discoveryWindows = 0
+        targetBleName = name
+        startBleDiscovery()
+        return true
     }
 
     override fun disconnect() {
         discoveryStopped = true
         targetBleName = null
+        rescanName = null
         scanHandler.removeCallbacks(stopDiscoveryRunnable)
         scanHandler.removeCallbacks(retryDiscoveryRunnable)
         stopScanCallbackOnly()
@@ -186,7 +228,11 @@ class Bt02BleReader(
                         scanHandler.removeCallbacks(stopDiscoveryRunnable)
                         scanHandler.removeCallbacks(retryDiscoveryRunnable)
                         stopScanCallbackOnly()
+                        // connect() runs disconnect(), which clears the
+                        // rescan name; keep it for the next rotation.
+                        val keep = rescanName ?: expectedName?.takeIf { isBt02Name(it) }
                         connect(dev)
+                        rescanName = keep
                     }
                 }
 
@@ -204,8 +250,12 @@ class Bt02BleReader(
                 .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 .build()
+        val filters = scanFiltersFor(expectedName, discoveryWindows++)
+        if (filters == null) {
+            Log.i(TAG, "BT02 discovery window ${discoveryWindows - 1}: unfiltered (results stop while the screen is off)")
+        }
         try {
-            scanner.startScan(null, settings, cb)
+            scanner.startScan(filters, settings, cb)
             scanHandler.removeCallbacks(stopDiscoveryRunnable)
             scanHandler.postDelayed(stopDiscoveryRunnable, DISCOVERY_WINDOW_MS)
         } catch (t: Throwable) {
@@ -237,6 +287,35 @@ class Bt02BleReader(
 
     companion object {
         private const val TAG = "XvBt02Ble"
+
+        // Consecutive failed attempts on a cached LE address before
+        // re-resolving the BT02 by name.
+        const val RESCAN_AFTER_FAILURES: Int = 3
+
+        fun shouldRescanByName(failedAttempts: Int): Boolean = failedAttempts >= RESCAN_AFTER_FAILURES
+
+        /**
+         * Scan filters for discovery window [window]. When
+         * [expectedName] is a BT02 name, even windows use an exact-name
+         * filter so discovery keeps working with the screen off, and odd
+         * windows run unfiltered as a fallback for a name whose case
+         * differs. Without a BT02 name every window is unfiltered.
+         * Returns null for an unfiltered scan.
+         */
+        fun scanFiltersFor(
+            expectedName: String?,
+            window: Int,
+        ): List<ScanFilter>? {
+            val name = expectedName?.trim()?.takeIf { isBt02Name(it) } ?: return null
+            if (!useNameFilter(name, window)) return null
+            return listOf(ScanFilter.Builder().setDeviceName(name).build())
+        }
+
+        /** Pure half of [scanFiltersFor]: filter by name on even windows. */
+        fun useNameFilter(
+            expectedName: String?,
+            window: Int,
+        ): Boolean = isBt02Name(expectedName) && window % 2 == 0
         private const val DISCOVERY_WINDOW_MS = 10_000L
         private const val DISCOVERY_RETRY_MS = 15_000L
 

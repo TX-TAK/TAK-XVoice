@@ -11,154 +11,177 @@ import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
+import io.mockk.verify
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 /**
- * Quick-win M6 coverage for [AinaBleReader].
+ * Connect-lifecycle coverage for [AinaBleReader]:
  *
- * The counter was previously only reset in
- * `onConnectionStateChange(STATE_CONNECTED)`. If a drop occurred
- * during the `pendingConfigReadModifyWrite` window (after services
- * discovered but before the CCCD/CONFIG handshake completed) the
- * counter kept growing across retries even though the previous
- * attempt had made measurable progress past STATE_CONNECTED — the
- * BLE stack would prematurely arm autoConnect=true mode. The fix:
- * reset the counter again on `onServicesDiscovered` success so any
- * attempt that gets that far is treated as "real progress."
- *
- * This test bumps the counter via repeated STATE_DISCONNECTED
- * callbacks, then verifies `onServicesDiscovered(SUCCESS)` zeros it
- * out. It also asserts the same call clears `autoConnectArmed` so a
- * mid-reconnect-cycle service-discovery success undoes a premature
- * autoConnect arm.
+ *  - "connected" is reported only once the button CCCD write is
+ *    confirmed — not at STATE_CONNECTED, not at service discovery;
+ *  - the direct-retry counter and autoConnect arm reset only on that
+ *    confirmation, so a device that links up but never subscribes
+ *    keeps backing off instead of retrying fast forever;
+ *  - callbacks from a closed / replaced BluetoothGatt are ignored;
+ *  - setup failures (missing CCCD, rejected write) and a null
+ *    connectGatt go back through the reconnect path;
+ *  - security failures surface "needs re-pair" once.
  */
 @RunWith(RobolectricTestRunner::class)
 class AinaBleReaderRetryCountTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
-    @Test
-    fun `onServicesDiscovered success resets directRetryCount and autoConnectArmed`() {
-        val gatts = listOf(mockGatt(), mockGatt(), mockGatt(), mockGatt(), mockGatt(), mockGatt())
-        var idx = 0
-        var lastCallback: BluetoothGattCallback? = null
-        val connector =
-            AinaBleReader.GattConnector { _, _, _, callback ->
-                lastCallback = callback
-                gatts.getOrElse(idx++) { gatts.last() }
-            }
-
+    private class Harness(
+        context: Context,
+        gattFactory: () -> BluetoothGatt?,
+    ) {
+        val gatts = mutableListOf<BluetoothGatt?>()
+        val states = mutableListOf<Boolean>()
+        val repairs = mutableListOf<String>()
+        var callback: BluetoothGattCallback? = null
         val reader =
             AinaBleReader(
                 context = context,
                 onEvent = { _, _ -> },
-                onConnectionState = { /* ignored */ },
-                gattConnector = connector,
+                onConnectionState = { states += it },
+                onNeedsRepair = { repairs += it },
+                gattConnector =
+                AinaBleReader.GattConnector { _, _, _, cb ->
+                    callback = cb
+                    gattFactory().also { gatts += it }
+                },
             )
-        reader.connect(mockDevice())
-        // connect() calls disconnect() first, stamping the BLE-stack
-        // settle timestamp — the first connectGatt is deferred onto
-        // the main looper. Robolectric doesn't auto-advance, so
-        // flush before reaching for the callback reference.
-        org.robolectric.Shadows
-            .shadowOf(android.os.Looper.getMainLooper())
-            .idleFor(java.time.Duration.ofSeconds(30))
-        val cb = checkNotNull(lastCallback)
 
-        // Burn through the direct-retry budget without ever firing a
-        // STATE_CONNECTED. Each call to scheduleReconnect() in
-        // STATE_DISCONNECTED increments directRetryCount. After
-        // MAX_DIRECT_RETRIES (4 in production) the reader arms
-        // autoConnect mode.
-        repeat(5) {
-            cb.onConnectionStateChange(
-                gatts[0],
-                // status = 133 (GATT_ERROR)
-                133,
-                BluetoothProfile.STATE_DISCONNECTED,
-            )
-        }
-        // Sanity: the counter actually grew.
-        assertNotEquals(
-            "test pre-condition: counter must have grown past 0 — got 0",
-            0,
-            reader.directRetryCountForTest(),
-        )
-        // And autoConnect should now be armed (the >=MAX_DIRECT_RETRIES branch).
-        assertEquals(
-            "test pre-condition: autoConnectArmed must be true after the budget is burnt",
-            true,
-            reader.autoConnectArmedForTest(),
-        )
+        val cb get() = checkNotNull(callback)
+        val current get() = checkNotNull(gatts.last())
+    }
 
-        // Drive a STATE_CONNECTED followed by a successful
-        // onServicesDiscovered. STATE_CONNECTED itself resets the
-        // counter, so we re-bump it AFTER CONNECTED to isolate the
-        // M6 fix — that's the field-occurring shape: counter ticked
-        // because of stalls AFTER CONNECTED but BEFORE services
-        // settled.
-        cb.onConnectionStateChange(
-            gatts[0],
-            BluetoothGatt.GATT_SUCCESS,
-            BluetoothProfile.STATE_CONNECTED,
-        )
-        assertEquals(
-            "STATE_CONNECTED should also reset (legacy invariant)",
-            0,
-            reader.directRetryCountForTest(),
-        )
+    private fun idle() {
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30))
+    }
 
-        // Re-bump to simulate "STATE_CONNECTED reset already
-        // happened, now the counter grew again from a mid-discovery
-        // disconnect-reconnect cycle BEFORE onServicesDiscovered
-        // success." The M6 fix says onServicesDiscovered success
-        // must zero this out too.
-        repeat(3) {
-            cb.onConnectionStateChange(
-                gatts[0],
-                // status = 133 (GATT_ERROR)
-                133,
-                BluetoothProfile.STATE_DISCONNECTED,
-            )
-        }
-        assertNotEquals(0, reader.directRetryCountForTest())
+    private fun harness(gattFactory: () -> BluetoothGatt? = { mockGatt() }): Harness {
+        val h = Harness(context, gattFactory)
+        h.reader.connect(mockDevice())
+        idle()
+        h.states.clear()
+        return h
+    }
 
-        // Now: services discovered success → M6 fix must reset.
-        cb.onConnectionStateChange(
-            gatts[0],
-            BluetoothGatt.GATT_SUCCESS,
-            BluetoothProfile.STATE_CONNECTED,
-        )
-        // The CONNECTED reset above zeros it; re-bump WITHOUT
-        // another CONNECTED to keep the test focused on
-        // onServicesDiscovered.
-        repeat(2) {
-            cb.onConnectionStateChange(
-                gatts[0],
-                // status = 8 (CONN_TIMEOUT)
-                8,
-                BluetoothProfile.STATE_DISCONNECTED,
-            )
-        }
-        assertNotEquals(0, reader.directRetryCountForTest())
+    private fun failCurrent(h: Harness) {
+        h.cb.onConnectionStateChange(h.current, 133, BluetoothProfile.STATE_DISCONNECTED)
+        idle()
+    }
 
-        // M6 fix lives here: onServicesDiscovered(SUCCESS) resets.
-        cb.onServicesDiscovered(gatts[0], BluetoothGatt.GATT_SUCCESS)
-        assertEquals(
-            "onServicesDiscovered(SUCCESS) must reset directRetryCount (M6 fix)",
-            0,
-            reader.directRetryCountForTest(),
-        )
-        assertFalse(
-            "onServicesDiscovered(SUCCESS) must clear autoConnectArmed (M6 fix)",
-            reader.autoConnectArmedForTest(),
-        )
+    private fun subscribe(h: Harness) {
+        val g = h.current
+        h.cb.onConnectionStateChange(g, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        h.cb.onServicesDiscovered(g, BluetoothGatt.GATT_SUCCESS)
+    }
 
-        reader.disconnect()
+    private fun cccdOf(g: BluetoothGatt): BluetoothGattDescriptor =
+        g
+            .getService(AinaBleReader.SERVICE_UUID)!!
+            .getCharacteristic(AinaBleReader.BUTTON_CHAR_UUID)!!
+            .getDescriptor(AinaBleReader.CCCD_UUID)!!
+
+    @Test
+    fun `connected is reported only after the CCCD write is confirmed`() {
+        val h = harness()
+        subscribe(h)
+        assertTrue("no connected edge before the subscription is confirmed", h.states.none { it })
+        h.cb.onDescriptorWrite(h.current, cccdOf(h.current), BluetoothGatt.GATT_SUCCESS)
+        assertEquals(listOf(true), h.states)
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `retry counter resets on confirmed subscription, not on connect or discovery`() {
+        val h = harness()
+        repeat(5) { failCurrent(h) }
+        assertNotEquals(0, h.reader.directRetryCountForTest())
+        assertTrue(h.reader.autoConnectArmedForTest())
+        val before = h.reader.directRetryCountForTest()
+
+        subscribe(h)
+        assertEquals("CONNECTED + discovery must not reset", before, h.reader.directRetryCountForTest())
+
+        h.cb.onDescriptorWrite(h.current, cccdOf(h.current), BluetoothGatt.GATT_SUCCESS)
+        assertEquals(0, h.reader.directRetryCountForTest())
+        assertFalse(h.reader.autoConnectArmedForTest())
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `callbacks from a replaced gatt are ignored and the stale handle is closed`() {
+        val h = harness()
+        val stale = h.current
+        failCurrent(h)
+        val fresh = h.current
+        assertTrue(stale !== fresh)
+
+        h.cb.onConnectionStateChange(stale, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        verify(exactly = 0) { stale.discoverServices() }
+        verify(atLeast = 1) { stale.close() }
+        h.cb.onServicesDiscovered(stale, BluetoothGatt.GATT_SUCCESS)
+        h.cb.onDescriptorWrite(stale, cccdOf(stale), BluetoothGatt.GATT_SUCCESS)
+        assertTrue("stale handle must not report connected", h.states.none { it })
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `missing CCCD reconnects instead of sitting half-configured`() {
+        val h = harness { mockGatt(withCccd = false) }
+        val first = h.current
+        subscribe(h)
+        verify(atLeast = 1) { first.close() }
+        idle()
+        assertTrue("expected a fresh connectGatt, got ${h.gatts.size}", h.gatts.size >= 2)
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `rejected CCCD write reconnects`() {
+        val h = harness { mockGatt(writeResult = 201) }
+        subscribe(h)
+        idle()
+        assertTrue(h.gatts.size >= 2)
+        assertTrue(h.states.none { it })
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `null connectGatt handle schedules a retry instead of crashing`() {
+        var calls = 0
+        val h =
+            harness {
+                calls++
+                if (calls == 1) null else mockGatt()
+            }
+        idle()
+        assertTrue("expected a retry after the null handle, got $calls calls", calls >= 2)
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `auth failure on CCCD write surfaces needs-repair once and arms slow retry`() {
+        val h = harness()
+        subscribe(h)
+        h.cb.onDescriptorWrite(h.current, cccdOf(h.current), GattSetup.GATT_INSUFFICIENT_AUTHENTICATION)
+        assertEquals(1, h.repairs.size)
+        assertTrue(h.reader.autoConnectArmedForTest())
+        idle()
+        subscribe(h)
+        h.cb.onDescriptorWrite(h.current, cccdOf(h.current), GattSetup.GATT_AUTH_FAIL)
+        assertEquals("needs-repair must not repeat within one connect()", 1, h.repairs.size)
+        h.reader.disconnect()
     }
 
     private fun mockDevice(): BluetoothDevice {
@@ -168,17 +191,22 @@ class AinaBleReaderRetryCountTest {
         return dev
     }
 
-    private fun mockGatt(): BluetoothGatt {
+    private fun mockGatt(
+        withCccd: Boolean = true,
+        writeResult: Int = BluetoothGatt.GATT_SUCCESS,
+    ): BluetoothGatt {
         val cccd = mockk<BluetoothGattDescriptor>(relaxed = true)
         every { cccd.uuid } returns AinaBleReader.CCCD_UUID
         val ch = mockk<BluetoothGattCharacteristic>(relaxed = true)
         every { ch.uuid } returns AinaBleReader.BUTTON_CHAR_UUID
-        every { ch.getDescriptor(AinaBleReader.CCCD_UUID) } returns cccd
+        every { ch.getDescriptor(AinaBleReader.CCCD_UUID) } returns if (withCccd) cccd else null
         val svc = mockk<BluetoothGattService>(relaxed = true)
         every { svc.getCharacteristic(AinaBleReader.BUTTON_CHAR_UUID) } returns ch
         val gatt = mockk<BluetoothGatt>(relaxed = true)
         every { gatt.getService(AinaBleReader.SERVICE_UUID) } returns svc
         every { gatt.setCharacteristicNotification(ch, true) } returns true
+        every { gatt.discoverServices() } returns true
+        every { gatt.writeDescriptor(cccd, any<ByteArray>()) } returns writeResult
         return gatt
     }
 }

@@ -43,14 +43,23 @@ class PrymeBleReader(
     context: Context,
     onEvent: (AinaButton, isDown: Boolean) -> Unit,
     onConnectionState: (Boolean) -> Unit = {},
+    onNeedsRepair: (String) -> Unit = {},
 ) : BitmaskGattPttReader(
     context = context,
     config = PRYME_CONFIG,
     onEvent = onEvent,
     onConnectionState = onConnectionState,
+    onNeedsRepair = onNeedsRepair,
 ) {
     companion object {
         private val HM10_SERVICE_UUID: UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")
+
+        // The HM-10 button-state characteristic (ffe1, WRITE+NOTIFY) —
+        // the only characteristic production units expose under ffe0.
+        // Subscribing to it alone keeps any other notify characteristic
+        // a firmware revision adds from feeding decodePrymeMask, which
+        // reads every non-zero byte as PTT held.
+        val HM10_BUTTON_CHAR_UUID: UUID = UUID.fromString("0000ffe1-0000-1000-8000-00805f9b34fb")
         private val PRYME_VENDOR_UUID: UUID = UUID.fromString("00420000-8f59-4420-870d-84f3b617e493")
 
         val PRYME_SERVICE_UUIDS: List<UUID> = listOf(HM10_SERVICE_UUID, PRYME_VENDOR_UUID)
@@ -69,6 +78,10 @@ class PrymeBleReader(
                 tag = "XvPrymeBle",
                 candidateServiceUuids = PRYME_SERVICE_UUIDS,
                 decodeMask = ::decodePrymeMask,
+                // The vendor (00420000-…) fallback service has no known
+                // button characteristic, so it keeps the broad
+                // subscription; HM-10 is pinned to ffe1.
+                buttonCharacteristicUuids = mapOf(HM10_SERVICE_UUID to listOf(HM10_BUTTON_CHAR_UUID)),
             )
     }
 }

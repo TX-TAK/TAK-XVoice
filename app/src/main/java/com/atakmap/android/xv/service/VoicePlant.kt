@@ -259,6 +259,11 @@ class VoicePlant(
         // the plant already throttles this event so mashing PTT during
         // a call does not spam the UI.
         fun onPttBlockedByCellularCall(reason: String)
+
+        // A BLE PTT reader's device rejected the link for security
+        // reasons (stale bond). Plugin surfaces [reason] as a Toast;
+        // the reader keeps retrying slowly until the operator re-pairs.
+        fun onPttInputNeedsRepair(reason: String)
     }
 
     private val audioManager =
@@ -545,6 +550,8 @@ class VoicePlant(
     @Volatile private var externalButtonBle: AinaBleReader? = null
 
     @Volatile private var externalButtonPrymeBle: PrymeBleReader? = null
+
+    @Volatile private var externalButtonBt02: Bt02BleReader? = null
 
     // MAC of the currently-connected AINA (or null when none). Used by
     // the BOND_STATE_CHANGED receiver to detect "the operator just
@@ -1558,6 +1565,7 @@ class VoicePlant(
                         context,
                         primaryAinaEvent(PttSource.AINA_V2, owner),
                         { up -> onConn(PttSource.AINA_V2, up) },
+                        needsRepairHandler("speaker-mic"),
                     )
                 ainaBle = r
                 r.connect(device)
@@ -1575,6 +1583,7 @@ class VoicePlant(
                         context,
                         primaryAinaEvent(PttSource.PRYME_BLE, owner),
                         { up -> onConn(PttSource.PRYME_BLE, up) },
+                        needsRepairHandler("speaker-mic"),
                     )
                 prymeBle = r
                 r.connect(device)
@@ -1588,6 +1597,7 @@ class VoicePlant(
                         context,
                         primaryAinaEvent(PttSource.INRICO_BT02, owner),
                         { up -> onConn(PttSource.INRICO_BT02, up) },
+                        needsRepairHandler("speaker-mic"),
                     )
                 bt02Ble = r
                 r.connectBt02(device)
@@ -1704,6 +1714,7 @@ class VoicePlant(
                         context,
                         externalButtonEvent(PttSource.AINA_V2, owner),
                         { up -> onConn(PttSource.AINA_V2, up) },
+                        needsRepairHandler("external button"),
                     )
                 externalButtonBle = r
                 r.connect(device)
@@ -1714,9 +1725,26 @@ class VoicePlant(
                         context,
                         externalButtonEvent(PttSource.PRYME_BLE, owner),
                         { up -> onConn(PttSource.PRYME_BLE, up) },
+                        needsRepairHandler("external button"),
                     )
                 externalButtonPrymeBle = r
                 r.connect(device)
+            }
+            "bt02" -> {
+                // Inrico BT02 picked as the External Button (the kind
+                // resolver returns "bt02" for it). Without this branch the
+                // pick fell through to "unknown kind" and the slot showed
+                // a device with no reader behind it. PTT only — the
+                // external slot does not drive emergency.
+                val r =
+                    Bt02BleReader(
+                        context,
+                        externalButtonEvent(PttSource.INRICO_BT02, owner),
+                        { up -> onConn(PttSource.INRICO_BT02, up) },
+                        needsRepairHandler("external button"),
+                    )
+                externalButtonBt02 = r
+                r.connectBt02(device)
             }
             else -> Log.w(TAG, "connectExternalButton: unknown kind '$resolvedKind'")
         }
@@ -1743,6 +1771,8 @@ class VoicePlant(
         // connection-state and button-event dispatch paths.
         externalButtonPrymeBle?.dispose()
         externalButtonPrymeBle = null
+        externalButtonBt02?.dispose()
+        externalButtonBt02 = null
         // Clear any held-key bookkeeping the external button left
         // behind mid-burst — otherwise the OR-gate would think a press
         // is still in flight on a now-disconnected reader. Forget by
@@ -1758,7 +1788,10 @@ class VoicePlant(
     }
 
     fun isExternalButtonConnected(): Boolean =
-        externalButtonBle != null || externalButtonSpp != null || externalButtonPrymeBle != null
+        externalButtonBle != null ||
+            externalButtonSpp != null ||
+            externalButtonPrymeBle != null ||
+            externalButtonBt02 != null
 
     fun disconnectAina() {
         disconnectAinaReaderOnly()
@@ -1851,6 +1884,18 @@ class VoicePlant(
      * TRANSMITTING, and the transmit burst never ended. This helper
      * closes that gap.
      */
+    private fun needsRepairHandler(slotLabel: String): (String) -> Unit =
+        { detail ->
+            Log.w(TAG, "$slotLabel needs re-pair ($detail)")
+            try {
+                callbacks.onPttInputNeedsRepair(
+                    "Bluetooth $slotLabel rejected the connection — forget and re-pair it in Android Bluetooth settings",
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "onPttInputNeedsRepair dispatch threw", t)
+            }
+        }
+
     private fun releaseStuckPttOnTransportDrop(
         source: PttSource,
         owner: PttInputOwner,
