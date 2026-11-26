@@ -32,9 +32,9 @@ class RandomChannelFactoryTest {
         val gen = RandomChannelFactory.generate(nameRng = Random(1), keyRng = fixedKeyRng())
         assertEquals(MulticastMode.FAILOVER, gen.config.mode)
         assertEquals(WireFormat.XV_NATIVE, gen.config.wireFormat)
-        // PREFERRED + the installed key ⇒ encrypted in practice, degrades
-        // to clear rather than silence if a peer is missing the key.
-        assertEquals(CryptoPolicy.PREFERRED, gen.config.cryptoPolicy)
+        // REQUIRED + the installed key ⇒ always encrypted; a peer missing
+        // the key hears nothing rather than cleartext.
+        assertEquals(CryptoPolicy.REQUIRED, gen.config.cryptoPolicy)
         assertNull("no manual pin — endpoint derives from the name", gen.config.pinnedGroup)
         assertNull(gen.config.pinnedPort)
     }

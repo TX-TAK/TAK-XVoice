@@ -449,6 +449,19 @@ class XvSettings(
         return fixes.size
     }
 
+    // One-time upgrade of stored XV-native PREFERRED configs to REQUIRED
+    // (see LegacyCryptoPolicyMigration.upgradeOldDefault). Flag-guarded so
+    // a later explicit "Prefer encrypted" choice is never overridden.
+    // Returns the number of configs upgraded.
+    fun migrateFailoverDefaultToRequired(): Int {
+        val p = prefs() ?: return 0
+        if (p.getBoolean(PREF_REQUIRED_DEFAULT_MIGRATED, false)) return 0
+        val upgrades = LegacyCryptoPolicyMigration.upgradeOldDefault(channelMulticastConfigs())
+        upgrades.forEach { persistChannelMulticastConfig(it) }
+        p.edit().putBoolean(PREF_REQUIRED_DEFAULT_MIGRATED, true).apply()
+        return upgrades.size
+    }
+
     // Sealed per-channel key vault. The bytes stored here are the output
     // of KeystoreSecretBox.seal(MeshKeyVault.serialize(...)) — i.e. GCM
     // ciphertext of the binary key blob, never the keys themselves. We
@@ -482,6 +495,7 @@ class XvSettings(
 
         // Persistent keys.
         private const val PREF_AINA_MAC = "aina_mac"
+        private const val PREF_REQUIRED_DEFAULT_MIGRATED = "xv_mesh_required_default_migrated"
 
         // External-button input pair — see persistedExternalButtonMac.
         //

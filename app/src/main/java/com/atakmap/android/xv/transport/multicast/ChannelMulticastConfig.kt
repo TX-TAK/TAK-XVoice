@@ -45,10 +45,12 @@ enum class WireFormat {
  * Per-channel encryption posture for the multicast leg.
  *
  *   REQUIRED  — frames are AEAD-wrapped or not sent; cleartext RX is
- *               dropped. For channels where privacy beats availability.
+ *               dropped. Default for XV-native channels, including every
+ *               auto-derived failover leg: until a key is held the leg is
+ *               silent rather than cleartext on the air.
  *   PREFERRED — encrypt when a channel key is live, fall back to clear
- *               RTP when keying hasn't converged. Degrades to degraded
- *               comms, never to silence. Default.
+ *               RTP when keying hasn't converged (and accept clear RX).
+ *               Opt-in only; degrades to cleartext, never to silence.
  *   CLEARTEXT — never encrypt. Forced for [WireFormat.VX_COMPAT]
  *               (the interop format has no crypto layer at all) and
  *               surfaced in the UI as a clear-traffic badge.
@@ -83,7 +85,7 @@ data class ChannelMulticastConfig(
     val channelName: String,
     val mode: MulticastMode = MulticastMode.FAILOVER,
     val wireFormat: WireFormat = WireFormat.XV_NATIVE,
-    val cryptoPolicy: CryptoPolicy = CryptoPolicy.PREFERRED,
+    val cryptoPolicy: CryptoPolicy = CryptoPolicy.REQUIRED,
     /** Operator-pinned group address; null ⇒ derive via v1 hash. */
     val pinnedGroup: String? = null,
     /** Operator-pinned UDP port; null ⇒ derive via v1 hash. */
@@ -199,7 +201,11 @@ data class ChannelMulticastConfig(
         /**
          * The zero-config default (operator decision D3, 2026-07-14):
          * every joined Mumble channel gets an auto-derived encrypted
-         * failover leg when mesh voice is enabled globally.
+         * failover leg when mesh voice is enabled globally. Encrypted
+         * means [CryptoPolicy.REQUIRED] (operator decision 2026-11-25):
+         * XV-native failover legs never fall back to cleartext. Interop
+         * legs (OpenMANET / VX patch) stay CLEARTEXT — those formats have
+         * no encryption layer.
          */
         fun defaultFor(channelName: String): ChannelMulticastConfig =
             ChannelMulticastConfig(

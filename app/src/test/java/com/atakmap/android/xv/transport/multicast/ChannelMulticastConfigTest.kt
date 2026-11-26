@@ -22,7 +22,9 @@ class ChannelMulticastConfigTest {
         val cfg = ChannelMulticastConfig.defaultFor("Ops-1")
         assertEquals(MulticastMode.FAILOVER, cfg.mode)
         assertEquals(WireFormat.XV_NATIVE, cfg.wireFormat)
-        assertEquals(CryptoPolicy.PREFERRED, cfg.cryptoPolicy)
+        // Encrypted only (operator decision 2026-11-25): an unkeyed
+        // failover leg is silent, never cleartext on the air.
+        assertEquals(CryptoPolicy.REQUIRED, cfg.cryptoPolicy)
         assertNull(cfg.pinnedGroup)
         assertNull(cfg.pinnedPort)
         assertNull(cfg.validate())
@@ -128,7 +130,7 @@ class ChannelMulticastConfigTest {
         // string. If this test needs editing, that is a schema change.
         assertEquals(
             """{"channel":"ops-1","mode":"FAILOVER","wireFormat":"XV_NATIVE","cryptoPolicy":"PREFERRED"}""",
-            ChannelMulticastConfig.defaultFor("ops-1").toJson(),
+            ChannelMulticastConfig.defaultFor("ops-1").copy(cryptoPolicy = CryptoPolicy.PREFERRED).toJson(),
         )
         assertEquals(
             """{"channel":"mesh-ptt","mode":"ALWAYS","wireFormat":"VX_COMPAT","cryptoPolicy":"CLEARTEXT","group":"224.0.0.1","port":5007}""",

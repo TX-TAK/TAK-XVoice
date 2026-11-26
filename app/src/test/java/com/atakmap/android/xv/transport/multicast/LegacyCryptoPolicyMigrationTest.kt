@@ -62,4 +62,26 @@ class LegacyCryptoPolicyMigrationTest {
             )
         assertTrue(fixes.isEmpty())
     }
+
+    @Test
+    fun `old-default upgrade moves only XV-native PREFERRED to REQUIRED`() {
+        val upgraded =
+            LegacyCryptoPolicyMigration.upgradeOldDefault(
+                listOf(
+                    cfg("a", CryptoPolicy.PREFERRED),
+                    cfg("b", CryptoPolicy.REQUIRED),
+                    cfg("c", CryptoPolicy.CLEARTEXT),
+                    cfg("d", CryptoPolicy.CLEARTEXT, WireFormat.OPENMANET_RTP),
+                ),
+            )
+        assertEquals(listOf(cfg("a", CryptoPolicy.REQUIRED)), upgraded)
+    }
+
+    @Test
+    fun `failover default is encrypted only, interop patch stays cleartext`() {
+        val d = ChannelMulticastConfig.defaultFor("ops")
+        assertEquals(CryptoPolicy.REQUIRED, d.cryptoPolicy)
+        assertEquals(WireFormat.XV_NATIVE, d.wireFormat)
+        assertEquals(CryptoPolicy.CLEARTEXT, d.patchCryptoPolicy)
+    }
 }

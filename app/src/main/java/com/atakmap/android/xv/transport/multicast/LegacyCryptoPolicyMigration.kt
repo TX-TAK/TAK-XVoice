@@ -50,4 +50,19 @@ object LegacyCryptoPolicyMigration {
             if (silentlyDowngraded) cfg.copy(cryptoPolicy = CryptoPolicy.REQUIRED) else null
         }
     }
+
+    /**
+     * One-time upgrade for the 2026-11-25 default change (PREFERRED →
+     * REQUIRED for XV-native channels). Stored configs were mostly
+     * materialized from the old default (patch apply, pinning, plan
+     * import) or saved by a gear dialog that could not offer REQUIRED, so
+     * a stored XV-native PREFERRED is treated as "the old default", not
+     * an operator choice. Interop formats are CLEARTEXT and untouched.
+     * An operator who really wants PREFERRED re-selects it afterwards;
+     * the upgrade never runs twice.
+     */
+    fun upgradeOldDefault(configs: List<ChannelMulticastConfig>): List<ChannelMulticastConfig> =
+        configs
+            .filter { it.wireFormat == WireFormat.XV_NATIVE && it.cryptoPolicy == CryptoPolicy.PREFERRED }
+            .map { it.copy(cryptoPolicy = CryptoPolicy.REQUIRED) }
 }

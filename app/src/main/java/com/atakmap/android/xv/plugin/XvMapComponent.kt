@@ -4040,6 +4040,8 @@ class XvMapComponent : AbstractMapComponent() {
         try {
             val fixed = settings.migrateLegacyCryptoPolicyPrefs()
             if (fixed > 0) Log.i(TAG, "crypto-policy migration: restored REQUIRED on $fixed channel(s)")
+            val upgraded = settings.migrateFailoverDefaultToRequired()
+            if (upgraded > 0) Log.i(TAG, "crypto-policy migration: $upgraded channel(s) moved to the REQUIRED default")
         } catch (t: Throwable) {
             Log.w(TAG, "crypto-policy migration failed", t)
         }

@@ -69,10 +69,19 @@ class XvSettingsCryptoPolicyMigrationTest {
     }
 
     @Test
-    fun `channel without a stored config reads the default posture`() {
-        assertEquals(
-            ChannelMulticastConfig.defaultFor("fresh").cryptoPolicy,
-            settings.effectiveChannelMulticastConfig("fresh").cryptoPolicy,
-        )
+    fun `channel without a stored config reads the encrypted-only default`() {
+        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("fresh").cryptoPolicy)
+    }
+
+    @Test
+    fun `stored old-default PREFERRED is upgraded once, a later explicit choice sticks`() {
+        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
+
+        assertEquals(1, settings.migrateFailoverDefaultToRequired())
+        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
+
+        settings.persistChannelMulticastConfig(ChannelMulticastConfig("ops", cryptoPolicy = CryptoPolicy.PREFERRED))
+        assertEquals(0, settings.migrateFailoverDefaultToRequired())
+        assertEquals(CryptoPolicy.PREFERRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
     }
 }
