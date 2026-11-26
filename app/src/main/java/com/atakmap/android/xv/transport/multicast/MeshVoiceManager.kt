@@ -590,6 +590,10 @@ class MeshVoiceManager(
         }
     }
 
+    // This device is the bridge and the speaker is not on the server: the
+    // mesh is the only way to hear them.
+    private fun bridgeMustHear(canonical: String): Boolean = bridging && !speakerOnServer(canonical)
+
     // The speaker is heard on the server: a Mumble session id, our own uid,
     // or a peer whose presence says it is server-connected.
     private fun speakerOnServer(canonical: String): Boolean =
@@ -653,7 +657,7 @@ class MeshVoiceManager(
         // operators hear. The one exception is the bridge hearing a peer
         // that is NOT on the server: that peer is reachable only over the
         // mesh, so the bridge plays it (and relays it onto Mumble).
-        if (serverLive && !meshTxActive && !(bridging && !speakerOnServer(canonical))) {
+        if (serverLive && !meshTxActive && !bridgeMustHear(canonical)) {
             return VoiceRxAction(play = false, relay = false, relayBurstStart = false)
         }
         // The dedup leg id includes the datagram's SOURCE: during a
