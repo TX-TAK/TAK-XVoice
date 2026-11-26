@@ -464,12 +464,15 @@ class XvDropDownReceiver(
         fun previewEndpoint(channelName: String): String?
 
         fun saveChannelConfig(config: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig): String?
-        fun channelCryptoPolicy(name: String): com.atakmap.android.xv.transport.multicast.CryptoPolicy?
+
+        // editing = true re-saves an existing channel: keeps its key, mode,
+        // patch leg and primary selection; false provisions a new channel.
+        // Either way the channel is XV-native and always encrypted.
         fun saveMeshChannel(
             name: String,
             group: String?,
             port: String?,
-            channelCryptoPolicy: com.atakmap.android.xv.transport.multicast.CryptoPolicy,
+            editing: Boolean,
         ): String? = "not supported"
 
         fun applyPatchToCurrentChannel(group: String, port: String): String?
@@ -1413,31 +1416,25 @@ class XvDropDownReceiver(
         }
         view.addView(infoText)
 
+        // No policy choice: the XV-native mesh leg is always encrypted
+        // (REQUIRED). Cleartext exists only on the interop patch leg below.
         val cryptoText = android.widget.TextView(ctx).apply {
-            text = "Encryption (Native Mesh)"
+            text =
+                if (existingConfig.wireFormat == com.atakmap.android.xv.transport.multicast.WireFormat.XV_NATIVE) {
+                    "Encryption (Native Mesh): always on"
+                } else {
+                    // Only reachable for an interop primary whose patch slot
+                    // is taken; clearing the patch below lets the save move
+                    // it back to an encrypted XV-native primary.
+                    "Primary uses cleartext interop framing. Clear the patch below and save to " +
+                        "make the primary encrypted XV mesh again."
+                }
             setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
             textSize = 12f
             val density = ctx.resources.displayMetrics.density
             setPadding(0, (8 * density).toInt(), 0, (4 * density).toInt())
         }
         view.addView(cryptoText)
-
-        val cryptoSpinner = android.widget.Spinner(ctx).apply {
-            val adapter = android.widget.ArrayAdapter(
-                ctx,
-                android.R.layout.simple_spinner_item,
-                arrayOf("Encrypted (Preferred)", "Cleartext (Disabled)")
-            )
-            adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-            this.adapter = adapter
-            val modeIndex = when (existingConfig.cryptoPolicy) {
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED -> 0
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED -> 0 // Treat as preferred in UI
-                com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT -> 1
-            }
-            setSelection(modeIndex)
-        }
-        view.addView(cryptoSpinner)
 
         val patchText = android.widget.TextView(ctx).apply {
             text = "External Patch (Vx)"
@@ -1480,10 +1477,6 @@ class XvDropDownReceiver(
                     1 -> com.atakmap.android.xv.transport.multicast.MulticastMode.ALWAYS
                     else -> com.atakmap.android.xv.transport.multicast.MulticastMode.OFF
                 }
-                val cryptoMode = when (cryptoSpinner.selectedItemPosition) {
-                    0 -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED
-                    else -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT
-                }
                 val pg = patchGroup.text.toString().trim().ifEmpty { null }
                 val pp = patchPort.text.toString().trim().ifEmpty { null }?.toIntOrNull()
 
@@ -1492,11 +1485,23 @@ class XvDropDownReceiver(
                     return@setPositiveButton
                 }
 
+                // Persisting normalizes to the mesh-policy invariant
+                // (XV-native primary always REQUIRED; an interop primary
+                // with a free patch slot becomes encrypted primary +
+                // cleartext patch), so no policy is chosen here.
                 val newConfig = existingConfig.copy(
                     mode = mode,
-                    cryptoPolicy = cryptoMode,
                     patchGroup = pg,
-                    patchPort = pp
+                    patchPort = pp,
+                    // A newly pinned/changed patch endpoint defaults to the
+                    // OpenMANET RTP profile (raw Opus is dropped by
+                    // openmanetd); an unchanged endpoint keeps its format.
+                    patchWireFormat =
+                    if (pg != null && (pg != existingConfig.patchGroup || pp != existingConfig.patchPort)) {
+                        com.atakmap.android.xv.transport.multicast.WireFormat.OPENMANET_RTP
+                    } else {
+                        existingConfig.patchWireFormat
+                    },
                 )
 
                 val err = controller.saveChannelConfig(newConfig)
@@ -2695,7 +2700,13 @@ class XvDropDownReceiver(
     // the automatic derivation, so "name it myself" needs no address
     // entry; the interop fields exist only to match an external system.
     private fun showChannelConfigDialog(section: View, existingName: String? = null) {
-        val existingConfig = existingName?.let { controller.meshChannelConfig(it) }
+        // Editing a channel with no stored override still has a real
+        // config — the auto-derived default — so the form reflects it.
+        val existingConfig =
+            existingName?.let {
+                controller.meshChannelConfig(it)
+                    ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig.defaultFor(it)
+            }
         val ctx = mapView.context
         val density = ctx.resources.displayMetrics.density
         fun dp(n: Int) = (n * density).toInt()
@@ -2718,32 +2729,18 @@ class XvDropDownReceiver(
         val groupField =
             android.widget.EditText(ctx).apply {
                 hint = "Multicast group (blank = automatic)"
-                setText(existingConfig?.pinnedGroup ?: existingConfig?.patchGroup ?: "")
+                // The PRIMARY pin only. The patch leg is a separate endpoint
+                // (gear dialog); prefilling it here pinned the channel itself
+                // to the patch address on save.
+                setText(existingConfig?.pinnedGroup ?: "")
                 setSingleLine(true)
             }
         val portField =
             android.widget.EditText(ctx).apply {
                 hint = "Port (blank = automatic)"
-                setText(existingConfig?.pinnedPort?.toString() ?: existingConfig?.patchPort?.toString() ?: "")
+                setText(existingConfig?.pinnedPort?.toString() ?: "")
                 inputType = android.text.InputType.TYPE_CLASS_NUMBER
                 setSingleLine(true)
-            }
-        val cryptoSpinner =
-            Spinner(ctx).apply {
-                adapter =
-                    ArrayAdapter(
-                        ctx,
-                        android.R.layout.simple_spinner_dropdown_item,
-                        listOf("Encrypted Only", "Prefer Encryption (VX interop)", "Cleartext (VX compat)"),
-                    )
-                val p = controller.channelCryptoPolicy(existingConfig?.channelName ?: "")
-                    ?: com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-                val idx = when (p) {
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED -> 0
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED -> 1
-                    com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT -> 2
-                }
-                setSelection(idx)
             }
 
         // Read-only echo of the group:port the entered name resolves to.
@@ -2813,16 +2810,15 @@ class XvDropDownReceiver(
                 addView(nameField)
                 addView(
                     caption(
-                        "Interoperability (optional) — pin a group/port to match an external " +
-                            "system like VX. Leave blank for automatic.",
+                        "Fixed group/port (optional). Leave blank for automatic. Interop with " +
+                            "OpenMANET / VX goes on the channel's patch leg (gear button).",
                     ),
                 )
                 addView(groupField)
                 addView(portField)
-                addView(caption("Resolved group — share this for interop"))
+                addView(caption("Resolved mesh group (encrypted XV traffic)"))
                 addView(derivedRow)
-                addView(caption("Security Policy"))
-                addView(cryptoSpinner)
+                addView(caption("Encryption: always on (XV mesh)"))
             }
 
         android.app.AlertDialog
@@ -2830,18 +2826,12 @@ class XvDropDownReceiver(
             .setTitle("Configure a channel")
             .setView(android.widget.ScrollView(ctx).apply { addView(container) })
             .setPositiveButton("Save") { _, _ ->
-                val channelCryptoPolicy =
-                    when (cryptoSpinner.selectedItemPosition) {
-                        1 -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.PREFERRED
-                        2 -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.CLEARTEXT
-                        else -> com.atakmap.android.xv.transport.multicast.CryptoPolicy.REQUIRED
-                    }
                 val err =
                     controller.saveMeshChannel(
                         name = nameField.text?.toString().orEmpty(),
                         group = groupField.text?.toString(),
                         port = portField.text?.toString(),
-                        channelCryptoPolicy = channelCryptoPolicy,
+                        editing = existingName != null,
                     )
                 if (err == null) {
                     meshToast("Channel saved.")

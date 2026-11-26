@@ -134,7 +134,9 @@ data class CommsPlan(
             if (i > 0) sb.append(',')
             sb.append('{')
             sb.append("\"displayName\":").append(JSONObject.quote(ch.displayName))
-            sb.append(",\"config\":").append(ch.config.toJson())
+            // Device-local interop (patch leg / interop primary) never
+            // leaves the device; see ChannelMulticastConfig.sharedForm.
+            sb.append(",\"config\":").append(ch.config.sharedForm().toJson())
             if (ch.preSharedKey != null) {
                 sb.append(",\"psk\":").append(JSONObject.quote(base64Url(ch.preSharedKey)))
             }
@@ -186,7 +188,11 @@ data class CommsPlan(
                     val c = channelsJson.getJSONObject(i)
                     val cfgJson = c.optJSONObject("config") ?: throw IllegalArgumentException("channel $i has no config")
                     val cfg =
-                        ChannelMulticastConfig.fromJson(cfgJson.toString())
+                        ChannelMulticastConfig
+                            .fromJson(cfgJson.toString())
+                            // A plan from an older build may still carry
+                            // patch / interop-primary fields: ignore them.
+                            ?.sharedForm()
                             ?: throw IllegalArgumentException("channel $i config is not parseable by this build")
                     Channel(
                         displayName = c.optString("displayName").ifBlank { cfg.channelName },
