@@ -222,6 +222,54 @@ data class ChannelMulticastConfig(
         }
 
     /**
+     * The form of this config that may leave the device (comms-plan export,
+     * QR / text / .xvplan, any re-share) and the only form accepted from
+     * one on import. OpenMANET / VX interop is device-local by operator
+     * decision (2026-11-25): one manually enabled gateway device at a time,
+     * so two devices auto-configured from the same plan can't both feed one
+     * OpenMANET net into the server or the mesh and collide.
+     *
+     *  - Every patch field is dropped (reset to the class defaults).
+     *  - An interop PRIMARY (older builds) is shared as an encrypted
+     *    XV-native primary on the derived endpoint: its interop endpoint is
+     *    not carried, so an importer never becomes a gateway by accident.
+     *
+     * Everything else (mode, crypto policy, XV-native pin) is kept as is;
+     * persist-time [meshPolicyNormalized] still applies on the importer.
+     */
+    fun sharedForm(): ChannelMulticastConfig {
+        val primary =
+            if (wireFormat.isInterop) {
+                copy(wireFormat = WireFormat.XV_NATIVE, cryptoPolicy = CryptoPolicy.REQUIRED, pinnedGroup = null, pinnedPort = null)
+            } else {
+                this
+            }
+        return primary.copy(
+            patchGroup = null,
+            patchPort = null,
+            patchWireFormat = WireFormat.VX_COMPAT,
+            patchCryptoPolicy = CryptoPolicy.CLEARTEXT,
+        )
+    }
+
+    /**
+     * This (imported, [sharedForm]) config carrying [local]'s device-local
+     * patch leg, so importing a plan for a channel this device gateways
+     * never wipes or replaces its own patch. [local] null keeps this as is.
+     */
+    fun withLocalPatchOf(local: ChannelMulticastConfig?): ChannelMulticastConfig =
+        if (local == null) {
+            this
+        } else {
+            copy(
+                patchGroup = local.patchGroup,
+                patchPort = local.patchPort,
+                patchWireFormat = local.patchWireFormat,
+                patchCryptoPolicy = local.patchCryptoPolicy,
+            )
+        }
+
+    /**
      * Canonical JSON for persistence and for embedding in a comms-plan
      * bundle. Field order is FIXED (schema v1) so the same config
      * always emits byte-identical JSON — comms-plan signatures depend

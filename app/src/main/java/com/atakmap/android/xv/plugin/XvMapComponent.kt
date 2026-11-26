@@ -4184,7 +4184,13 @@ class XvMapComponent : AbstractMapComponent() {
             // endpoint offline forever after. Already-pinned channels (every
             // VX_COMPAT one included) are untouched; a plan with no server
             // identity leaves the channel unpinned exactly as before.
-            val materialized = ch.copy(config = ch.config.materializedFor(plan.serverIdentity))
+            //
+            // The plan carries no patch (CommsPlan decodes to sharedForm);
+            // keep this device's own patch leg for the channel, if any, so
+            // an import never wipes or moves a local OpenMANET gateway.
+            val local = settings.channelMulticastConfigFor(ch.config.channelName)
+            val materialized =
+                ch.copy(config = ch.config.materializedFor(plan.serverIdentity).withLocalPatchOf(local))
             settings.persistChannelMulticastConfig(materialized.config)
             materialized.preSharedKey?.let { key ->
                 meshVoiceManager?.installPresharedKey(materialized.config.channelName, key)
