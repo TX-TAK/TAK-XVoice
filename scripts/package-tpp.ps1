@@ -304,7 +304,9 @@ if (-not $SkipApkBuild) {
 # -- 7. Summary + SHA-256 -----------------------------------------------
 
 Write-Host "`n=== TPP bundle ===" -ForegroundColor Cyan
-Get-ChildItem $out | Sort-Object Name | ForEach-Object {
+# -File: build/tpp can hold folders (e.g. signed/ from a TPP round-trip),
+# and Get-FileHash on a folder throws, aborting after the bundle is built.
+Get-ChildItem $out -File | Sort-Object Name | ForEach-Object {
     $h = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
     ("  {0,10:N0}  {1}" -f $_.Length, $_.Name) | Write-Host
     Write-Host ("              sha256: $h") -ForegroundColor DarkGray
