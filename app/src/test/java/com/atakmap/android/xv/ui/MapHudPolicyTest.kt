@@ -9,14 +9,8 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MapHudPolicyTest {
-    private fun slot(
-        n: Int,
-        channel: String? = if (n == 0) "Alpha" else "Command",
-        live: Boolean = true,
-        listenOnly: Boolean = false,
-        transmitting: Boolean = false,
-        talkers: List<String> = emptyList(),
-    ) = SlotState(n, channel, live, listenOnly, transmitting, talkers)
+    // Live, idle slot on its default channel; tests vary it with copy().
+    private fun slot(n: Int) = SlotState(n, if (n == 0) "Alpha" else "Command", true, false, false, emptyList())
 
     @Test
     fun `shown while the panel is collapsed, hidden while open`() {
@@ -44,24 +38,24 @@ class MapHudPolicyTest {
     @Test
     fun `looks follow tx, rx, listen-only and live`() {
         assertEquals(Look.IDLE, MapHudPolicy.button(slot(0)).look)
-        assertEquals(Look.RECEIVING, MapHudPolicy.button(slot(0, talkers = listOf("Bravo-2"))).look)
-        assertEquals(Look.TRANSMITTING, MapHudPolicy.button(slot(0, transmitting = true, talkers = listOf("x"))).look)
-        assertEquals(Look.UNAVAILABLE, MapHudPolicy.button(slot(0, listenOnly = true)).look)
-        assertEquals(Look.UNAVAILABLE, MapHudPolicy.button(slot(1, live = false)).look)
+        assertEquals(Look.RECEIVING, MapHudPolicy.button(slot(0).copy(talkers = listOf("Bravo-2"))).look)
+        assertEquals(Look.TRANSMITTING, MapHudPolicy.button(slot(0).copy(transmitting = true, talkers = listOf("x"))).look)
+        assertEquals(Look.UNAVAILABLE, MapHudPolicy.button(slot(0).copy(listenOnly = true)).look)
+        assertEquals(Look.UNAVAILABLE, MapHudPolicy.button(slot(1).copy(live = false)).look)
     }
 
     @Test
     fun `label is the short channel name, TX while transmitting`() {
         assertEquals("ALPHA", MapHudPolicy.button(slot(0)).label)
-        assertEquals("TX", MapHudPolicy.button(slot(0, transmitting = true)).label)
+        assertEquals("TX", MapHudPolicy.button(slot(0).copy(transmitting = true)).label)
         assertEquals("LOGIST…", MapHudPolicy.shortName("Logistics"))
         assertEquals("—", MapHudPolicy.shortName(null))
     }
 
     @Test
     fun `talker pill names the slot and talker`() {
-        assertEquals("1 · Bravo-2", MapHudPolicy.talkerPill(slot(0, talkers = listOf("Bravo-2")), slot(1)))
-        assertEquals("2 · Charlie-1", MapHudPolicy.talkerPill(slot(0), slot(1, talkers = listOf("Charlie-1"))))
+        assertEquals("1 · Bravo-2", MapHudPolicy.talkerPill(slot(0).copy(talkers = listOf("Bravo-2")), slot(1)))
+        assertEquals("2 · Charlie-1", MapHudPolicy.talkerPill(slot(0), slot(1).copy(talkers = listOf("Charlie-1"))))
         assertNull(MapHudPolicy.talkerPill(slot(0), null))
     }
 

@@ -7,7 +7,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.os.Handler
 import android.os.Looper
-import android.util.Base64
 import android.util.Log
 import com.atakmap.android.maps.MapView
 import com.atakmap.android.widgets.LinearLayoutWidget
@@ -17,7 +16,8 @@ import com.atakmap.android.widgets.RootLayoutWidget
 import com.atakmap.android.widgets.TextWidget
 import com.atakmap.android.xv.R
 import com.atakmap.coremap.maps.assets.Icon
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 
 /**
  * On-map PTT overlay (the approved map-HUD mockup): two hex PTT buttons
@@ -180,9 +180,12 @@ class XvMapHud(
         if (renderedKey[b.slot] == key) return
         renderedKey[b.slot] = key
         val bmp = drawHex(b)
-        val out = ByteArrayOutputStream()
-        bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-        val uri = "base64://" + Base64.encodeToString(out.toByteArray(), Base64.NO_WRAP)
+        // ATAK's GL image loader didn't render a base64:// URI on device
+        // (widget took touches but drew nothing). Write the PNG into ATAK's
+        // own cache dir — same process/UID as the map renderer, readable
+        // by it — and hand it a file:// URI. One file per slot+look+label,
+        // so a changed state is a new URI (no stale cached texture).
+        val uri = writeIconFile(b, bmp) ?: return
         val icon =
             Icon
                 .Builder()
@@ -194,6 +197,23 @@ class XvMapHud(
         // Whole hex is the touch target (72x82dp: works with gloves).
         w.setMarkerHitBounds(0, 0, bmp.width, bmp.height)
     }
+
+    private fun writeIconFile(
+        b: MapHudPolicy.Button,
+        bmp: Bitmap,
+    ): String? =
+        try {
+            val dir = File(mapView.context.cacheDir, "xv_map_ptt").apply { mkdirs() }
+            val safe = "${b.slot}_${b.look}_${b.label}".replace(Regex("[^A-Za-z0-9_]"), "_")
+            val f = File(dir, "ptt_$safe.png")
+            if (!f.exists()) {
+                FileOutputStream(f).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            }
+            "file://${f.absolutePath}"
+        } catch (t: Throwable) {
+            Log.w(TAG, "map PTT icon write failed", t)
+            null
+        }
 
     // Pointy-top hex in the brand kit badge shape, with the slot number on
     // top and the channel (or TX) below. Transparent margin keeps the two
@@ -230,7 +250,8 @@ class XvMapHud(
         val p = Paint(Paint.ANTI_ALIAS_FLAG)
         p.style = Paint.Style.FILL
         p.color = fill
-        p.alpha = if (b.look == MapHudPolicy.Look.IDLE) 0xD9 else 0xFF
+        // Solid fill: map labels must not show through the button text.
+        p.alpha = 0xFF
         c.drawPath(path, p)
         p.style = Paint.Style.STROKE
         p.strokeWidth = 2f * density
