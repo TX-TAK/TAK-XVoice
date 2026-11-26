@@ -206,6 +206,11 @@ class DebugReceiver : BroadcastReceiver() {
                 handler.connectMumble(host, takPattern, port, channel, secondary, vxCompat)
             }
 
+            ACTION_MUMBLE_SWAP_CHANNELS -> {
+                Log.i(TAG, "MUMBLE_SWAP_CHANNELS")
+                handler.swapChannels()
+            }
+
             ACTION_MUMBLE_SET_SECONDARY -> {
                 val channel = intent.getStringExtra("channel") ?: ""
                 Log.i(TAG, "MUMBLE_SET_SECONDARY channel='$channel'")
@@ -344,6 +349,9 @@ class DebugReceiver : BroadcastReceiver() {
         // Re-target VS2 on an already-connected session. Empty/null clears.
         fun setSecondaryChannel(channelName: String)
 
+        // Exchange channel 1 and channel 2 (same path as the UI's Swap).
+        fun swapChannels() {}
+
         // Set the persistent default for VX-compat handshake. Takes effect on
         // the next connect (call disconnect+connect to apply immediately).
         fun setDefaultVxCompat(mode: String?)
@@ -389,6 +397,7 @@ class DebugReceiver : BroadcastReceiver() {
         const val ACTION_MUMBLE_CONNECT = "com.atakmap.android.xv.debug.MUMBLE_CONNECT"
         const val ACTION_MUMBLE_DISCONNECT = "com.atakmap.android.xv.debug.MUMBLE_DISCONNECT"
         const val ACTION_MUMBLE_SET_SECONDARY = "com.atakmap.android.xv.debug.MUMBLE_SET_SECONDARY"
+        const val ACTION_MUMBLE_SWAP_CHANNELS = "com.atakmap.android.xv.debug.MUMBLE_SWAP_CHANNELS"
         const val ACTION_MUMBLE_VX_COMPAT = "com.atakmap.android.xv.debug.MUMBLE_VX_COMPAT"
         const val ACTION_MUMBLE_AUTO_ACCEPT = "com.atakmap.android.xv.debug.MUMBLE_AUTO_ACCEPT"
         const val ACTION_PRESENCE_DUMP = "com.atakmap.android.xv.debug.PRESENCE_DUMP"

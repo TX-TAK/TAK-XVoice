@@ -254,6 +254,16 @@ class XvSettings(
         prefs()?.edit()?.putString(PREF_PRIMARY_CHANNEL, name)?.apply()
     }
 
+    // Channel 2 (VS2 / secondary slot). Blank = channel 2 off. Written on
+    // every operator pick, completed swap, and server-confirmed slot-1
+    // move (temp private-call channels excluded); read on connect so
+    // channel 2 is restored alongside channel 1.
+    fun persistedSecondaryChannel(): String = prefs()?.getString(PREF_SECONDARY_CHANNEL, "").orEmpty()
+
+    fun persistSecondaryChannel(name: String) {
+        prefs()?.edit()?.putString(PREF_SECONDARY_CHANNEL, name)?.apply()
+    }
+
     // Snapshot of the server's channel directory, refreshed while
     // Mumble is connected (1 Hz tick, write-on-change). This is what
     // makes registration configure EVERY channel for offline use: when
@@ -511,6 +521,9 @@ class XvSettings(
         // Last-joined primary channel. Used for auto-rejoin override
         // on reconnect.
         private const val PREF_PRIMARY_CHANNEL = "primary_channel"
+
+        // Last channel-2 (secondary slot) pick. Restored on connect.
+        private const val PREF_SECONDARY_CHANNEL = "secondary_channel"
 
         // Mesh-voice (multicast) master toggle + per-channel overrides.
         // See persistedMeshVoiceEnabled / channelMulticastConfigs.

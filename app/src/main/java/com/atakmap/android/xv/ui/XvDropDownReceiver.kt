@@ -182,8 +182,19 @@ class XvDropDownReceiver(
         // Move our session into [name]. Updates VS1's destination.
         fun setPrimaryChannel(name: String)
 
-        // Re-target VS2. Empty/blank clears.
+        // Re-target VS2. Empty/blank clears. (Channel 1 has no clear —
+        // it can never be blank.)
         fun setSecondaryChannel(name: String)
+
+        // Exchange channel 1 and channel 2 on the live sessions. The
+        // only way to "invert" the speaker-mic buttons: PTT1 is fixed
+        // to channel 1, PTT2 to channel 2.
+        fun swapChannels() {}
+
+        // Null when swap can run now; otherwise a short operator-facing
+        // reason (transmitting, in a direct call, no channel 2, …) for
+        // greying out the control.
+        fun swapUnavailableReason(): String? = "Not available"
 
         // ---- AINA speakermic picker (Settings → Preferences) ----
         // Bonded devices whose name looks like an AINA. Each entry's
@@ -1294,7 +1305,7 @@ class XvDropDownReceiver(
 
         if (slot == 1) {
             val header = android.widget.LinearLayout(pluginContext).apply {
-                orientation = android.widget.LinearLayout.HORIZONTAL
+                orientation = android.widget.LinearLayout.VERTICAL
                 addView(
                     buildChannelButton(
                         label = "(none)",
@@ -1302,6 +1313,20 @@ class XvDropDownReceiver(
                         participation = Participation.PARTICIPATE
                     ) {
                         controller.setSecondaryChannel("")
+                        mainHandler.post { inflateMainAndShow() }
+                    }
+                )
+                // Interim home for channel swap until the unified channel
+                // list lands (Swap moves to its header). Refusals (keyed,
+                // in a call, no channel 2) toast from the controller.
+                val swapReason = controller.swapUnavailableReason()
+                addView(
+                    buildChannelButton(
+                        label = if (swapReason == null) "Swap 1 ↔ 2" else "Swap 1 ↔ 2  ($swapReason)",
+                        isCurrent = false,
+                        participation = Participation.PARTICIPATE
+                    ) {
+                        controller.swapChannels()
                         mainHandler.post { inflateMainAndShow() }
                     }
                 )

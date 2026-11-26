@@ -147,6 +147,12 @@ XV also adds:
   ships pre-mapped (PTT → Channel 1, secondary → Channel 2, emergency
   button, prev/next channel) so a fresh pairing "just works." Operators
   edit the defaults; overrides persist by BT address.
+- **Two live channels, swappable** — channel 1 (keyed by PTT1) and an
+  optional channel 2 (keyed by PTT2; PTT2 keys channel 1 when channel
+  2 is off) are both remembered across restarts. The button-to-channel
+  binding is fixed; **Swap** exchanges the two channels in place on the
+  live connection (no reconnect) and is unavailable while keyed or on a
+  direct call. If the server refuses one side, the swap is undone.
 - **LMR-style emergency button** — short press fires the emergency
   configured in ATAK's Alert Tool; long press (1 s) cancels.
 - **Configurable Talk Permit Tones** (ASTRO 25 / Nextel / DMR / MOTOTRBO

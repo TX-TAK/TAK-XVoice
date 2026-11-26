@@ -107,6 +107,11 @@ class MumbleTransport(
     // not mic-on-from-tap. No-op for the callee side (callee already
     // engaged on accept).
     private val onPeerAcceptedCall: () -> Unit = {},
+    // Fires once per [swapChannels] call that was started, after both
+    // legs are acked (Completed), or after the deadline when a half-
+    // swap had to be rolled back / nothing moved. The plugin plays a
+    // single status cue and persists the new channel 2 from here.
+    private val onChannelsSwapped: (ChannelSwap.Outcome) -> Unit = {},
 ) : VoiceTransport {
     // Per-slot state. Primary is always present; secondary is only
     // populated when config.secondaryChannelName is set AND it's not the
@@ -1204,6 +1209,10 @@ class MumbleTransport(
                 Log.w(TAG, "joinChannel('$trimmed') — no channel by that name")
                 return false
             }
+        // Stamp before sending so the server's UserState ack is read as
+        // our own move, not an admin move (L1). Without this the picker's
+        // name-based joins surfaced a spurious "moved by admin" toast.
+        primary.lastSelfJoinAttemptMs = System.currentTimeMillis()
         s.joinChannel(id)
         return true
     }
@@ -1275,8 +1284,147 @@ class MumbleTransport(
             }
         Log.i(TAG, "retargetSecondary: moving secondary session into '$trimmed' (id=$id)")
         activeSecondaryName = trimmed
+        sec.lastSelfJoinAttemptMs = System.currentTimeMillis()
         secSession.joinChannel(id)
         return true
+    }
+
+    // ---- Channel swap -------------------------------------------------
+
+    private val swapLock = Any()
+
+    // Plan of the swap awaiting server acks, plus the secondary name to
+    // restore if it rolls back. Guarded by swapLock.
+    private var pendingSwap: ChannelSwap.Plan? = null
+    private var pendingSwapPrevSecondaryName: String? = null
+    private var pendingSwapToken: Long = 0L
+
+    /** True from [swapChannels] start until its outcome is reported. */
+    fun isSwapInFlight(): Boolean = synchronized(swapLock) { pendingSwap != null }
+
+    /**
+     * Atomically exchange the channels of VS1 and VS2 on the live
+     * sessions: both self-joins are sent back to back (no reconnect).
+     * [transmitting] is supplied by the caller — the transport doesn't
+     * own PTT state. Returns the decision; a [ChannelSwap.Decision.Proceed]
+     * is followed by exactly one [onChannelsSwapped] callback.
+     *
+     * The usual VS1≠VS2 collision guards are deliberately bypassed: each
+     * target IS the other slot's channel. While the two moves are in
+     * flight both sessions may briefly share a channel — TX falls back to
+     * primary (pickSlotForSend SAME_CHANNEL) and secondary RX is dropped
+     * ([ChannelSwap.shouldDropSecondaryRx]) so nothing is doubled.
+     */
+    fun swapChannels(transmitting: Boolean): ChannelSwap.Decision {
+        val sec = secondary
+        val decision: ChannelSwap.Decision
+        val token: Long
+        synchronized(swapLock) {
+            decision =
+                ChannelSwap.decide(
+                    ChannelSwap.State(
+                        primaryConnected = primary.connected && primary.session != null,
+                        primaryChannelId = primary.joinedChannelId,
+                        secondaryPresent = sec != null,
+                        secondaryConnected = sec?.connected == true && sec.session != null,
+                        secondaryChannelId = sec?.joinedChannelId ?: -1,
+                        inPrivateCall = isInPrivateCall(),
+                        transmitting = transmitting,
+                        swapInFlight = pendingSwap != null,
+                    ),
+                )
+            if (decision !is ChannelSwap.Decision.Proceed) {
+                Log.i(TAG, "swapChannels refused: $decision")
+                return decision
+            }
+            val plan = decision.plan
+            pendingSwap = plan
+            pendingSwapPrevSecondaryName = activeSecondaryName
+            token = ++pendingSwapToken
+            // VS2's new channel name, so collision guards and reconnects
+            // see the post-swap topology immediately.
+            activeSecondaryName = channelDisplayName(plan.secondaryToId) ?: activeSecondaryName
+            val now = System.currentTimeMillis()
+            primary.lastSelfJoinAttemptMs = now
+            sec!!.lastSelfJoinAttemptMs = now
+        }
+        // Smart cast doesn't survive the synchronized lambda; the early
+        // return above guarantees Proceed here.
+        val plan = (decision as ChannelSwap.Decision.Proceed).plan
+        Log.i(
+            TAG,
+            "swapChannels: VS1 ${plan.primaryFromId}→${plan.primaryToId}, VS2 ${plan.secondaryFromId}→${plan.secondaryToId}",
+        )
+        primary.session?.joinChannel(plan.primaryToId)
+        sec!!.session?.joinChannel(plan.secondaryToId)
+        handler?.postDelayed({ checkSwap(timedOut = true, token = token) }, SWAP_CONFIRM_TIMEOUT_MS)
+        return decision
+    }
+
+    // Resolve name for a channel id from whichever session knows it.
+    private fun channelDisplayName(id: Int): String? {
+        if (id == 0) return LOBBY_DISPLAY_NAME
+        return primary.session?.channelNameById(id) ?: secondary?.session?.channelNameById(id)
+    }
+
+    // Evaluate the pending swap. Called on every self-move ack (early
+    // completion) and once at the deadline (rollback). [token] guards a
+    // stale deadline from an earlier swap resolving a newer one.
+    private fun checkSwap(
+        timedOut: Boolean,
+        token: Long = -1L,
+    ) {
+        val outcome: ChannelSwap.Outcome
+        synchronized(swapLock) {
+            val plan = pendingSwap ?: return
+            if (token >= 0 && token != pendingSwapToken) return
+            val sec = secondary
+            val res =
+                ChannelSwap.resolve(
+                    plan,
+                    observedPrimaryId = primary.joinedChannelId,
+                    observedSecondaryId = sec?.joinedChannelId ?: -1,
+                    timedOut = timedOut,
+                )
+            outcome =
+                when (res) {
+                    ChannelSwap.Resolution.Wait -> return
+                    ChannelSwap.Resolution.Done ->
+                        ChannelSwap.Outcome.Completed(
+                            primaryName = primary.joinedChannelName(),
+                            secondaryName = sec?.joinedChannelName() ?: activeSecondaryName,
+                        )
+                    is ChannelSwap.Resolution.RollBackPrimary -> {
+                        // VS2's join was refused, so VS1 now sits on VS2's
+                        // channel. Send VS1 home.
+                        Log.w(TAG, "swapChannels: VS2 join refused — rolling VS1 back to ${res.toId}")
+                        activeSecondaryName = pendingSwapPrevSecondaryName
+                        primary.lastSelfJoinAttemptMs = System.currentTimeMillis()
+                        primary.session?.joinChannel(res.toId)
+                        ChannelSwap.Outcome.RolledBack(failedSlot = 1)
+                    }
+                    is ChannelSwap.Resolution.RollBackSecondary -> {
+                        Log.w(TAG, "swapChannels: VS1 join refused — rolling VS2 back to ${res.toId}")
+                        activeSecondaryName = pendingSwapPrevSecondaryName
+                        sec?.lastSelfJoinAttemptMs = System.currentTimeMillis()
+                        sec?.session?.joinChannel(res.toId)
+                        ChannelSwap.Outcome.RolledBack(failedSlot = 0)
+                    }
+                    ChannelSwap.Resolution.NothingMoved -> {
+                        Log.w(TAG, "swapChannels: both joins refused — nothing changed")
+                        activeSecondaryName = pendingSwapPrevSecondaryName
+                        ChannelSwap.Outcome.Failed
+                    }
+                }
+            pendingSwap = null
+            pendingSwapPrevSecondaryName = null
+        }
+        Log.i(TAG, "swapChannels outcome: $outcome")
+        try {
+            onChannelsSwapped(outcome)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onChannelsSwapped threw", t)
+        }
     }
 
     private fun slotFor(idx: Int): Slot? =
@@ -1367,6 +1515,14 @@ class MumbleTransport(
 
     override fun disconnect() {
         Log.i(TAG, "MumbleTransport.disconnect() — tearing down both slots")
+        // Drop any in-flight swap: its deadline must not issue rollback
+        // joins against a dead transport. The reconnect factory re-reads
+        // the persisted channel 2, which is only written on Completed.
+        synchronized(swapLock) {
+            pendingSwap = null
+            pendingSwapPrevSecondaryName = null
+            pendingSwapToken++
+        }
         // FIX 10: clear pending awaitChannelByName callbacks so they
         // don't leak. The direct-call orchestrator registers here
         // right before sending a ChannelState create; if we tear the
@@ -1705,6 +1861,11 @@ class MumbleTransport(
                     } catch (t: Throwable) {
                         Log.w(TAG, "[$tag] onChannelChanged callback threw", t)
                     }
+                    // Early completion of an in-flight swap: resolve
+                    // AFTER the per-slot callback so the plugin still
+                    // sees isSwapInFlight()=true for both legs and can
+                    // coalesce their status cues into one.
+                    checkSwap(timedOut = false)
                 }
             }
             // Track our own suppress flag — drives the listen-only UX
@@ -2050,6 +2211,10 @@ class MumbleTransport(
             // to talkingPeers either, so the UI doesn't surface a
             // muted-channel speaker.
             if (slot.rxMutedForCall) return
+            // Both sessions briefly in one channel (mid-swap / half-swap):
+            // the server sends every frame to both identities. Keep the
+            // primary's copy only so talkers aren't heard twice.
+            if (ChannelSwap.shouldDropSecondaryRx(slot.idx, slot.joinedChannelId, primary.joinedChannelId)) return
             // Forward path: if a service-side voice plant is wired up,
             // ship raw Opus across to it (decode + AudioTrack happen in
             // our APK's UID where they have the privileges to keep
@@ -2144,6 +2309,12 @@ class MumbleTransport(
         // generous margin without conflating admin moves that happen
         // to land seconds after the operator's own join.
         private const val SELF_JOIN_GRACE_MS: Long = 5_000L
+
+        // How long a channel swap waits for both self-move acks before
+        // treating a missing one as refused and rolling the other back.
+        // Well inside SELF_JOIN_GRACE_MS so the rollback's own ack is
+        // still read as a self-move.
+        private const val SWAP_CONFIRM_TIMEOUT_MS: Long = 3_000L
 
         // FIX 2: secondary slot UsernameInUse-rotation retry schedule.
         // Three attempts at 2s/4s/8s before giving up and marking the

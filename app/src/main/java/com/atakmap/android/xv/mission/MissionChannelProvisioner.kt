@@ -127,6 +127,18 @@ class MissionChannelProvisioner(
         return Action.Create(desired)
     }
 
+    /**
+     * The operator explicitly re-arranged channel 1 (e.g. a channel
+     * swap). Treat it like a manual move off the mission channel: stop
+     * driving until the mission itself changes. Without this, a swap
+     * issued before the provisioner had observed the operator on the
+     * mission channel would be reverted by the next 1 Hz Join. No-op
+     * when no mission is active.
+     */
+    fun yieldToOperator() {
+        if (target != null) yielded = true
+    }
+
     /** Forget all state (transport teardown / feature disabled). */
     fun reset() {
         target = null
