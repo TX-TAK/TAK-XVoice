@@ -859,7 +859,13 @@ class XvMapComponent : AbstractMapComponent() {
                 enabled = { settings.persistedStatusTonesEnabled() },
             )
 
-        emergency = EmergencyController(AtakEmergencyDispatcher())
+        emergency =
+            EmergencyController(
+                AtakEmergencyDispatcher(
+                    alert = { com.atakmap.android.xv.emergency.EmergencyAlertSetting.alertToFire(settings.persistedEmergencyAlert()) },
+                    onDisabledPress = { toastOnMain("Emergency button is off — turn it on in XV Settings › Devices") },
+                ),
+            )
 
         // Foreground voice plant in our APK's process. Bound now so
         // it's alive and promoted before any AINA / PTT activity. The
@@ -2894,6 +2900,13 @@ class XvMapComponent : AbstractMapComponent() {
             }
 
             override fun pttInputIssue(card: com.atakmap.android.xv.ui.PttInputHealth.Card) = pttInputHealth.issue(card)
+
+            override fun emergencyAlert(): String = settings.persistedEmergencyAlert()
+
+            override fun setEmergencyAlert(choice: String) {
+                Log.i(TAG, "Controller.setEmergencyAlert('$choice')")
+                settings.persistEmergencyAlert(choice)
+            }
 
             // The service's latched verdict: the same one that refuses PTT
             // and drops channel RX, so the bar can't disagree with them.

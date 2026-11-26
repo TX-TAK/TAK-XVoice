@@ -269,6 +269,15 @@ class XvSettings(
     // of each channel row. Display-only; PTT → channel mapping unchanged.
     fun persistedPttOnLeft(): Boolean = prefs()?.getBoolean(PREF_PTT_ON_LEFT, false) ?: false
 
+    /** Emergency-button alert (EmergencyAlertSetting): ATAK type name or OFF; default 911. */
+    fun persistedEmergencyAlert(): String = com.atakmap.android.xv.emergency.EmergencyAlertSetting.normalize(
+        prefs()?.getString(PREF_EMERGENCY_ALERT, null)
+    )
+
+    fun persistEmergencyAlert(choice: String) {
+        prefs()?.edit()?.putString(PREF_EMERGENCY_ALERT, choice)?.apply()
+    }
+
     fun persistPttOnLeft(onLeft: Boolean) {
         prefs()?.edit()?.putBoolean(PREF_PTT_ON_LEFT, onLeft)?.apply()
     }
@@ -586,6 +595,7 @@ class XvSettings(
 
         // Left-handed main-panel layout (PTT buttons on the left).
         private const val PREF_PTT_ON_LEFT = "ptt_on_left"
+        private const val PREF_EMERGENCY_ALERT = "emergency_alert"
 
         // On-map PTT overlay (default on).
         private const val PREF_MAP_PTT = "map_ptt_enabled"

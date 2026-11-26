@@ -89,7 +89,7 @@ Other parts of the panel:
 | Map PTT 1 / 2 | Channel 1 / 2 | Shown while the panel is closed. |
 | Speaker-mic PTT1 | Channel 1 | AINA V1/V2, Inrico BT02. |
 | Speaker-mic PTT2 | Channel 2, or channel 1 when 2 is off | Channel 2 on but not live (joining, reconnecting): refused with the deny tone. It never falls back to channel 1. |
-| Speaker-mic emergency | ATAK alert | AINA: a short press fires the alert; a 1 s long press cancels it. Inrico BT02: the button sends a single pulse, so it can only fire the alert; cancel it in ATAK. |
+| Speaker-mic emergency | The chosen ATAK alert (911 by default) | AINA: a short press fires the alert; a 1 s long press cancels it. Inrico BT02: the button sends a single pulse, so it can only fire the alert; cancel it in ATAK. |
 | Button-only PTT (puck, handlebar, glove) | Channel 1 | The external button reader handles the main PTT only. |
 | Samsung Active key | Channel 1 | Works in the background and with the screen locked, once assigned in Samsung settings. |
 
@@ -154,7 +154,7 @@ flowchart LR
     L -->|long-press| M[Mesh options / Share / Forget]
 ```
 
-- **The header bar** shows the current channel 1 and channel 2, and **⇅ Swap**.
+- **The header bar** shows the current channel 1 and channel 2 (long names wrap to two lines), and **⇅ Swap**.
   - Swap is greyed with a reason while you're transmitting, on a direct call, have no channel 2, or channel 2 is still joining.
   - Tapping it while greyed toasts the reason.
 - **Search** filters by name. It starts empty on every visit.
@@ -190,7 +190,8 @@ flowchart LR
   - a role chip (AUDIO + PTT);
   - a device picker, which shows only devices that are reachable;
   - a Bluebonnet status line;
-  - a read-only button map: PTT1 → 1, PTT2 → 2 (1 when 2 is off), emergency → ATAK alert.
+  - a read-only button map: PTT1 → 1, PTT2 → 2 (1 when 2 is off), emergency → the chosen alert;
+  - **Emergency button sends**: 911 Alert (default), Ring The Bell, Troops In Contact or Geo-fence Breached, or **Off**. Choosing Off asks twice: a warning, then type **DISABLE**. Cancelling either step leaves the button on. With it off, a press does nothing but show a toast saying so.
 - **PTT button card:**
   - a role chip (BUTTON ONLY), a picker, and status;
   - a read-only map: PTT → channel 1;

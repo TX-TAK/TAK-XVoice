@@ -185,8 +185,11 @@ XV also adds:
   binding is fixed; **Swap** exchanges the two channels in place on the
   live connection (no reconnect) and is unavailable while keyed or on a
   direct call. If the server refuses one side, the swap is undone.
-- **LMR-style emergency button** — short press fires the emergency
-  configured in ATAK's Alert Tool; long press (1 s) cancels. (Inrico
+- **LMR-style emergency button** — short press fires an ATAK alert;
+  long press (1 s) cancels. Which alert is set in Settings › Devices
+  (911 by default; Ring The Bell, Troops In Contact or Geo-fence
+  Breached), and the button can be turned off there behind a two-step
+  confirmation. (Inrico
   BT02: the button sends a single pulse, so it fires only; cancel in
   ATAK.)
 - **Configurable Talk Permit Tones** (ASTRO 25 / Nextel / DMR / MOTOTRBO

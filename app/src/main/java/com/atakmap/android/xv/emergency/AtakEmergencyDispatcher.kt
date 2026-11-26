@@ -21,12 +21,26 @@ import com.atakmap.android.emergency.tool.EmergencyType
 // EmergencyTool.emergencyStateChanged → Switch.setChecked → ValueAnimator
 // .start, which throws "Animators may only be run on Looper threads" when
 // invoked from our SPP/BLE reader threads.
+//
+// Which alert: XV's own setting (Settings > Devices > Emergency button,
+// EmergencyAlertSetting; default 911), not the Alert Tool's last pick, so
+// the button always sends what the operator configured in XV. [alert]
+// returns the ATAK EmergencyType name, or null when the operator turned
+// the button off.
 class AtakEmergencyDispatcher(
     private val mainHandler: Handler = Handler(Looper.getMainLooper()),
+    private val alert: () -> String? = { EmergencyAlertSetting.DEFAULT },
+    private val onDisabledPress: () -> Unit = {},
 ) : EmergencyDispatcher {
     override fun firePanic(reason: String) {
         mainHandler.post {
             try {
+                val chosen = alert()
+                if (chosen == null) {
+                    Log.w(TAG, "firePanic ignored — emergency button turned off in XV Settings — $reason")
+                    onDisabledPress()
+                    return@post
+                }
                 val mgr = EmergencyManager.getInstance()
                 // Guard against repeat fires when an emergency is
                 // already active. Field-observed 2026-07-14: pressing
@@ -46,8 +60,9 @@ class AtakEmergencyDispatcher(
                     Log.i(TAG, "firePanic skipped — emergency already active — $reason")
                     return@post
                 }
-                val sdkType = mgr.emergencyType ?: EmergencyType.getDefault()
-                Log.w(TAG, "fire ${sdkType.name} (live AlertTool type) — $reason")
+                val sdkType =
+                    runCatching { EmergencyType.valueOf(chosen) }.getOrNull() ?: EmergencyType.NineOneOne
+                Log.w(TAG, "fire ${sdkType.name} (XV emergency-button setting) — $reason")
                 mgr.initiateRepeat(sdkType, true)
             } catch (t: Throwable) {
                 Log.e(TAG, "initiateRepeat failed", t)

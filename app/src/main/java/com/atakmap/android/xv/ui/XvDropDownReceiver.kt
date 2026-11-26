@@ -287,6 +287,11 @@ class XvDropDownReceiver(
         // A phone call (cellular / ringing) is up: channel RX is ignored.
         fun phoneCallActive(): Boolean = false
 
+        // Speaker-mic emergency button: ATAK alert type name, or OFF.
+        fun emergencyAlert(): String = com.atakmap.android.xv.emergency.EmergencyAlertSetting.DEFAULT
+
+        fun setEmergencyAlert(choice: String) {}
+
         fun externalButtonConnectionUp(): Boolean = false
 
         fun setSelectedExternalButton(mac: String?) {}
@@ -3744,11 +3749,108 @@ class XvDropDownReceiver(
         }
 
         wireAinaPicker(v)
+        wireEmergencyAlertPicker(v)
         wireExternalButtonPicker(v)
         wireBlePttScanButton(v)
         wireAutoConnectBtSwitch(v)
         wireSamsungActiveKeyRow(v)
         wireBtAudioOverridePicker(v)
+    }
+
+    // Speaker-mic emergency button: which ATAK alert it sends (default
+    // 911), or Off. Turning it off takes two confirmations (the second
+    // needs DISABLE typed) so it can't happen by a stray tap.
+    private fun wireEmergencyAlertPicker(v: View) {
+        val spinner = v.findViewById<android.widget.Spinner>(R.id.xv_spinner_emergency_alert) ?: return
+        val values =
+            com.atakmap.android.xv.emergency.EmergencyAlertSetting.CHOICES.map { it.first } +
+                com.atakmap.android.xv.emergency.EmergencyAlertSetting.OFF
+        val labels = com.atakmap.android.xv.emergency.EmergencyAlertSetting.CHOICES.map { it.second } + "Off — button does nothing"
+        spinner.adapter = ArrayAdapter(pluginContext, R.layout.xv_spinner_item, labels)
+        fun current() = values.indexOf(controller.emergencyAlert()).coerceAtLeast(0)
+        fun showMapping() {
+            v.findViewById<TextView>(R.id.xv_label_aina_button_map)?.text =
+                pluginContext
+                    .getString(R.string.xv_button_map_speaker_mic)
+                    .replace("ATAK alert", com.atakmap.android.xv.emergency.EmergencyAlertSetting.label(controller.emergencyAlert()))
+        }
+        spinner.setSelection(current())
+        showMapping()
+        spinner.onItemSelectedListener =
+            object : android.widget.AdapterView.OnItemSelectedListener {
+                override fun onItemSelected(
+                    p: android.widget.AdapterView<*>?,
+                    view: View?,
+                    pos: Int,
+                    id: Long,
+                ) {
+                    val choice = values[pos]
+                    if (choice == controller.emergencyAlert()) return
+                    if (choice == com.atakmap.android.xv.emergency.EmergencyAlertSetting.OFF) {
+                        confirmDisableEmergency(
+                            onConfirmed = {
+                                controller.setEmergencyAlert(choice)
+                                showMapping()
+                            },
+                            onCancelled = { spinner.setSelection(current()) },
+                        )
+                    } else {
+                        controller.setEmergencyAlert(choice)
+                        showMapping()
+                    }
+                }
+
+                override fun onNothingSelected(p: android.widget.AdapterView<*>?) = Unit
+            }
+    }
+
+    private fun confirmDisableEmergency(
+        onConfirmed: () -> Unit,
+        onCancelled: () -> Unit,
+    ) {
+        var confirmed = false
+        val first =
+            android.app.AlertDialog
+                .Builder(mapView.context)
+                .setTitle("Turn off the emergency button?")
+                .setMessage(
+                    "Pressing the speaker-mic emergency button will send NO alert. " +
+                        "Only do this if the button keeps being pressed by accident.",
+                ).setPositiveButton("Continue") { _, _ ->
+                    confirmed = true
+                    confirmDisableEmergencyTyped(onConfirmed, onCancelled)
+                }.setNegativeButton("Keep it on", null)
+                .showXv(pluginContext, destructive = true)
+        first.setOnDismissListener { if (!confirmed) onCancelled() }
+    }
+
+    // Second step: type DISABLE.
+    private fun confirmDisableEmergencyTyped(
+        onConfirmed: () -> Unit,
+        onCancelled: () -> Unit,
+    ) {
+        val field =
+            android.widget.EditText(mapView.context).apply {
+                hint = "Type DISABLE"
+                setSingleLine(true)
+            }
+        var done = false
+        val dialog =
+            android.app.AlertDialog
+                .Builder(mapView.context)
+                .setTitle("Confirm: emergency button off")
+                .setMessage("Type DISABLE to turn the emergency button off.")
+                .setView(field)
+                .setPositiveButton("Turn off") { _, _ ->
+                    done = field.text.toString().trim() == "DISABLE"
+                    if (done) onConfirmed()
+                    val msg = if (done) "Emergency button is off" else "Not turned off — type DISABLE exactly"
+                    android.widget.Toast
+                        .makeText(pluginContext, msg, android.widget.Toast.LENGTH_LONG)
+                        .show()
+                }.setNegativeButton("Keep it on", null)
+                .showXv(pluginContext, destructive = true)
+        dialog.setOnDismissListener { if (!done) onCancelled() }
     }
 
     // BT-audio-override picker: lets the operator choose a specific

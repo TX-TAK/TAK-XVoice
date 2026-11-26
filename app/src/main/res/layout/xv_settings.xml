@@ -157,11 +157,26 @@
                         android:text="—" />
 
                     <TextView
+                        android:id="@+id/xv_label_aina_button_map"
                         style="@style/XV.Text.Mono"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
                         android:text="@string/xv_button_map_speaker_mic" />
+
+                    <!-- Emergency button: which ATAK alert it sends
+                         (default 911), or Off behind a two-step confirm. -->
+                    <TextView
+                        style="@style/XV.Text.Caption"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="Emergency button sends" />
+
+                    <Spinner
+                        android:id="@+id/xv_spinner_emergency_alert"
+                        style="@style/XV.Spinner"
+                        android:contentDescription="Alert the emergency button sends" />
                 </LinearLayout>
 
                 <!-- Card: button-only PTT (puck, handlebar, glove) -->
