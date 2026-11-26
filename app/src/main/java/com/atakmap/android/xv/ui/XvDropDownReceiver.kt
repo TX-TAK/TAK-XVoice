@@ -294,10 +294,6 @@ class XvDropDownReceiver(
         // hides the row.
         fun samsungActiveKeySupported(): Boolean = false
 
-        fun samsungActiveKeyEnabled(): Boolean = false
-
-        fun setSamsungActiveKeyEnabled(enabled: Boolean) {}
-
         // True when Samsung's "Use Active button with app" setting is on
         // and points at XV — the state that makes the key reach XV while
         // ATAK is backgrounded or the screen is locked. Read-only from
@@ -3086,8 +3082,7 @@ class XvDropDownReceiver(
         wireExternalButtonPicker(v)
         wireBlePttScanButton(v)
         wireAutoConnectBtSwitch(v)
-        wireSamsungActiveKeySwitch(v)
-        wireSamsungActiveKeyBgSwitch(v)
+        wireSamsungActiveKeyRow(v)
         wireBtAudioOverridePicker(v)
     }
 
@@ -3769,70 +3764,28 @@ class XvDropDownReceiver(
         }
     }
 
-    // Samsung ruggedized-device Active Key toggle. The whole row is
-    // hidden entirely on any device that doesn't have the key —
-    // per operator direction 2026-07-10 we do NOT show a greyed-out
-    // row on non-Samsung hardware; the option simply does not appear.
-    // On Samsung Tab Active5 / XCover6 Pro / etc. the row is shown,
-    // reflects the persisted toggle, and updates the service on flip.
-    private fun wireSamsungActiveKeySwitch(v: View) {
+    // Samsung ruggedized-device Active Key row. Hidden entirely on any
+    // device without the key (operator direction 2026-07-10: no
+    // greyed-out row on non-Samsung hardware). Samsung's own "Use
+    // Active button with app" setting is the single on/off switch —
+    // an app cannot assign the key — so this row only reports whether
+    // the key is assigned to XV and opens Samsung's Active button
+    // screen on tap. The status is re-read on every inflateSettings
+    // call, so it is current after the operator returns from Samsung's
+    // settings page.
+    private fun wireSamsungActiveKeyRow(v: View) {
         val row = v.findViewById<View>(R.id.xv_row_samsung_active_key) ?: return
         val help = v.findViewById<View>(R.id.xv_label_samsung_active_key_help)
-        val sw = v.findViewById<android.widget.Switch>(R.id.xv_switch_samsung_active_key) ?: return
-        val supported = controller.samsungActiveKeySupported()
-        if (!supported) {
+        val status = v.findViewById<TextView>(R.id.xv_label_samsung_active_key_status)
+        if (!controller.samsungActiveKeySupported()) {
             row.visibility = View.GONE
             help?.visibility = View.GONE
             return
         }
         row.visibility = View.VISIBLE
         help?.visibility = View.VISIBLE
-        // Detach any previous listener before pushing state so restoring
-        // the persisted value doesn't spuriously call setSamsungActiveKeyEnabled.
-        sw.setOnCheckedChangeListener(null)
-        sw.isChecked = controller.samsungActiveKeyEnabled()
-        sw.setOnCheckedChangeListener { _, isChecked ->
-            controller.setSamsungActiveKeyEnabled(isChecked)
-        }
-    }
-
-    // Samsung Active Key background / locked-screen PTT row. Only
-    // visible on Samsung ruggedized hardware — same isSupported() gate
-    // as the row above. The toggle reflects whether Samsung's "Use
-    // Active button with app" setting currently points at XV and is
-    // read-only in the traditional sense: tapping it opens Samsung's
-    // Active button settings screen rather than toggling directly,
-    // because only the operator can assign the key. The switch
-    // read-state updates on each inflateSettings call so it stays in
-    // sync after the operator returns from the system settings page.
-    @Suppress("ReturnCount")
-    private fun wireSamsungActiveKeyBgSwitch(v: View) {
-        val row = v.findViewById<View>(R.id.xv_row_samsung_active_key_bg) ?: return
-        val help = v.findViewById<View>(R.id.xv_label_samsung_active_key_bg_help)
-        val sw = v.findViewById<android.widget.Switch>(R.id.xv_switch_samsung_active_key_bg) ?: return
-        val supported = controller.samsungActiveKeySupported()
-        if (!supported) {
-            row.visibility = View.GONE
-            help?.visibility = View.GONE
-            return
-        }
-        row.visibility = View.VISIBLE
-        help?.visibility = View.VISIBLE
-        // Reflect current OS-level state — no listener that would try
-        // to set it programmatically (an app cannot assign the key).
-        sw.setOnCheckedChangeListener(null)
-        sw.isChecked = controller.samsungActiveKeyAssignedToXv()
-        // Any tap on the row or the switch opens Samsung's Active button
-        // settings so the operator can assign / unassign the key there.
-        // Reset the switch to the current OS-reported value before launching
-        // Settings — a Switch tap briefly toggles the visual state before
-        // the click listener fires, so we must correct it immediately to
-        // avoid showing a misleading checked state while Settings opens.
+        status?.text = if (controller.samsungActiveKeyAssignedToXv()) "Assigned ›" else "Set up ›"
         row.setOnClickListener { controller.openSamsungActiveKeySettings() }
-        sw.setOnClickListener {
-            sw.isChecked = controller.samsungActiveKeyAssignedToXv()
-            controller.openSamsungActiveKeySettings()
-        }
     }
 
     private fun formatAinaStatus(

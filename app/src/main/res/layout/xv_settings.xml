@@ -640,16 +640,15 @@
                      Audio device section above.
                      ============================================================ -->
 
-                <!-- Samsung ruggedized-device Active Key PTT toggle.
-                     Visible ONLY on Samsung Tab Active5 / XCover6 Pro
-                     / XCover7 / Tab Active4 Pro / Tab Active3 — the
-                     row is hidden (`View.GONE`) at inflate time on
-                     every other device via
-                     XvDropDownReceiver.wireSamsungActiveKeySwitch,
-                     which consults
-                     `SamsungActiveKey.isSupported(context)`. Non-
-                     Samsung operators never see this row. Default
-                     OFF; the operator opts in explicitly. -->
+                <!-- Samsung ruggedized-device Active Key PTT. Visible
+                     ONLY on Samsung hardware with the programmable key
+                     (XvDropDownReceiver.wireSamsungActiveKeyRow consults
+                     `SamsungActiveKey.isSupported(context)`); hidden on
+                     everything else. Samsung's own "Use Active button
+                     with app" setting is the single on/off switch, so
+                     this row has no XV-side toggle: it shows whether the
+                     key is assigned to XV and opens Samsung's Active
+                     button screen when tapped. -->
                 <LinearLayout
                     android:id="@+id/xv_row_samsung_active_key"
                     android:layout_width="match_parent"
@@ -659,73 +658,31 @@
                     android:padding="12dp"
                     android:background="@drawable/xv_card_bg"
                     android:layout_marginTop="12dp"
+                    android:clickable="true"
+                    android:focusable="true"
                     android:visibility="gone">
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Use Samsung Active Key as PTT"
+                        android:text="Samsung Active Key PTT"
                         android:textColor="@color/xv_text"
                         android:textSize="14sp"/>
 
-                    <Switch
-                        android:id="@+id/xv_switch_samsung_active_key"
+                    <TextView
+                        android:id="@+id/xv_label_samsung_active_key_status"
                         android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
+                        android:layout_height="wrap_content"
+                        android:textColor="@color/xv_text_dim"
+                        android:textSize="13sp"/>
                 </LinearLayout>
 
                 <TextView
                     android:id="@+id/xv_label_samsung_active_key_help"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Use the programmable side button on your Samsung ruggedized device as an additional PTT source, alongside on-screen PTT and any bonded AINA / BLE PTT button. Press to talk; release to end. Turn OFF to restore the key's default Samsung behaviour."
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    android:layout_marginTop="4dp"
-                    android:visibility="gone"/>
-
-                <!-- Background / locked-screen Active Key PTT via
-                     Samsung's own key mapping. Visible ONLY on Samsung
-                     ruggedized hardware (same isSupported() gate as the
-                     row above). When the operator assigns the Active
-                     button to XV in Samsung Settings, the key fires PTT
-                     even while ATAK is backgrounded or the screen is
-                     locked. The row deep-links to that Samsung screen;
-                     the toggle reflects whether the key is currently
-                     assigned to XV (read-only — toggling navigates to
-                     OS settings rather than toggling in-place, because
-                     only the operator can assign the key). -->
-                <LinearLayout
-                    android:id="@+id/xv_row_samsung_active_key_bg"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:padding="12dp"
-                    android:background="@drawable/xv_card_bg"
-                    android:layout_marginTop="12dp"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Use Active Key in the background and when locked"
-                        android:textColor="@color/xv_text"
-                        android:textSize="14sp"/>
-
-                    <Switch
-                        android:id="@+id/xv_switch_samsung_active_key_bg"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"/>
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/xv_label_samsung_active_key_bg_help"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Assign the Active button to TAK-XVoice in Samsung Settings so the key fires PTT while ATAK is in the background or the screen is locked. Tap the toggle to open that screen, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. Turn it off there to give the key back to Samsung. No accessibility permission is involved."
+                    android:text="Tap to open Samsung's Active button settings, turn on &quot;Use Active button with app&quot; and pick TAK-XVoice. The key then works as PTT in the foreground, in the background and with the screen locked. Turn it off there to give the key back to Samsung."
                     android:textColor="@color/xv_text_dim"
                     android:textSize="11sp"
                     android:layout_marginTop="4dp"

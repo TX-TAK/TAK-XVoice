@@ -2093,37 +2093,6 @@ class XvVoiceService : Service() {
                 return plant().isExternalButtonConnected()
             }
 
-            override fun setSamsungActiveKeyEnabled(enabled: Boolean) {
-                assertAuthorizedCaller()
-                if (enabled) {
-                    plant().startSamsungActiveKey()
-                } else {
-                    plant().stopSamsungActiveKey()
-                }
-            }
-
-            override fun isSamsungActiveKeyRunning(): Boolean {
-                assertAuthorizedCaller()
-                return plant().isSamsungActiveKeyRunning()
-            }
-
-            // Foreground-KeyEvent fallback edge dispatch. The plugin's
-            // SamsungActiveKeyForegroundReader owns the OnKeyListener
-            // attached to the MapView (the KeyEvent path only reaches
-            // the top activity); it forwards each filtered edge here so
-            // the service's PttDispatcher — the single source of truth
-            // for TX state — sees the SAMSUNG_ACTIVE_KEY-tagged edge in
-            // the correct process. Same authorization gate as the other
-            // PTT paths.
-            override fun notifySamsungActiveKeyEdge(isDown: Boolean) {
-                assertAuthorizedCaller()
-                if (isDown) {
-                    plant().pttDown(0, com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY)
-                } else {
-                    plant().pttUp(0, com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY)
-                }
-            }
-
             override fun setMumbleSessionState(connectedAndInChannel: Boolean) {
                 assertAuthorizedCaller()
                 plant().setMumbleSessionLive(connectedAndInChannel)
@@ -2248,11 +2217,9 @@ class XvVoiceService : Service() {
          * for each `HARD_KEY_REPORT` of keyCode 1015, whatever is in the
          * foreground and whether or not the screen is locked.
          *
-         * Delivers straight to the plant rather than through
-         * [SamsungActiveKeyReader], which is only registered while the
-         * *foreground* Active Key toggle is on — so background PTT works
-         * whenever the voice service is live and the operator has
-         * assigned the key to XV, independent of that toggle.
+         * Samsung's own "Use Active button with app" setting is the
+         * single on/off switch: XV receives reports only while the
+         * operator has assigned the key to it.
          *
          * No-op when no service is running (background PTT is only
          * meaningful during a live session). Thread-safe: the plant's
@@ -2307,13 +2274,19 @@ class XvVoiceService : Service() {
         // land on the wrong transaction rather than merely miss a
         // call — which is exactly the case this version check exists
         // to catch.
+        // v5 → v6: BREAKING — removed setSamsungActiveKeyEnabled,
+        // isSamsungActiveKeyRunning and notifySamsungActiveKeyEdge. The
+        // Active Key now reaches XV only through the manifest
+        // SamsungHardKeyReceiver (Samsung's native key mapping), so the
+        // runtime broadcast reader and the foreground-KeyEvent relay
+        // were removed. Mid-interface removal shifts transaction IDs.
         // internal (not private): XvVoiceClient derives EXPECTED_API_VERSION
         // from this constant, so client and service can never skew within
         // one build — a runtime mismatch then always means a genuinely
         // stale installed APK, which is exactly what the probe exists to
         // catch. (The client warned on EVERY load for months when its own
         // copy sat at 1.)
-        internal const val AIDL_API_VERSION = 5
+        internal const val AIDL_API_VERSION = 6
 
         // Channel ids for the incoming-ring + active-call CallStyle
         // notifications live in NotificationChannels.kt. The service's

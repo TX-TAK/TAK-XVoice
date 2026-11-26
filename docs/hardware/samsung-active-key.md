@@ -6,7 +6,7 @@ alongside (or instead of) a Bluetooth speakermic.
 
 ## Supported chassis
 
-The Active Key PTT toggle appears **only** on hardware that actually has
+The **Samsung Active Key PTT** settings row appears **only** on hardware that actually has
 the key. XV recognizes:
 
 | Family            | `Build.MODEL` prefix      |
@@ -17,7 +17,7 @@ the key. XV recognizes:
 | Galaxy XCover7    | `SM-G556`                 |
 | Galaxy XCover6 Pro | `SM-G736`                |
 
-On any other device the toggle is hidden and this feature is a no-op.
+On any other device the row is hidden and this feature is a no-op.
 
 ## The two keys
 
@@ -25,29 +25,24 @@ On any other device the toggle is hidden and this feature is a no-op.
 - **Top / Emergency key** — keyCode `1079`. **Not** wired to PTT or the
   emergency alert today; it keeps its Samsung-configured behavior.
 
-## Foreground PTT — works out of the box
+## Setup — assign the key to XV
 
-While ATAK holds the top window, the Active Key arrives as an ordinary
-`KeyEvent` (down on press, up on release) and XV keys PTT directly. No
-setup beyond enabling the **Active Key** row in XV settings.
+Samsung's own setting is the single on/off switch. Once the key is
+assigned to XV it works as PTT in the foreground, with ATAK backgrounded,
+and with the screen off and locked. This uses Samsung's built-in "control
+the key with an app" mapping. It needs no accessibility service, no Knox
+SDK and no Knox license.
 
-## Background and locked-screen PTT — assign the key to XV
-
-To keep the key working while ATAK is backgrounded, or with the screen off
-and locked, assign the key to XV in Samsung's own settings. This uses
-Samsung's built-in "control the key with an app" mapping. It needs no
-accessibility service, no Knox SDK and no Knox license.
-
-1. In XV settings, tap **Use Active Key in the background and when
-   locked**. XV opens Samsung's Active button screen. (You can also go
-   there yourself: *Settings → Advanced features → Active button*.)
+1. In XV settings, tap **Samsung Active Key PTT**. XV opens Samsung's
+   Active button screen. (You can also go there yourself: *Settings →
+   Advanced features → Active button*.)
 2. Turn on **Use Active button with app** and pick **Texas TAK-XVoice**.
 3. Press and hold the key — XV now receives every press and release,
    whatever is in the foreground.
 
-The XV settings row is read-only. It reflects whether Samsung's setting
-currently points at XV; it is not a persisted XV preference. Turn the
-Samsung setting off to give the key back to Samsung.
+XV has no toggle of its own. The row shows **Assigned** when Samsung's
+setting points at XV and **Set up** otherwise. Turn the Samsung setting
+off to give the key back to Samsung.
 
 ### How it works
 
@@ -81,11 +76,11 @@ README.
 
 ## Troubleshooting
 
-- **Toggle missing:** the device model isn't in the supported list above,
+- **Row missing:** the device model isn't in the supported list above,
   or `Build.MANUFACTURER` isn't `samsung`.
-- **Works foreground, not backgrounded or locked:** the key isn't
-  assigned to XV. Open Samsung's Active button screen (the XV row does
-  this) and confirm **Use Active button with app** is on and set to XV.
+- **Key does nothing in XV:** the key isn't assigned to XV (the XV row
+  shows **Set up**). Tap the row and confirm **Use Active button with
+  app** is on and set to XV.
 - **XV isn't offered in Samsung's picker:** the firmware may not offer
   this mapping to third-party apps, or an older XV build without the
   manifest entries is installed.

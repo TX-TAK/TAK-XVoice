@@ -39,16 +39,14 @@ For device-specific pairing and button notes, see
 
 ## Background & Screen-Off Hardware PTT
 
-On-device hardware PTT keys (such as the **Samsung Active Key**) work in the
-foreground out of the box. To keep the Samsung Active Key working while ATAK
-is backgrounded or the screen is locked, assign it to XV in Samsung's own
-settings:
+The **Samsung Active Key** works as PTT in the foreground, with ATAK
+backgrounded, and with the screen locked once it is assigned to XV in
+Samsung's own settings:
 
-1. Open **XV Settings** and enable the hardware key toggle (visible only on
-   devices with supported physical keys).
-2. Tap **Use Active Key in the background and when locked** — XV opens
-   Samsung's Active button settings screen.
-3. Turn on **Use Active button with app** and pick **Texas TAK-XVoice**.
+1. Open **XV Settings** and tap **Samsung Active Key PTT** (visible only on
+   devices with the key). XV opens Samsung's Active button settings screen.
+2. Turn on **Use Active button with app** and pick **Texas TAK-XVoice**.
+3. Back in XV Settings the row shows **Assigned**.
 
 !!! info "No special permissions"
     This uses Samsung's built-in key mapping. XV needs no accessibility

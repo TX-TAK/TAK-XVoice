@@ -23,11 +23,12 @@ import com.atakmap.android.xv.util.SamsungActiveKey
  * Once the operator assigns the key to XV, the framework reports each
  * press (report type 1) and release (type 2) of the side key (1015).
  *
- * Why this exists alongside [SamsungActiveKeyReader]: that reader
- * registers at runtime only, and without the meta-data the APK was
- * never eligible to be chosen in Settings — which is why an earlier
- * validation concluded the firmware "does not emit" the broadcast.
- * This receiver is the documented shape. Verified 2026-11-25 on a
+ * This is XV's only Active Key path. An earlier runtime-registered
+ * reader never received anything because, without the meta-data, the
+ * APK was not eligible to be chosen in Settings — which is why an
+ * earlier validation concluded the firmware "does not emit" the
+ * broadcast. Samsung's setting is the single on/off switch; XV has
+ * no toggle of its own. Verified 2026-11-25 on a
  * Tab Active5 (SM-X308U, Android 16): reports arrive and key PTT in
  * the foreground, with ATAK backgrounded, and with the screen off
  * and locked. It replaced the accessibility service XV used to ship
@@ -36,10 +37,8 @@ import com.atakmap.android.xv.util.SamsungActiveKey
  * Delivery: this receiver runs in XV's own APK process — the same
  * process as [XvVoiceService] — so the edge is an in-process call into
  * the live dispatcher, tagged
- * [com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY]. If the
- * runtime reader or the foreground KeyEvent path also fires for the
- * same press, the dispatcher's source-keyed OR-gate collapses the
- * duplicate.
+ * [com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY], which the
+ * dispatcher OR-gates with every other PTT source.
  *
  * Exposure: the receiver must be exported (the sender is the Samsung
  * framework, and Samsung documents no sender permission we could

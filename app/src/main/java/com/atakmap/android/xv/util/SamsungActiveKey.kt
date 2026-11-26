@@ -2,7 +2,6 @@ package com.atakmap.android.xv.util
 
 import android.content.Context
 import android.os.Build
-import android.view.KeyEvent
 
 /**
  * Capability detection for the programmable Active Key found on Samsung
@@ -121,8 +120,8 @@ object SamsungActiveKey {
     /**
      * True when the current device is a Samsung ruggedized model that
      * carries the programmable Active Key. Consulted at Settings-row
-     * inflation time to decide whether to show the "Enable Samsung
-     * Active Key as PTT" toggle at all. On any non-Samsung device this
+     * inflation time to decide whether to show the "Samsung Active Key
+     * PTT" row at all. On any non-Samsung device this
      * is a fast constant `false`.
      *
      * [context] is accepted for symmetry with the Android-runtime
@@ -180,29 +179,11 @@ object SamsungActiveKey {
     }
 
     /**
-     * Classification returned by [handleKeyEvent] for a single Android
-     * [KeyEvent] observed while XV / ATAK is in the foreground. Used by
-     * the foreground-KeyEvent fallback path
-     * ([com.atakmap.android.xv.ptt.SamsungActiveKeyForegroundReader]) so
-     * the transport layer maps to the same [com.atakmap.android.xv.audio.PttSource]
-     * edges that the broadcast path fires — while keeping the decision
-     * itself pure and unit-testable (no Android runtime, no
-     * Robolectric).
-     *
-     * The fallback covers the case where the operator has NOT assigned
-     * the Active button to XV in Samsung Settings: no `HARD_KEY_REPORT`
-     * is sent to XV then, but the plain `KeyEvent` still produces both
-     * `ACTION_DOWN` (with `repeatCount == 0`) and `ACTION_UP` — which
-     * is exactly what PTT needs. (An earlier note here read the missing
-     * broadcast on a Tab Active5 as "firmware does not emit it"; the
-     * real cause was that XV had not declared the manifest opt-in — see
-     * the class header.)
-     *
-     * The trade-off: a `KeyEvent` routed by
-     * `PhoneWindowManager.interceptKeyTq` -> `InputDispatcher` is
-     * delivered to the top activity only, so this path works only
-     * while ATAK is in the foreground. Background and locked-screen
-     * PTT need the key assigned to XV.
+     * Classification of a single Samsung `HARD_KEY_REPORT` broadcast,
+     * returned by [classifyHardKeyReport]. Kept pure so the decision is
+     * unit-testable without the Android runtime; the receiver maps it
+     * to [com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY]
+     * edges.
      */
     enum class FallbackAction {
         /** Fire a PTT down edge tagged [com.atakmap.android.xv.audio.PttSource.SAMSUNG_ACTIVE_KEY]. */
@@ -288,35 +269,6 @@ object SamsungActiveKey {
         return when (reportType) {
             KEY_REPORT_TYPE_PRESSED -> FallbackAction.PTT_DOWN
             KEY_REPORT_TYPE_RELEASED -> FallbackAction.PTT_UP
-            else -> FallbackAction.IGNORE
-        }
-    }
-
-    /**
-     * Pure classification of a single Android [KeyEvent] tuple for the
-     * foreground-KeyEvent fallback path. Returns [FallbackAction.PTT_DOWN]
-     * on the initial press of `KEYCODE == 1015` (the Samsung Active
-     * Key), [FallbackAction.PTT_UP] on release, and [FallbackAction.IGNORE]
-     * for everything else — including auto-repeat down events
-     * (`repeatCount > 0`), volume / navigation keys, and unusual
-     * actions like [KeyEvent.ACTION_MULTIPLE].
-     *
-     * Auto-repeat is dropped so a physically held key doesn't spam the
-     * dispatcher with duplicate down edges after the first — this is
-     * belt-and-suspenders (the dispatcher's OR-gate would ignore the
-     * duplicates anyway, since `PttSource.SAMSUNG_ACTIVE_KEY` is
-     * already held), but it also keeps log output readable.
-     */
-    fun handleKeyEvent(
-        keyCode: Int,
-        action: Int,
-        repeatCount: Int,
-    ): FallbackAction {
-        if (keyCode != KEY_CODE_PTT) return FallbackAction.IGNORE
-        return when (action) {
-            KeyEvent.ACTION_DOWN ->
-                if (repeatCount == 0) FallbackAction.PTT_DOWN else FallbackAction.IGNORE
-            KeyEvent.ACTION_UP -> FallbackAction.PTT_UP
             else -> FallbackAction.IGNORE
         }
     }

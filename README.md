@@ -118,11 +118,11 @@ and feature polish.
      Active4 Pro, Tab Active3) — the side Active Key becomes a PTT
      source. See [docs/hardware/samsung-active-key.md](docs/hardware/samsung-active-key.md).
 
-   These toggles appear only on hardware that actually has the keys. On
-   the Samsung Active Key, assigning the key to XV in Samsung's own
-   settings (XV deep-links to that screen) keeps it working while ATAK is
-   backgrounded or the screen is locked — no accessibility service or
-   special permission involved.
+   These rows appear only on hardware that actually has the keys. The
+   Samsung Active Key is switched on by assigning it to XV in Samsung's
+   own settings (XV deep-links to that screen); it then works in the
+   foreground, backgrounded and with the screen locked — no accessibility
+   service or special permission involved.
 
 4. **Reachability-aware BT device picker.** On plugin load, XV restores
    the last-connected speakermic when it's actually reachable and

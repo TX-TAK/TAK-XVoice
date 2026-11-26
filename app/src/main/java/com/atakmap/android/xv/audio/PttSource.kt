@@ -20,8 +20,9 @@ enum class PttSource(val dropsTrailingClick: Boolean) {
     PRYME_BLE(dropsTrailingClick = true),
 
     // Samsung ruggedized-device programmable Active Key (Tab Active5,
-    // XCover6 Pro / 7, etc.). Emits `HARD_KEY_REPORT` broadcasts we
-    // convert into PTT down/up edges via [SamsungActiveKeyReader]. The
+    // XCover6 Pro / 7, etc.). Emits `HARD_KEY_REPORT` broadcasts that
+    // [com.atakmap.android.xv.ptt.SamsungHardKeyReceiver] converts into
+    // PTT down/up edges. The
     // key is a bare rubber-dome side button on the tablet chassis with
     // no audible click at release — same as ON_SCREEN, so we do NOT
     // trim the trailing frame on release. Independent PTT source; runs
