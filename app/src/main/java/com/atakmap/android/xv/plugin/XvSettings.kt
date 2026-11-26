@@ -431,15 +431,15 @@ class XvSettings(
     // rules), then delete them. Idempotent: once the keys are gone there
     // is nothing left to fold. Returns the number of configs corrected.
     fun migrateLegacyCryptoPolicyPrefs(): Int {
-        val p = prefs() ?: return 0
+        val p = prefs()
         val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
+        val all: Map<String, Any?> = p?.all ?: emptyMap()
+        val legacyKeys = all.keys.filter { it.startsWith(prefix) }
+        if (p == null || legacyKeys.isEmpty()) return 0
         val legacy =
-            p.all
-                .filterKeys { it.startsWith(prefix) }
-                .mapNotNull { (k, v) -> (v as? String)?.let { k.removePrefix(prefix) to it } }
+            legacyKeys
+                .mapNotNull { k -> (all[k] as? String)?.let { k.removePrefix(prefix) to it } }
                 .toMap()
-        val legacyKeys = p.all.keys.filter { it.startsWith(prefix) }
-        if (legacyKeys.isEmpty()) return 0
         val fixes = LegacyCryptoPolicyMigration.plan(legacy, channelMulticastConfigs())
         fixes.forEach { persistChannelMulticastConfig(it) }
         p.edit().apply {

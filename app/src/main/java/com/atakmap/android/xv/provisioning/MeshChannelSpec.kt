@@ -125,20 +125,7 @@ object MeshChannelSpec {
         cryptoPolicy: CryptoPolicy,
         hasKey: Boolean,
     ): Result {
-        val groupTrim = group?.trim().orEmpty()
-        val portTrim = port?.trim().orEmpty()
-        val pinGroup = groupTrim.isNotEmpty()
-        val pinPort = portTrim.isNotEmpty()
-        if (pinGroup != pinPort) {
-            return Result.err("Pin the group and port together, or leave both blank to derive them automatically.")
-        }
-        var pinnedGroup: String? = null
-        var pinnedPort: Int? = null
-        if (pinGroup) {
-            pinnedPort = portTrim.toIntOrNull() ?: return Result.err("Port “$portTrim” is not a number.")
-            pinnedGroup = groupTrim
-        }
-
+        val pin = parsePin(group, port)
         val wireFormat =
             when {
                 cryptoPolicy != CryptoPolicy.CLEARTEXT -> WireFormat.XV_NATIVE
@@ -149,13 +136,39 @@ object MeshChannelSpec {
             existing.copy(
                 wireFormat = wireFormat,
                 cryptoPolicy = cryptoPolicy,
-                pinnedGroup = pinnedGroup,
-                pinnedPort = pinnedPort,
+                pinnedGroup = pin.group,
+                pinnedPort = pin.port,
             )
-        config.validate()?.let { return Result.err(it) }
-
+        // A pin parse error wins; only a well-formed pin reaches validate().
+        val error = pin.error ?: config.validate()
         val becameEncrypted =
             existing.cryptoPolicy == CryptoPolicy.CLEARTEXT && cryptoPolicy != CryptoPolicy.CLEARTEXT
-        return Result.ok(config, autoKey = becameEncrypted && !hasKey)
+        return if (error != null) {
+            Result.err(error)
+        } else {
+            Result.ok(config, autoKey = becameEncrypted && !hasKey)
+        }
+    }
+
+    private data class Pin(
+        val group: String? = null,
+        val port: Int? = null,
+        val error: String? = null,
+    )
+
+    private fun parsePin(
+        group: String?,
+        port: String?,
+    ): Pin {
+        val groupTrim = group?.trim().orEmpty()
+        val portTrim = port?.trim().orEmpty()
+        val parsedPort = portTrim.toIntOrNull()
+        return when {
+            groupTrim.isEmpty() != portTrim.isEmpty() ->
+                Pin(error = "Pin the group and port together, or leave both blank to derive them automatically.")
+            groupTrim.isEmpty() -> Pin()
+            parsedPort == null -> Pin(error = "Port “$portTrim” is not a number.")
+            else -> Pin(group = groupTrim, port = parsedPort)
+        }
     }
 }
