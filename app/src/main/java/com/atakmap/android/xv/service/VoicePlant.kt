@@ -1451,43 +1451,16 @@ class VoicePlant(
             "connectAina kind=$kind mac=${com.atakmap.android.xv.aina.redactMac(mac)}",
         )
         val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            Log.w(TAG, "connectAina: no Bluetooth adapter")
+        val device = adapter?.let { resolveInputDevice(it, mac, name, "connectAina") }
+        if (adapter == null || device == null) {
+            Log.w(
+                TAG,
+                "connectAina: no adapter or device for mac=${com.atakmap.android.xv.aina.redactMac(mac)} name=$name",
+            )
             disconnectAina()
             return
         }
-        val device =
-            try {
-                if (!mac.isNullOrBlank()) {
-                    adapter.getRemoteDevice(mac)
-                } else if (!name.isNullOrBlank()) {
-                    val needle = name.lowercase()
-                    adapter.bondedDevices?.firstOrNull {
-                        (it.name ?: "").lowercase().contains(needle)
-                    }
-                } else {
-                    null
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "connectAina: resolve threw", t)
-                null
-            }
-        if (device == null) {
-            Log.w(TAG, "connectAina: no device for mac=${com.atakmap.android.xv.aina.redactMac(mac)} name=$name")
-            disconnectAina()
-            return
-        }
-        val resolvedKind =
-            if (kind == "auto" || kind.isNullOrBlank()) {
-                when (device.type) {
-                    android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE,
-                    android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL,
-                    -> "v2"
-                    else -> "v1"
-                }
-            } else {
-                kind
-            }
+        val resolvedKind = resolveReaderKind(device, kind)
         // ACL_CONNECTED, adapter STATE_ON and config changes all re-run
         // this path. Tearing down a live RFCOMM link just to reopen it
         // drops any held PTT and races the old socket's teardown, so
@@ -1498,50 +1471,20 @@ class VoicePlant(
             return
         }
         disconnectAina()
+        startPrimaryReader(adapter, device, resolvedKind)
+    }
+
+    private fun startPrimaryReader(
+        adapter: android.bluetooth.BluetoothAdapter,
+        device: android.bluetooth.BluetoothDevice,
+        resolvedKind: String,
+    ) {
         // Tell AudioRouter which BT device to prefer when multiple are
         // connected (e.g. AINA + AirPods). Without this hint,
         // preferredDevice() picks "first BT" which is non-deterministic.
         // The operator's BT-audio-override picker still wins over this
-        // — it's an opt-in explicit override.
-        //
-        // For the Inrico BT02, the BLE button peripheral (B02PTT-*) uses
-        // a separate address from the Classic Bluetooth HFP audio device.
-        // Setting preferredBtMacHint to the BLE MAC would never match an
-        // AudioManager output, causing AudioRouter to trip speaker-fallback
-        // and ScoLink to miss the HFP comm device. Look for a bonded Classic
-        // B02/Inrico audio device if present; otherwise leave the hint null
-        // so AudioRouter/ScoLink route cleanly to the active HFP headset.
-        router.preferredBtMacHint =
-            if (resolvedKind == "bt02") {
-                val devType =
-                    try {
-                        device.type
-                    } catch (_: Throwable) {
-                        android.bluetooth.BluetoothDevice.DEVICE_TYPE_UNKNOWN
-                    }
-                if (devType == android.bluetooth.BluetoothDevice.DEVICE_TYPE_CLASSIC) {
-                    device.address
-                } else {
-                    val classicBt02 =
-                        try {
-                            adapter.bondedDevices?.firstOrNull { bonded ->
-                                val n = bonded.name?.trim().orEmpty()
-                                n.isNotEmpty() &&
-                                    (
-                                        Bt02BleReader.isBt02Name(n) ||
-                                            n.contains("B02", ignoreCase = true) ||
-                                            n.contains("BT02", ignoreCase = true) ||
-                                            n.contains("Inrico", ignoreCase = true)
-                                        )
-                            }
-                        } catch (_: Throwable) {
-                            null
-                        }
-                    classicBt02?.address
-                }
-            } else {
-                device.address
-            }
+        // — it's an opt-in explicit override. BT02: see [bt02AudioHint].
+        router.preferredBtMacHint = if (resolvedKind == "bt02") bt02AudioHint(adapter, device) else device.address
         connectedAinaMac = device.address
         // Per-reader onConn so the disconnect edge can tag the correct
         // [PttSource] when releasing a stuck PTT-down. Field bug
@@ -1654,46 +1597,17 @@ class VoicePlant(
             "connectExternalButton kind=$kind mac=${com.atakmap.android.xv.aina.redactMac(mac)}",
         )
         val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
-        if (adapter == null) {
-            Log.w(TAG, "connectExternalButton: no Bluetooth adapter")
-            disconnectExternalButton()
-            return
-        }
-        val device =
-            try {
-                if (!mac.isNullOrBlank()) {
-                    adapter.getRemoteDevice(mac)
-                } else if (!name.isNullOrBlank()) {
-                    val needle = name.lowercase()
-                    adapter.bondedDevices?.firstOrNull {
-                        (it.name ?: "").lowercase().contains(needle)
-                    }
-                } else {
-                    null
-                }
-            } catch (t: Throwable) {
-                Log.w(TAG, "connectExternalButton: resolve threw", t)
-                null
-            }
-        if (device == null) {
+        val device = adapter?.let { resolveInputDevice(it, mac, name, "connectExternalButton") }
+        if (adapter == null || device == null) {
             Log.w(
                 TAG,
-                "connectExternalButton: no device for mac=${com.atakmap.android.xv.aina.redactMac(mac)} name=$name",
+                "connectExternalButton: no adapter or device for mac=${com.atakmap.android.xv.aina.redactMac(mac)} " +
+                    "name=$name",
             )
             disconnectExternalButton()
             return
         }
-        val resolvedKind =
-            if (kind == "auto" || kind.isNullOrBlank()) {
-                when (device.type) {
-                    android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE,
-                    android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL,
-                    -> "v2"
-                    else -> "v1"
-                }
-            } else {
-                kind
-            }
+        val resolvedKind = resolveReaderKind(device, kind)
         // Same respawn guard as [connectAina]: keep a V1 SPP reader that
         // is already pumping on this MAC.
         if (AinaSppReader.shouldKeepLiveReader(externalButtonSpp?.isConnectedTo(device.address) == true, resolvedKind)) {
@@ -1706,6 +1620,13 @@ class VoicePlant(
             return
         }
         disconnectExternalButton()
+        startExternalReader(device, resolvedKind)
+    }
+
+    private fun startExternalReader(
+        device: android.bluetooth.BluetoothDevice,
+        resolvedKind: String,
+    ) {
         // Mirror the primary path's per-source disconnect handling —
         // when the external-button transport drops mid-TX, forget the
         // held button so the burst can terminate. See the field-bug
@@ -1765,6 +1686,84 @@ class VoicePlant(
             }
             else -> Log.w(TAG, "connectExternalButton: unknown kind '$resolvedKind'")
         }
+    }
+
+    // Resolve the input device by MAC, or by a bonded-name substring when
+    // no MAC is given. Null when neither resolves.
+    private fun resolveInputDevice(
+        adapter: android.bluetooth.BluetoothAdapter,
+        mac: String?,
+        name: String?,
+        logTag: String,
+    ): android.bluetooth.BluetoothDevice? =
+        try {
+            if (!mac.isNullOrBlank()) {
+                adapter.getRemoteDevice(mac)
+            } else if (!name.isNullOrBlank()) {
+                val needle = name.lowercase()
+                adapter.bondedDevices?.firstOrNull {
+                    (it.name ?: "").lowercase().contains(needle)
+                }
+            } else {
+                null
+            }
+        } catch (t: Throwable) {
+            Log.w(TAG, "$logTag: resolve threw", t)
+            null
+        }
+
+    // "auto" / blank picks the reader from the transport type; any
+    // explicit kind passes through.
+    private fun resolveReaderKind(
+        device: android.bluetooth.BluetoothDevice,
+        kind: String?,
+    ): String =
+        if (kind == "auto" || kind.isNullOrBlank()) {
+            when (device.type) {
+                android.bluetooth.BluetoothDevice.DEVICE_TYPE_LE,
+                android.bluetooth.BluetoothDevice.DEVICE_TYPE_DUAL,
+                -> "v2"
+                else -> "v1"
+            }
+        } else {
+            kind
+        }
+
+    // For the Inrico BT02, the BLE button peripheral (B02PTT-*) uses a
+    // separate address from the Classic Bluetooth HFP audio device.
+    // Setting preferredBtMacHint to the BLE MAC would never match an
+    // AudioManager output, causing AudioRouter to trip speaker-fallback
+    // and ScoLink to miss the HFP comm device. Use the device itself when
+    // it is the Classic side, else a bonded Classic B02/Inrico audio
+    // device if present; otherwise null so AudioRouter/ScoLink route
+    // cleanly to the active HFP headset.
+    private fun bt02AudioHint(
+        adapter: android.bluetooth.BluetoothAdapter,
+        device: android.bluetooth.BluetoothDevice,
+    ): String? {
+        val devType =
+            try {
+                device.type
+            } catch (_: Throwable) {
+                android.bluetooth.BluetoothDevice.DEVICE_TYPE_UNKNOWN
+            }
+        if (devType == android.bluetooth.BluetoothDevice.DEVICE_TYPE_CLASSIC) return device.address
+        val classicBt02 =
+            try {
+                adapter.bondedDevices?.firstOrNull { bonded ->
+                    val n = bonded.name?.trim().orEmpty()
+                    n.isNotEmpty() &&
+                        (
+                            Bt02BleReader.isBt02Name(n) ||
+                                n.contains("B02", ignoreCase = true) ||
+                                n.contains("BT02", ignoreCase = true) ||
+                                n.contains("Inrico", ignoreCase = true)
+                            )
+                }
+            } catch (_: Throwable) {
+                null
+            }
+        return classicBt02?.address
     }
 
     fun disconnectExternalButton() = synchronized(externalSlotLock) { disconnectExternalButtonLocked() }
