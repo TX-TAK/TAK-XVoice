@@ -20,17 +20,19 @@ import java.util.UUID
  *      Zello-branded PTT-Z01 (Amazon B0DHZDRH3B), and other third-party
  *      buttons using the same chipset. They advertise service UUID
  *      `0000ffe0-0000-1000-8000-00805f9b34fb`.
- *   2. Anything whose advertised name contains `PTT` (case-insensitive)
- *      — broad enough to catch buttons that don't advertise a vendor
- *      service in their scan record but still identify themselves by
- *      name.
+ *   2. Devices advertising the exact local name `PTT-Z01` without a
+ *      service UUID in the scan record.
+ *
+ * The Inrico BT02 is deliberately NOT surfaced here: it is a primary
+ * speaker-mic paired over Classic Bluetooth, and [Bt02BleReader] finds
+ * its companion BLE button peripheral itself.
  *
  * The platform scan itself runs UNFILTERED; the service-UUID / name
  * matching is applied client-side in [matchesKnownPttDevice] (a device
  * matches if it hits any supported signature), because the supported
  * buttons don't share one advertised signature a platform ScanFilter
- * could express — notably the Inrico BT02 advertises only a per-unit
- * local name, which ScanFilter can't prefix-match. Discovered devices
+ * could express. This is a short, foreground, operator-initiated scan,
+ * so screen-off result suppression does not apply. Discovered devices
  * are de-duplicated by MAC before being surfaced to the caller — a
  * single button typically advertises 3-10 times per second, and the UI
  * should treat each MAC as one entry, not one entry per advertisement.
@@ -135,10 +137,8 @@ class BlePttScanner(
         // Scan UNFILTERED at the platform level and allow-list results in
         // [matchesKnownPttDevice]. The supported buttons don't share a
         // single advertised signature a platform [android.bluetooth.le.ScanFilter]
-        // could catch — HM-10 pucks advertise service 0xFFE0, while the
-        // Inrico BT02 advertises only a per-unit local name (prefix
-        // "B02PTT") plus the generic Battery service — and ScanFilter
-        // can't prefix-match a name. This is a short, foreground,
+        // could catch — HM-10 pucks advertise service 0xFFE0, while some
+        // PTT-Z01 units advertise only their name. This is a short, foreground,
         // operator-initiated scan, so the extra callback volume from an
         // unfiltered scan is a non-issue.
         val settings =
@@ -198,8 +198,10 @@ class BlePttScanner(
          *   - it advertises the HM-10 transparent-UART service
          *     ([HM10_SERVICE_UUID]) — Pryme BT-PTT-Z / PTT-Z01 and other
          *     HM-10-based buttons; or
-         *   - its advertised local name is `PTT-Z01`, or carries the
-         *     Inrico BT02 prefix (see [Bt02BleReader.isBt02Name]).
+         *   - its advertised local name is `PTT-Z01`.
+         *
+         * Inrico BT02 names ("B02PTT-…") are intentionally excluded — the
+         * BT02 is a Classic-paired primary speaker-mic, not a BLE button.
          *
          * Everything else — including devices advertising only generic
          * services like Battery (0x180F) — is ignored.

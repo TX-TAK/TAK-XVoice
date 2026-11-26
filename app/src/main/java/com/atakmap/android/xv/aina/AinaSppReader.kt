@@ -151,6 +151,9 @@ class AinaSppReader(
                 targetDevice?.address.equals(mac, ignoreCase = true)
         }
 
+    /** An RFCOMM socket is open and pumping (to whichever device). */
+    fun isConnected(): Boolean = synchronized(lifecycleLock) { !stopRequested && socket != null }
+
     fun disconnect() {
         val old = synchronized(lifecycleLock) { teardownLocked() }
         // Close outside the lock: BluetoothSocket.close() can block

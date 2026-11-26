@@ -1101,6 +1101,24 @@ class XvVoiceService : Service() {
                 fanOut { it.onPttBlockedByCellularCall(reason) }
             }
 
+            override fun onPttInputNeedsRepair(reason: String) {
+                com.atakmap.android.xv.util.DiagnosticLogger.event(
+                    tag = "XvVoiceSvc",
+                    severity = 'W',
+                    message = "PTT input needs re-pair: $reason",
+                )
+                fanOut { it.onPttInputNeedsRepair(reason) }
+            }
+
+            override fun onPttInputProblem(reason: String) {
+                com.atakmap.android.xv.util.DiagnosticLogger.event(
+                    tag = "XvVoiceSvc",
+                    severity = 'W',
+                    message = "PTT input problem: $reason",
+                )
+                fanOut { it.onPttInputProblem(reason) }
+            }
+
             override fun onPlaceTelecomCall(tag: String) {
                 placeTelecomCallInternal(tag)
             }

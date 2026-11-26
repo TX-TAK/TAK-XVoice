@@ -4,11 +4,13 @@ import android.annotation.SuppressLint
 import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
 import android.bluetooth.le.ScanCallback
+import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
 import android.util.Log
 import java.util.UUID
 
@@ -72,16 +74,72 @@ class Bt02BleReader(
     private val appContext: Context,
     onEvent: (AinaButton, isDown: Boolean) -> Unit,
     onConnectionState: (Boolean) -> Unit = {},
+    onNeedsRepair: (String) -> Unit = {},
+    onProblem: (String) -> Unit = {},
+    // Test seams. Production uses the platform scanner / connectGatt.
+    private val leScanner: () -> LeScanner? = { platformLeScanner() },
+    gattConnector: AinaBleReader.GattConnector = AinaBleReader.DefaultGattConnector,
+    adapterEnabled: () -> Boolean = { GattSetup.defaultAdapterEnabled() },
 ) : BitmaskGattPttReader(
     context = appContext,
     config = BT02_CONFIG,
     onEvent = onEvent,
     onConnectionState = onConnectionState,
+    onNeedsRepair = onNeedsRepair,
+    gattConnector = gattConnector,
+    onProblem = onProblem,
+    adapterEnabled = adapterEnabled,
 ) {
+    /** The two BluetoothLeScanner calls discovery uses (test seam). */
+    interface LeScanner {
+        fun startScan(
+            filters: List<ScanFilter>?,
+            settings: ScanSettings,
+            callback: ScanCallback,
+        )
+
+        fun stopScan(callback: ScanCallback)
+    }
+
+    // All discovery state is touched on this (main) looper only: scan
+    // callbacks post here before acting. @Volatile because connectBt02 /
+    // disconnect can be called from a binder thread.
     private val scanHandler = Handler(Looper.getMainLooper())
+
+    @Volatile
     private var discoveryCallback: ScanCallback? = null
+
+    @Volatile
     private var targetBleName: String? = null
+
+    @Volatile
     private var discoveryStopped: Boolean = true
+
+    // Exact BT02 local name to re-resolve the companion LE peripheral
+    // by when its cached address stops answering (the BT02 uses a
+    // random LE address). Null when we only know the address — then
+    // the reader keeps retrying that address rather than guess at a
+    // co-located operator's BT02.
+    @Volatile
+    private var rescanName: String? = null
+
+    // Scan windows run since connectBt02 or the last confirmed
+    // subscription — NOT per re-resolution round, so repeated rounds
+    // progress to the balanced scan mode and the unfiltered fallback
+    // window instead of rerunning window 0 forever. Drives the window
+    // backoff, the scan mode and the filtered/unfiltered alternation.
+    @Volatile
+    private var discoveryWindows: Int = 0
+
+    // Address-failure rounds handed to us by the base reader. Rescans
+    // alternate with the base's own retries on the cached address, so a
+    // BT02 that kept its address still comes back cheaply. Reset on a
+    // confirmed subscription so the next outage starts on a scan.
+    @Volatile
+    private var rescanRounds: Int = 0
+
+    @Volatile
+    private var scanPermissionReported: Boolean = false
 
     private val stopDiscoveryRunnable =
         Runnable {
@@ -103,8 +161,8 @@ class Bt02BleReader(
      *
      * When given the bonded Classic device, the BT02 exposes its button
      * GATT server on a separate random LE address advertising the same
-     * local name (`B02PTT-xxxx`). In that case we run a brief background
-     * BLE scan to resolve the matching LE peripheral automatically so the
+     * local name (`B02PTT-xxxx`). In that case we run a background BLE
+     * scan to resolve the matching LE peripheral automatically so the
      * operator only has to pair the BT02 once in Android Settings.
      */
     fun connectBt02(device: BluetoothDevice) {
@@ -124,119 +182,297 @@ class Bt02BleReader(
             } catch (_: Throwable) {
                 null
             }
+        // Same fresh start on both paths: tear down, clear every counter
+        // and notice flag (ours and the base's), and set the names before
+        // the first attempt or scan is queued.
+        disconnect()
+        resetFailureHistory()
+        scanPermissionReported = false
+        rescanRounds = 0
+        discoveryWindows = 0
+        rememberRequestedMac(device.address)
         if (devType == BluetoothDevice.DEVICE_TYPE_CLASSIC) {
-            disconnect()
-            discoveryStopped = false
             targetBleName = devName?.takeIf { it.isNotBlank() }
+            rescanName = targetBleName?.takeIf { isBt02Name(it) }
             Log.i(
                 TAG,
                 "connectBt02: Classic device ${redactMac(device.address)} (name=$targetBleName) " +
                     "— scanning BLE for companion button peripheral",
             )
-            startBleDiscovery()
+            beginDiscovery()
         } else {
-            connect(device)
+            // A saved LE address: remember the name (if this is a BT02)
+            // so a rotated address can be re-resolved later.
+            rescanName = devName?.takeIf { isBt02Name(it) }
+            startAttempts(device)
         }
     }
+
+    // Also "working" while scanning for (or between windows looking for)
+    // the companion LE peripheral of the device the owner asked for.
+    override fun isWorkingOn(mac: String): Boolean =
+        super.isWorkingOn(mac) || (!isReaderDisposed() && !discoveryStopped && isRequested(mac))
+
+    /**
+     * The cached LE address keeps failing: the BT02 has most likely
+     * rotated its random address. Re-resolve by name — alternating with
+     * the base reader's autoConnect retries on the old address — instead
+     * of retrying a dead address forever. A bond (security) failure is
+     * not an address problem: leave it to the base's slow auth backoff.
+     */
+    override fun onReconnectNeeded(
+        reason: String,
+        failedAttempts: Int,
+        authFailure: Boolean,
+    ): Boolean {
+        val name = rescanName
+        // Rounds only count once the address has failed enough times, so
+        // the scan / address-retry alternation starts on a scan.
+        val eligible = name != null && !authFailure && failedAttempts >= RESCAN_AFTER_FAILURES
+        val rescan = eligible && shouldRescanByName(failedAttempts, authFailure, rescanRounds++)
+        if (rescan) {
+            Log.i(TAG, "companion LE address unresponsive after $failedAttempts attempts ($reason) — re-scanning for $name")
+            targetBleName = name
+            beginDiscovery()
+        }
+        return rescan
+    }
+
+    // A working link: the next outage starts the scan/retry alternation
+    // and the scan-window progression from the beginning.
+    override fun onSubscriptionConfirmed() {
+        rescanRounds = 0
+        discoveryWindows = 0
+    }
+
+    // With a name to re-resolve by, stay on direct connects (which time
+    // out and come back to [onReconnectNeeded]) instead of autoConnect.
+    override fun allowAutoConnect(): Boolean = rescanName == null
 
     override fun disconnect() {
         discoveryStopped = true
         targetBleName = null
+        rescanName = null
         scanHandler.removeCallbacks(stopDiscoveryRunnable)
         scanHandler.removeCallbacks(retryDiscoveryRunnable)
         stopScanCallbackOnly()
         super.disconnect()
     }
 
+    private fun beginDiscovery() {
+        discoveryStopped = false
+        scanHandler.removeCallbacks(retryDiscoveryRunnable)
+        scanHandler.post(retryDiscoveryRunnable)
+    }
+
+    private fun isScreenOn(): Boolean =
+        try {
+            (appContext.getSystemService(Context.POWER_SERVICE) as? PowerManager)?.isInteractive ?: true
+        } catch (_: Throwable) {
+            true
+        }
+
     private fun startBleDiscovery() {
         if (discoveryStopped || isReaderDisposed()) return
-        val adapter = BluetoothAdapter.getDefaultAdapter()
-        val scanner = if (adapter != null && adapter.isEnabled) adapter.bluetoothLeScanner else null
+        val scanner = leScanner()
         if (scanner == null) {
-            Log.w(TAG, "BLE scanner unavailable while locating BT02 — retrying in ${DISCOVERY_RETRY_MS}ms")
-            scanHandler.removeCallbacks(retryDiscoveryRunnable)
-            scanHandler.postDelayed(retryDiscoveryRunnable, DISCOVERY_RETRY_MS)
+            // Adapter off: the plugin's STATE_ON reconnect pass replaces
+            // the reader. Mark discovery stopped so it reads as idle, not
+            // as still working on the device.
+            Log.w(TAG, "BLE scanner unavailable (adapter off?) — pausing BT02 discovery")
+            discoveryStopped = true
             return
         }
         stopScanCallbackOnly()
         val expectedName = targetBleName
-        val cb =
-            object : ScanCallback() {
-                override fun onScanResult(
-                    callbackType: Int,
-                    result: ScanResult?,
-                ) {
-                    val dev = result?.device ?: return
-                    val advName =
-                        result.scanRecord?.deviceName?.trim()
-                            ?: try {
-                                dev.name?.trim()
-                            } catch (_: Throwable) {
-                                null
-                            }
-                    if (!matchesCompanionBleName(expectedName, advName)) return
-                    scanHandler.post {
-                        if (discoveryStopped || isReaderDisposed()) return@post
-                        Log.i(
-                            TAG,
-                            "resolved companion BLE peripheral ${redactMac(dev.address)} " +
-                                "name=$advName rssi=${result.rssi}",
-                        )
-                        discoveryStopped = true
-                        scanHandler.removeCallbacks(stopDiscoveryRunnable)
-                        scanHandler.removeCallbacks(retryDiscoveryRunnable)
-                        stopScanCallbackOnly()
-                        connect(dev)
-                    }
-                }
-
-                override fun onScanFailed(errorCode: Int) {
-                    Log.w(TAG, "BLE companion scan failed (code=$errorCode) — retrying")
-                    scanHandler.post {
-                        stopBleDiscovery(scheduleRetry = true)
-                    }
-                }
-            }
+        val window = discoveryWindows++
+        val screenOn = isScreenOn()
+        val cb = companionScanCallback(expectedName)
         discoveryCallback = cb
         val settings =
             ScanSettings
                 .Builder()
-                .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
+                .setScanMode(scanModeFor(window))
                 .setCallbackType(ScanSettings.CALLBACK_TYPE_ALL_MATCHES)
                 .build()
+        val filters = scanFiltersFor(expectedName, window, screenOn)
+        Log.i(
+            TAG,
+            "BT02 discovery window $window: ${if (filters == null) "unfiltered" else "name-filtered"} " +
+                "mode=${scanModeFor(window)} screenOn=$screenOn",
+        )
         try {
-            scanner.startScan(null, settings, cb)
+            scanner.startScan(filters, settings, cb)
             scanHandler.removeCallbacks(stopDiscoveryRunnable)
             scanHandler.postDelayed(stopDiscoveryRunnable, DISCOVERY_WINDOW_MS)
+        } catch (se: SecurityException) {
+            // BLUETOOTH_SCAN missing: retrying cannot help until the
+            // operator grants it. Say so once and stop; the next connect
+            // (picker, STATE_ON pass) tries again.
+            Log.e(TAG, "startScan refused — BLUETOOTH_SCAN not granted; BT02 discovery stopped", se)
+            discoveryCallback = null
+            discoveryStopped = true
+            if (!scanPermissionReported) {
+                scanPermissionReported = true
+                reportProblem("Inrico BT02 can't be found: grant XV the Nearby devices permission")
+            }
         } catch (t: Throwable) {
             Log.w(TAG, "startScan threw while locating BT02", t)
             discoveryCallback = null
-            scanHandler.removeCallbacks(retryDiscoveryRunnable)
-            scanHandler.postDelayed(retryDiscoveryRunnable, DISCOVERY_RETRY_MS)
+            scheduleNextWindow()
         }
     }
+
+    private fun companionScanCallback(expectedName: String?): ScanCallback =
+        object : ScanCallback() {
+            override fun onScanResult(
+                callbackType: Int,
+                result: ScanResult?,
+            ) {
+                val dev = result?.device ?: return
+                val advName =
+                    result.scanRecord?.deviceName?.trim()
+                        ?: try {
+                            dev.name?.trim()
+                        } catch (_: Throwable) {
+                            null
+                        }
+                if (!matchesCompanionBleName(expectedName, advName)) return
+                scanHandler.post {
+                    if (discoveryStopped || isReaderDisposed()) return@post
+                    Log.i(
+                        TAG,
+                        "resolved companion BLE peripheral ${redactMac(dev.address)} " +
+                            "name=$advName rssi=${result.rssi}",
+                    )
+                    discoveryStopped = true
+                    scanHandler.removeCallbacks(stopDiscoveryRunnable)
+                    scanHandler.removeCallbacks(retryDiscoveryRunnable)
+                    stopScanCallbackOnly()
+                    if (rescanName == null) rescanName = expectedName?.takeIf { isBt02Name(it) }
+                    // Keeps failure history and notice flags (unlike
+                    // connect()), so a bond problem is not re-announced on
+                    // every address re-resolution.
+                    reconnectTo(dev)
+                }
+            }
+
+            override fun onScanFailed(errorCode: Int) {
+                Log.w(TAG, "BLE companion scan failed (code=$errorCode)")
+                scanHandler.post {
+                    stopBleDiscovery(scheduleRetry = true)
+                }
+            }
+        }
 
     private fun stopBleDiscovery(scheduleRetry: Boolean) {
         scanHandler.removeCallbacks(stopDiscoveryRunnable)
         stopScanCallbackOnly()
-        if (scheduleRetry && !discoveryStopped && !isReaderDisposed()) {
-            Log.i(TAG, "BT02 BLE peripheral not found yet — retrying in ${DISCOVERY_RETRY_MS}ms")
-            scanHandler.removeCallbacks(retryDiscoveryRunnable)
-            scanHandler.postDelayed(retryDiscoveryRunnable, DISCOVERY_RETRY_MS)
+        if (!scheduleRetry || discoveryStopped || isReaderDisposed()) return
+        if (hasConnectTarget()) {
+            // A re-resolution scan missed: go back to the base reader's
+            // (backed-off) retries on the cached address. Its next failure
+            // round brings us back here, so scans and address retries
+            // alternate instead of scanning continuously.
+            discoveryStopped = true
+            Log.i(TAG, "re-resolution scan window missed — resuming retries on the cached address")
+            resumeTargetRetries()
+        } else {
+            scheduleNextWindow()
         }
+    }
+
+    private fun scheduleNextWindow() {
+        val delay = discoveryRetryDelayMs(discoveryWindows)
+        Log.i(TAG, "BT02 BLE peripheral not found yet — next scan window in ${delay}ms")
+        scanHandler.removeCallbacks(retryDiscoveryRunnable)
+        scanHandler.postDelayed(retryDiscoveryRunnable, delay)
     }
 
     private fun stopScanCallbackOnly() {
         val cb = discoveryCallback ?: return
         discoveryCallback = null
         try {
-            BluetoothAdapter.getDefaultAdapter()?.bluetoothLeScanner?.stopScan(cb)
+            leScanner()?.stopScan(cb)
         } catch (_: Throwable) {
         }
     }
 
     companion object {
         private const val TAG = "XvBt02Ble"
+
+        // The platform scanner, or null while the adapter is off.
+        private fun platformLeScanner(): LeScanner? {
+            val adapter = BluetoothAdapter.getDefaultAdapter()
+            val scanner = if (adapter != null && adapter.isEnabled) adapter.bluetoothLeScanner else null
+            return scanner?.let {
+                object : LeScanner {
+                    override fun startScan(
+                        filters: List<ScanFilter>?,
+                        settings: ScanSettings,
+                        callback: ScanCallback,
+                    ) = it.startScan(filters, settings, callback)
+
+                    override fun stopScan(callback: ScanCallback) = it.stopScan(callback)
+                }
+            }
+        }
+
+        // Consecutive failed attempts on a cached LE address before
+        // re-resolving the BT02 by name.
+        const val RESCAN_AFTER_FAILURES: Int = 3
+
+        /**
+         * Whether this address-failure round should re-resolve by name.
+         * Never for a bond failure; otherwise after [RESCAN_AFTER_FAILURES]
+         * failures, on alternate rounds (even [round]) so the base's
+         * autoConnect retries on the cached address interleave.
+         */
+        fun shouldRescanByName(
+            failedAttempts: Int,
+            authFailure: Boolean = false,
+            round: Int = 0,
+        ): Boolean = !authFailure && failedAttempts >= RESCAN_AFTER_FAILURES && round % 2 == 0
+
+        /**
+         * Scan filters for discovery window [window]. When
+         * [expectedName] is a BT02 name, an exact-name filter is used on
+         * even windows and on every window while the screen is off
+         * (Android delivers no unfiltered results then); odd windows with
+         * the screen on run unfiltered as a fallback for a name whose case
+         * differs. Without a BT02 name every window is unfiltered.
+         * Returns null for an unfiltered scan.
+         */
+        fun scanFiltersFor(
+            expectedName: String?,
+            window: Int,
+            screenOn: Boolean = true,
+        ): List<ScanFilter>? {
+            val name = expectedName?.trim()?.takeIf { isBt02Name(it) }
+            return if (name != null && useNameFilter(name, window, screenOn)) {
+                listOf(ScanFilter.Builder().setDeviceName(name).build())
+            } else {
+                null
+            }
+        }
+
+        /** Pure half of [scanFiltersFor]. */
+        fun useNameFilter(
+            expectedName: String?,
+            window: Int,
+            screenOn: Boolean = true,
+        ): Boolean = isBt02Name(expectedName) && (!screenOn || window % 2 == 0)
+
+        /** Low latency for the first windows, then balanced to save power. */
+        fun scanModeFor(window: Int): Int =
+            if (window < LOW_LATENCY_WINDOWS) ScanSettings.SCAN_MODE_LOW_LATENCY else ScanSettings.SCAN_MODE_BALANCED
+
+        /** Gap before the next window: 15 s doubling to a 5 min cap. */
+        fun discoveryRetryDelayMs(windowsSoFar: Int): Long =
+            (DISCOVERY_RETRY_MS shl (windowsSoFar - 1).coerceIn(0, 5)).coerceAtMost(MAX_DISCOVERY_RETRY_MS)
+
+        private const val LOW_LATENCY_WINDOWS = 2
+        private const val MAX_DISCOVERY_RETRY_MS = 300_000L
         private const val DISCOVERY_WINDOW_MS = 10_000L
         private const val DISCOVERY_RETRY_MS = 15_000L
 
@@ -244,7 +480,7 @@ class Bt02BleReader(
          * Returns true when an advertised BLE local name [advertisedName]
          * matches the companion BT02 peripheral for a Classic BT02 named
          * [expectedClassicName]. Prefers exact name match (e.g. both
-         * `B02PTT-AB12`) when [expectedClassicName] is a BT02 name; falls
+         * `B02PTT-0000`) when [expectedClassicName] is a BT02 name; falls
          * back to prefix matching when [expectedClassicName] is null/blank.
          */
         fun matchesCompanionBleName(

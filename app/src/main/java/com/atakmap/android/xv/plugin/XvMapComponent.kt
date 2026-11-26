@@ -1135,6 +1135,24 @@ class XvMapComponent : AbstractMapComponent() {
                     }
                 }
 
+                override fun onPttInputNeedsRepair(reason: String?) {
+                    // A BLE PTT reader's device keeps rejecting the link for
+                    // security reasons: the NEEDS RE-PAIR chip on its
+                    // Devices card (and a toast), so the slot doesn't just
+                    // look "disconnected" forever.
+                    val msg = reason ?: "Bluetooth PTT device needs to be re-paired"
+                    Log.w(TAG, "onPttInputNeedsRepair: $msg")
+                    reportPttInputIssue(com.atakmap.android.xv.ui.PttInputHealth.Kind.NEEDS_REPAIR, msg)
+                }
+
+                override fun onPttInputProblem(reason: String?) {
+                    // Non-bond problem (device not recognised, permission
+                    // missing): NOT RECOGNISED chip + toast. Service throttles.
+                    val msg = reason ?: "Bluetooth PTT device problem — check Settings"
+                    Log.w(TAG, "onPttInputProblem: $msg")
+                    reportPttInputIssue(com.atakmap.android.xv.ui.PttInputHealth.Kind.NOT_RECOGNISED, msg)
+                }
+
                 override fun onPrivateCallEnded() {
                     cancelPendingAnswerTimeout("call ended")
                     cancelPendingRingback("call ended")
@@ -5129,11 +5147,15 @@ class XvMapComponent : AbstractMapComponent() {
         // Resolver inputs: [lastExternalButtonMac] is the MAC the
         // plugin last handed to the service (source of truth for
         // "what reader is currently running"), [normalizedNewMac] is
-        // the operator's new pick, and [isConnected] is
-        // [lastExternalButtonConnected] — the optimistic-cache flag
-        // set on connectExternalButton and cleared on disconnect.
+        // the operator's new pick. [isConnected] is the real button-link
+        // state ([lastExternalButtonConnected], driven by the service's
+        // edges), so re-picking a button whose link is down respawns its
+        // reader — except for "(none)": a reader that is running but not
+        // subscribed (powered-off button, BT02 still scanning) must still
+        // be torn down, so there it means "a reader was started".
         val currentMac = lastExternalButtonMac
-        val isConnected = lastExternalButtonConnected
+        val isConnected =
+            if (normalizedNewMac.isNullOrBlank()) currentMac != null else lastExternalButtonConnected
         val decision =
             com.atakmap.android.xv.aina.ExternalButtonReaderResolver.shouldRespawnReader(
                 currentMac = currentMac,
@@ -5209,15 +5231,13 @@ class XvMapComponent : AbstractMapComponent() {
                     )
                     settings.persistExternalButtonKind(kind)
                     lastExternalButtonMac = newMac
+                    // [lastExternalButtonConnected] follows the
+                    // service's onExternalButtonConnectionChanged edges:
+                    // false on reader teardown, true only once the button
+                    // link is subscribed. No optimistic write here — it
+                    // would overwrite the teardown edge and show a
+                    // powered-off button as connected.
                     voiceClient?.ifBound { it.connectExternalButton(newMac, null, kind) }
-                    // No service-side state-edge callback for the
-                    // external button yet — optimistically cache
-                    // "connected" so the UI shows progress. A future
-                    // commit could thread an
-                    // onExternalButtonConnectionChanged through the
-                    // AIDL listener; for now the operator sees the
-                    // picker status flip green on successful connect.
-                    lastExternalButtonConnected = true
                 } finally {
                     reInitingExternalButtonReader = false
                 }
@@ -5387,8 +5407,8 @@ class XvMapComponent : AbstractMapComponent() {
         settings.persistExternalButtonMac(picked.mac)
         settings.persistExternalButtonKind(kind)
         lastExternalButtonMac = picked.mac
+        // Connected state arrives via onExternalButtonConnectionChanged.
         voiceClient?.ifBound { it.connectExternalButton(picked.mac, null, kind) }
-        lastExternalButtonConnected = true
         Log.i(TAG, "autoConnectExternalButton[$source]: complete (auto-pick path)")
     }
 
@@ -5455,8 +5475,8 @@ class XvMapComponent : AbstractMapComponent() {
                 "bonded=${bondedDevice != null})",
         )
         lastExternalButtonMac = macForConnect
+        // Connected state arrives via onExternalButtonConnectionChanged.
         voiceClient?.ifBound { it.connectExternalButton(macForConnect, nameForConnect, kind) }
-        lastExternalButtonConnected = true
     }
 
     private fun setSelectedAinaInternal(mac: String?) {

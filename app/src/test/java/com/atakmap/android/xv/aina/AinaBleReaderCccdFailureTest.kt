@@ -65,6 +65,7 @@ class AinaBleReaderCccdFailureTest {
                 onEvent = { _, _ -> },
                 onConnectionState = { /* ignored for this assertion */ },
                 gattConnector = connector,
+                adapterEnabled = { true },
             )
 
         reader.connect(device)

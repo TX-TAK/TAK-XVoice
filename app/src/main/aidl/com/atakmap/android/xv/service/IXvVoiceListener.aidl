@@ -90,6 +90,19 @@ interface IXvVoiceListener {
     // during rapid button mashing.
     void onPttBlockedByCellularCall(String reason);
 
+    // A Bluetooth PTT input (speaker-mic or external button) is being
+    // rejected by the device for security reasons — a stale or
+    // one-sided bond. Retrying cannot fix it; the operator has to
+    // forget and re-pair the device. Fired at most once per reader
+    // connect. Plugin surfaces [reason] as a Toast.
+    oneway void onPttInputNeedsRepair(String reason);
+
+    // A Bluetooth PTT input has a problem the operator must fix that is
+    // not a bond issue: the device does not expose the expected buttons
+    // (wrong device / protocol), or a needed permission is missing.
+    // Fired at most once per condition, throttled per slot.
+    oneway void onPttInputProblem(String reason);
+
     // Raw PTT input edge from any source the service owns (speaker-mic,
     // BLE button, Samsung key, on-screen), before mic priming and the
     // talk-permit tone. onPttStateChanged only fires once audio is on the
@@ -97,6 +110,6 @@ interface IXvVoiceListener {
     // press that is still priming. [input] identifies the reader:
     // "<SOURCE>@<reader id>", a bare "<SOURCE>" on an up edge releases every
     // reader of that source, and "*@<reader id>" every key of that reader;
-    // slot -1 on an up edge = all slots. Appended last (transaction order).
-    void onPttInput(boolean down, int slot, String input);
+    // slot -1 on an up edge = all slots. Appended after #146's methods.
+    oneway void onPttInput(boolean down, int slot, String input);
 }

@@ -269,6 +269,15 @@ class VoicePlant(
         // the plant already throttles this event so mashing PTT during
         // a call does not spam the UI.
         fun onPttBlockedByCellularCall(reason: String)
+
+        // A BLE PTT reader's device rejected the link for security
+        // reasons (stale bond). Plugin surfaces [reason] to the operator;
+        // the reader keeps retrying slowly until the operator re-pairs.
+        fun onPttInputNeedsRepair(reason: String)
+
+        // A BLE PTT reader hit a non-bond problem the operator must fix
+        // (buttons not recognised, scan permission missing).
+        fun onPttInputProblem(reason: String)
     }
 
     private val audioManager =
@@ -556,6 +565,15 @@ class VoicePlant(
 
     @Volatile private var externalButtonPrymeBle: PrymeBleReader? = null
 
+    @Volatile private var externalButtonBt02: Bt02BleReader? = null
+
+    // Resolved reader kind each slot is running (null when none): a
+    // connect request with a different kind is a protocol change and
+    // always replaces the reader. See [keepPrimaryReader].
+    @Volatile private var primaryReaderKind: String? = null
+
+    @Volatile private var externalReaderKind: String? = null
+
     // MAC of the currently-connected AINA (or null when none). Used by
     // the BOND_STATE_CHANGED receiver to detect "the operator just
     // unpaired the AINA we're using" and tear the reader down before
@@ -583,6 +601,10 @@ class VoicePlant(
     private val primarySlotLock = Any()
 
     private val externalSlotLock = Any()
+
+    // Last time an operator message was raised per slot+kind, so a reader
+    // that keeps reconnecting cannot repeat the same notice every cycle.
+    private val lastInputNoticeAtMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // MAC of the external button this slot is currently bound to (or null
     // when none). Set at connect-attempt time in [connectExternalButton]
@@ -1513,17 +1535,76 @@ class VoicePlant(
             return
         }
         val resolvedKind = resolveReaderKind(device, kind)
-        // ACL_CONNECTED, adapter STATE_ON and config changes all re-run
-        // this path. Tearing down a live RFCOMM link just to reopen it
-        // drops any held PTT and races the old socket's teardown, so
-        // keep a V1 reader that is already pumping on this MAC.
-        if (AinaSppReader.shouldKeepLiveReader(ainaSpp?.isConnectedTo(device.address) == true, resolvedKind)) {
-            Log.i(TAG, "connectAina: SPP reader already live on this device — keeping it")
-            callbacks.onAinaConnectionChanged(true)
-            return
-        }
+        if (keepPrimaryReader(device.address, resolvedKind)) return
         disconnectAina()
         startPrimaryReader(adapter, device, resolvedKind)
+    }
+
+    // ACL_CONNECTED, adapter STATE_ON and config changes all re-run the
+    // connect path. Replacing a reader that is connected cuts a live
+    // burst; replacing a BLE reader that is still connecting or backing
+    // off aborts its GATT setup and resets its unrecognised / bond
+    // backoffs (and its close→reopen settle gap). So keep a reader for
+    // the same device and protocol that is connected, or (BLE) still
+    // working on it. A protocol change or an idle reader is replaced.
+    private fun keepPrimaryReader(
+        mac: String,
+        resolvedKind: String,
+    ): Boolean {
+        if (AinaSppReader.shouldKeepLiveReader(ainaSpp?.isConnectedTo(mac) == true, resolvedKind)) {
+            Log.i(TAG, "connectAina: SPP reader already live on this device — keeping it")
+            callbacks.onAinaConnectionChanged(true)
+            return true
+        }
+        return keepBleReader(ainaBle ?: prymeBle ?: bt02Ble, primaryReaderKind, mac, resolvedKind) {
+            callbacks.onAinaConnectionChanged(true)
+        }
+    }
+
+    // Same rule for the external-button slot.
+    private fun keepExternalReader(
+        mac: String,
+        resolvedKind: String,
+    ): Boolean {
+        val reportUp: () -> Unit = {
+            try {
+                callbacks.onExternalButtonConnectionChanged(true)
+            } catch (t: Throwable) {
+                Log.w(TAG, "onExternalButtonConnectionChanged(true) threw", t)
+            }
+        }
+        if (AinaSppReader.shouldKeepLiveReader(externalButtonSpp?.isConnectedTo(mac) == true, resolvedKind)) {
+            Log.i(TAG, "connectExternalButton: SPP reader already live on this device — keeping it")
+            reportUp()
+            return true
+        }
+        val link = externalButtonBle ?: externalButtonPrymeBle ?: externalButtonBt02
+        return keepBleReader(link, externalReaderKind, mac, resolvedKind, reportUp)
+    }
+
+    private fun keepBleReader(
+        link: com.atakmap.android.xv.aina.BlePttLink?,
+        currentKind: String?,
+        mac: String,
+        resolvedKind: String,
+        reportUp: () -> Unit,
+    ): Boolean {
+        val action =
+            com.atakmap.android.xv.aina.ReaderReuse.decide(
+                sameKind = link != null && currentKind == resolvedKind,
+                connected = link?.isConnectedTo(mac) == true,
+                inProgress = link?.isWorkingOn(mac) == true,
+            )
+        when (action) {
+            com.atakmap.android.xv.aina.ReaderReuse.Action.KEEP_CONNECTED -> {
+                Log.i(TAG, "connect($resolvedKind): BLE reader already connected to this device — keeping it")
+                reportUp()
+            }
+            com.atakmap.android.xv.aina.ReaderReuse.Action.KEEP_IN_PROGRESS ->
+                Log.i(TAG, "connect($resolvedKind): BLE reader still connecting / backing off on this device — leaving it be")
+            com.atakmap.android.xv.aina.ReaderReuse.Action.REPLACE -> Unit
+        }
+        return action != com.atakmap.android.xv.aina.ReaderReuse.Action.REPLACE
     }
 
     private fun startPrimaryReader(
@@ -1531,6 +1612,12 @@ class VoicePlant(
         device: android.bluetooth.BluetoothDevice,
         resolvedKind: String,
     ) {
+        // Speaker-mic wins over an external button on the same device: two
+        // readers would race for one link.
+        if (device.address.equals(connectedExternalButtonMac, ignoreCase = true)) {
+            Log.w(TAG, "connectAina: device is also the External Button — dropping that slot's reader")
+            disconnectExternalButton()
+        }
         // Tell AudioRouter which BT device to prefer when multiple are
         // connected (e.g. AINA + AirPods). Without this hint,
         // preferredDevice() picks "first BT" which is non-deterministic.
@@ -1538,6 +1625,7 @@ class VoicePlant(
         // — it's an opt-in explicit override. BT02: see [bt02AudioHint].
         router.preferredBtMacHint = if (resolvedKind == "bt02") bt02AudioHint(adapter, device) else device.address
         connectedAinaMac = device.address
+        primaryReaderKind = resolvedKind
         // Per-reader onConn so the disconnect edge can tag the correct
         // [PttSource] when releasing a stuck PTT-down. Field bug
         // 2026-07-08: operator keyed AINA V2, turned BT off mid-TX,
@@ -1583,6 +1671,8 @@ class VoicePlant(
                         context,
                         primaryAinaEvent(PttSource.AINA_V2, owner),
                         { up -> onConn(PttSource.AINA_V2, up) },
+                        needsRepairHandler("speaker-mic", owner),
+                        onProblem = problemHandler("speaker-mic", owner),
                     )
                 ainaBle = r
                 r.connect(device)
@@ -1600,6 +1690,8 @@ class VoicePlant(
                         context,
                         primaryAinaEvent(PttSource.PRYME_BLE, owner),
                         { up -> onConn(PttSource.PRYME_BLE, up) },
+                        needsRepairHandler("speaker-mic", owner),
+                        problemHandler("speaker-mic", owner),
                     )
                 prymeBle = r
                 r.connect(device)
@@ -1613,6 +1705,8 @@ class VoicePlant(
                         context,
                         primaryAinaEvent(PttSource.INRICO_BT02, owner),
                         { up -> onConn(PttSource.INRICO_BT02, up) },
+                        needsRepairHandler("speaker-mic", owner),
+                        problemHandler("speaker-mic", owner),
                     )
                 bt02Ble = r
                 r.connectBt02(device)
@@ -1650,27 +1744,22 @@ class VoicePlant(
         )
         val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
         val device = adapter?.let { resolveInputDevice(it, mac, name, "connectExternalButton") }
-        if (adapter == null || device == null) {
+        // The same physical device cannot be both the speaker-mic and the
+        // external button: two readers would race for one GATT / RFCOMM
+        // link. The speaker-mic slot wins.
+        val sameAsPrimary = device != null && device.address.equals(connectedAinaMac, ignoreCase = true)
+        if (adapter == null || device == null || sameAsPrimary) {
             Log.w(
                 TAG,
-                "connectExternalButton: no adapter or device for mac=${com.atakmap.android.xv.aina.redactMac(mac)} " +
-                    "name=$name",
+                "connectExternalButton: not connecting mac=${com.atakmap.android.xv.aina.redactMac(mac)} " +
+                    "name=$name (adapter=${adapter != null} device=${device != null} sameAsSpeakerMic=$sameAsPrimary)",
             )
             disconnectExternalButton()
             return
         }
         val resolvedKind = resolveReaderKind(device, kind)
-        // Same respawn guard as [connectAina]: keep a V1 SPP reader that
-        // is already pumping on this MAC.
-        if (AinaSppReader.shouldKeepLiveReader(externalButtonSpp?.isConnectedTo(device.address) == true, resolvedKind)) {
-            Log.i(TAG, "connectExternalButton: SPP reader already live on this device — keeping it")
-            try {
-                callbacks.onExternalButtonConnectionChanged(true)
-            } catch (t: Throwable) {
-                Log.w(TAG, "onExternalButtonConnectionChanged(true) threw", t)
-            }
-            return
-        }
+        // Same keep rule as [connectAina] (see [keepPrimaryReader]).
+        if (keepExternalReader(device.address, resolvedKind)) return
         disconnectExternalButton()
         startExternalReader(device, resolvedKind)
     }
@@ -1705,6 +1794,7 @@ class VoicePlant(
             }
         }
         connectedExternalButtonMac = device.address
+        externalReaderKind = resolvedKind
         when (resolvedKind) {
             "v1", "spp" -> {
                 val r =
@@ -1722,6 +1812,8 @@ class VoicePlant(
                         context,
                         externalButtonEvent(PttSource.AINA_V2, owner),
                         { up -> onConn(PttSource.AINA_V2, up) },
+                        needsRepairHandler("external button", owner),
+                        onProblem = problemHandler("external button", owner),
                     )
                 externalButtonBle = r
                 r.connect(device)
@@ -1732,9 +1824,28 @@ class VoicePlant(
                         context,
                         externalButtonEvent(PttSource.PRYME_BLE, owner),
                         { up -> onConn(PttSource.PRYME_BLE, up) },
+                        needsRepairHandler("external button", owner),
+                        problemHandler("external button", owner),
                     )
                 externalButtonPrymeBle = r
                 r.connect(device)
+            }
+            "bt02" -> {
+                // Inrico BT02 picked as the External Button (the kind
+                // resolver returns "bt02" for it). Without this branch the
+                // pick fell through to "unknown kind" and the slot showed
+                // a device with no reader behind it. PTT only — the
+                // external slot does not drive emergency.
+                val r =
+                    Bt02BleReader(
+                        context,
+                        externalButtonEvent(PttSource.INRICO_BT02, owner),
+                        { up -> onConn(PttSource.INRICO_BT02, up) },
+                        needsRepairHandler("external button", owner),
+                        problemHandler("external button", owner),
+                    )
+                externalButtonBt02 = r
+                r.connectBt02(device)
             }
             else -> Log.w(TAG, "connectExternalButton: unknown kind '$resolvedKind'")
         }
@@ -1822,6 +1933,7 @@ class VoicePlant(
 
     private fun disconnectExternalButtonLocked() {
         connectedExternalButtonMac = null
+        externalReaderKind = null
         // Retire the owner FIRST so nothing the old reader still emits
         // during its teardown (late presses, a redundant up=false) can
         // reach the dispatcher or the UI. Forget by OWNER, not by
@@ -1856,10 +1968,21 @@ class VoicePlant(
         // connection-state and button-event dispatch paths.
         externalButtonPrymeBle?.dispose()
         externalButtonPrymeBle = null
+        externalButtonBt02?.dispose()
+        externalButtonBt02 = null
     }
 
+    // Live link, not "a reader exists": readers stay allocated through
+    // reconnect backoffs, bond-failure waits and BT02 scans.
     fun isExternalButtonConnected(): Boolean =
-        externalButtonBle != null || externalButtonSpp != null || externalButtonPrymeBle != null
+        synchronized(externalSlotLock) {
+            listOf(
+                externalButtonBle?.isConnected(),
+                externalButtonSpp?.isConnected(),
+                externalButtonPrymeBle?.isConnected(),
+                externalButtonBt02?.isConnected(),
+            ).any { it == true }
+        }
 
     fun disconnectAina() =
         synchronized(primarySlotLock) {
@@ -1897,6 +2020,7 @@ class VoicePlant(
     fun disconnectAinaReaderOnly() = synchronized(primarySlotLock) { disconnectAinaReaderOnlyLocked() }
 
     private fun disconnectAinaReaderOnlyLocked() {
+        primaryReaderKind = null
         val hadReader = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
         // Retire the owner FIRST so the old reader cannot deliver presses,
         // PTTE / MFB or a redundant up=false while it is being torn down.
@@ -1939,6 +2063,53 @@ class VoicePlant(
                 Log.w(TAG, "onAinaConnectionChanged(false) on reader teardown threw", t)
             }
         }
+    }
+
+    // Needs-re-pair fan-out for one reader. A retired (torn-down)
+    // reader's late report is dropped like its other callbacks.
+    private fun needsRepairHandler(
+        slotLabel: String,
+        owner: PttInputOwner,
+    ): (String) -> Unit =
+        handler@{ detail ->
+            if (owner.retired) return@handler
+            Log.w(TAG, "$slotLabel needs re-pair ($detail)")
+            if (!claimInputNotice("repair:$slotLabel")) return@handler
+            try {
+                callbacks.onPttInputNeedsRepair(
+                    "Bluetooth $slotLabel rejected the connection — forget and re-pair it in Android Bluetooth settings",
+                )
+            } catch (t: Throwable) {
+                Log.w(TAG, "onPttInputNeedsRepair dispatch threw", t)
+            }
+        }
+
+    private fun problemHandler(
+        slotLabel: String,
+        owner: PttInputOwner,
+    ): (String) -> Unit =
+        handler@{ message ->
+            if (owner.retired) return@handler
+            Log.w(TAG, "$slotLabel problem: $message")
+            if (!claimInputNotice("problem:$slotLabel")) return@handler
+            try {
+                callbacks.onPttInputProblem(message)
+            } catch (t: Throwable) {
+                Log.w(TAG, "onPttInputProblem dispatch threw", t)
+            }
+        }
+
+    // True (and the slot's notice clock restarted) when [key]'s last
+    // operator notice is older than the throttle window.
+    private fun claimInputNotice(key: String): Boolean {
+        val now = nowMsProvider()
+        val last = lastInputNoticeAtMs[key] ?: 0L
+        if (!com.atakmap.android.xv.aina.GattSetup.shouldSurface(last, now, INPUT_NOTICE_THROTTLE_MS)) {
+            Log.i(TAG, "input notice '$key' throttled (${now - last}ms since last)")
+            return false
+        }
+        lastInputNoticeAtMs[key] = now
+        return true
     }
 
     /**
@@ -2027,7 +2198,16 @@ class VoicePlant(
         }
     }
 
-    fun isAinaConnected(): Boolean = ainaBle != null || ainaSpp != null || prymeBle != null || bt02Ble != null
+    // Live button link (subscribed / socket open), not "a reader exists".
+    fun isAinaConnected(): Boolean =
+        synchronized(primarySlotLock) {
+            listOf(
+                ainaBle?.isConnected(),
+                ainaSpp?.isConnected(),
+                prymeBle?.isConnected(),
+                bt02Ble?.isConnected(),
+            ).any { it == true }
+        }
 
     // Per-source button-handler factory for the primary input. Captures
     // [source] so PttDispatcher's OR-gate can distinguish concurrent
@@ -2234,6 +2414,9 @@ class VoicePlant(
 
         // How often Low latency mode re-checks call / route state.
         private const val LOW_LATENCY_WATCH_MS = 2_000L
+
+        // One operator notice per slot and kind per window.
+        private const val INPUT_NOTICE_THROTTLE_MS: Long = 10 * 60_000L
 
         private const val TAG = "XvVoicePlant"
 
