@@ -232,17 +232,27 @@ class AinaBleReader(
      * [expected] was already stale.
      */
     private fun closeGatt(expected: BluetoothGatt?): Boolean {
-        val g =
+        // Pair of (was [expected] stale?, handle to close).
+        val (stale, g) =
             synchronized(gattLock) {
-                if (expected != null && gatt !== expected) return false
-                val old = gatt
-                gatt = null
-                old
+                if (expected != null && gatt !== expected) {
+                    true to null
+                } else {
+                    val old = gatt
+                    gatt = null
+                    false to old
+                }
             }
-        pendingConfigReadModifyWrite = false
-        watchdogGatt = null
-        handler.removeCallbacks(setupWatchdog)
-        if (g == null) return true
+        if (!stale) {
+            pendingConfigReadModifyWrite = false
+            watchdogGatt = null
+            handler.removeCallbacks(setupWatchdog)
+            g?.let { closeHandle(it) }
+        }
+        return !stale
+    }
+
+    private fun closeHandle(g: BluetoothGatt) {
         try {
             g.disconnect()
         } catch (_: Throwable) {
@@ -257,7 +267,6 @@ class AinaBleReader(
         // up and the connection oscillates instead of recovering.
         // [connectInternal] consults this and defers when needed. Audit M15.
         lastGattCloseMs = android.os.SystemClock.elapsedRealtime()
-        return true
     }
 
     @Volatile
@@ -267,12 +276,12 @@ class AinaBleReader(
         reason: String,
         expected: BluetoothGatt?,
     ) {
-        if (intentionalDisconnect || disposed) return
-        val device = targetDevice ?: return
+        val device = targetDevice
         // Always close the failed handle before another attempt — status=133
-        // typically leaves it unusable. A stale handle's failure belongs to
-        // whoever replaced it.
-        if (!closeGatt(expected)) return
+        // typically leaves it unusable. A stale handle's failure (closeGatt
+        // returns false) belongs to whoever replaced it. closeGatt only runs
+        // when the earlier checks pass.
+        if (intentionalDisconnect || disposed || device == null || !closeGatt(expected)) return
         val auth = lastFailureWasAuth
         val unrecognised = unrecognisedCount
         // After several failed direct attempts, switch to autoConnect=true so

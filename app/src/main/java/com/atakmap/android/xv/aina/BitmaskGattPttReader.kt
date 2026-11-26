@@ -456,18 +456,28 @@ open class BitmaskGattPttReader(
      * false when [expected] was already stale.
      */
     private fun closeGatt(expected: BluetoothGatt?): Boolean {
-        val g =
+        // Pair of (was [expected] stale?, handle to close).
+        val (stale, g) =
             synchronized(gattLock) {
-                if (expected != null && gatt !== expected) return false
-                val old = gatt
-                gatt = null
-                old
+                if (expected != null && gatt !== expected) {
+                    true to null
+                } else {
+                    val old = gatt
+                    gatt = null
+                    false to old
+                }
             }
-        subscription = null
-        subscribedChars = emptySet()
-        watchdogGatt = null
-        handler.removeCallbacks(setupWatchdog)
-        if (g == null) return true
+        if (!stale) {
+            subscription = null
+            subscribedChars = emptySet()
+            watchdogGatt = null
+            handler.removeCallbacks(setupWatchdog)
+            g?.let { closeHandle(it) }
+        }
+        return !stale
+    }
+
+    private fun closeHandle(g: BluetoothGatt) {
         try {
             g.disconnect()
         } catch (_: Throwable) {
@@ -477,7 +487,6 @@ open class BitmaskGattPttReader(
         } catch (_: Throwable) {
         }
         lastGattCloseMs = SystemClock.elapsedRealtime()
-        return true
     }
 
     /**
@@ -518,10 +527,11 @@ open class BitmaskGattPttReader(
         reason: String,
         expected: BluetoothGatt?,
     ) {
-        if (intentionalDisconnect || disposed) return
-        val device = targetDevice ?: return
-        // A stale handle's failure: whoever replaced it owns the retry.
-        if (!closeGatt(expected)) return
+        val device = targetDevice
+        // A stale handle's failure (closeGatt returns false): whoever
+        // replaced it owns the retry. closeGatt only runs when the
+        // earlier checks pass.
+        if (intentionalDisconnect || disposed || device == null || !closeGatt(expected)) return
         val auth = lastFailureWasAuth
         val unrecognised = unrecognisedCount
         val (delayMs, armed, attempts) =
