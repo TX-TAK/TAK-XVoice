@@ -3,34 +3,36 @@ package com.atakmap.android.xv.calling
 import android.app.Notification
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.Person
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 
 /**
- * Posts incoming + ongoing call notifications using
- * [Notification.CallStyle] (API 31+) with a NotificationCompat fallback
- * for API 30 and below.
+ * Posts incoming + ongoing direct-call notifications.
  *
- * Replaces the legacy `XvIncomingCallActivity` + `XvActiveCallActivity`
- * full-screen activities. The OS provides:
+ * These are plain CATEGORY_CALL notifications with Answer / Decline /
+ * Hang Up as regular actions. They deliberately do NOT use
+ * [Notification.CallStyle] or a full-screen intent:
  *
- *   - Lock-screen + heads-up incoming call surface with system Answer /
- *     Decline buttons (HIGH-importance CallStyle on the
- *     [NotificationChannels.INCOMING] channel triggers the system's
- *     full-screen ring automatically — `setFullScreenIntent` is no
- *     longer required and `USE_FULL_SCREEN_INTENT` can be dropped).
- *   - Ongoing-call notification in the shade with a system Hang Up
- *     button for the duration of the call.
+ *   - `USE_FULL_SCREEN_INTENT` is restricted by Google Play to apps
+ *     whose core function is calling or alarms. Direct calling is not
+ *     a shipping feature yet, so the permission is not declared and
+ *     no notification here sets a full-screen intent.
+ *   - Android rejects a CallStyle notification (IllegalArgumentException
+ *     from NotificationManager.notify) unless it is the foreground
+ *     service's own notification or carries a full-screen intent.
+ *     Without FSI, CallStyle would silently fail to post, so these
+ *     notifications use the NotificationCompat builder instead.
  *
- * Decision routing is unchanged: Answer / Decline / Hang Up taps fire
- * the same [ACTION_ANSWER] / [ACTION_DECLINE] /
- * [ACTION_HANGUP_REQUESTED] broadcasts the prior activities used, so
- * `XvVoiceService`'s `incomingDecisionReceiver` and `activeCallReceiver`
- * keep working without changes.
+ * When direct calling ships, restore CallStyle + setFullScreenIntent
+ * (with [XvCallActivity] as the target) together with the
+ * `USE_FULL_SCREEN_INTENT` manifest entry and the Play declaration.
+ *
+ * Decision routing: Answer / Decline / Hang Up taps fire the
+ * [ACTION_ANSWER] / [ACTION_DECLINE] / [ACTION_HANGUP_REQUESTED]
+ * broadcasts that `XvVoiceService`'s `incomingDecisionReceiver` and
+ * `activeCallReceiver` listen for.
  *
  * Threading: callers post from `XvVoiceService` on either the binder
  * thread or main looper. [NotificationManager.notify] is thread-safe so
@@ -43,7 +45,7 @@ class CallStyleNotifier(
         context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
 
-    /** Show the incoming-call ring + Answer/Decline surface. */
+    /** Show the incoming-call heads-up with Answer / Decline actions. */
     fun postIncoming(
         callerCallsign: String,
         tempChannelId: Int,
@@ -56,14 +58,7 @@ class CallStyleNotifier(
         )
         val answer = answerPendingIntent(callerCallsign, tempChannelId, callerSession)
         val decline = declinePendingIntent(callerCallsign, tempChannelId, callerSession)
-        val fullScreen =
-            incomingFullScreenPendingIntent(callerCallsign, tempChannelId, callerSession)
-        val notification =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                buildIncomingCallStyle(callerCallsign, answer, decline, fullScreen)
-            } else {
-                buildIncomingCompat(callerCallsign, answer, decline, fullScreen)
-            }
+        val notification = buildIncoming(callerCallsign, answer, decline)
         try {
             nm.notify(NOTIFICATION_ID_INCOMING, notification)
         } catch (t: Throwable) {
@@ -84,13 +79,7 @@ class CallStyleNotifier(
     ) {
         Log.i(TAG, "postActive peer='$peerCallsign' isIncoming=$isIncoming")
         val hangup = hangupPendingIntent()
-        val fullScreen = activeFullScreenPendingIntent(peerCallsign)
-        val notification =
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                buildActiveCallStyle(peerCallsign, hangup, fullScreen)
-            } else {
-                buildActiveCompat(peerCallsign, hangup, fullScreen)
-            }
+        val notification = buildActive(peerCallsign, hangup)
         try {
             // Dismiss any lingering incoming-ring surface first — the
             // operator just answered (or this is an outgoing place) so
@@ -103,14 +92,9 @@ class CallStyleNotifier(
     }
 
     /**
-     * Launch [XvCallActivity] to the foreground.
-     *
-     * Notification setFullScreenIntent only auto-launches the activity
-     * when the device is locked / screen off — when the operator is
-     * actively using the phone, the system rewrites the FSI into a
-     * heads-up notification and the in-call surface (mute / route /
-     * hang up controls) never appears. We need those controls visible
-     * the moment a call goes active, so start the activity directly.
+     * Launch [XvCallActivity] to the foreground so the in-call controls
+     * (mute / route / hang up) are visible the moment a call goes
+     * active. This is a direct startActivity, not a full-screen intent.
      *
      * MUST be called after the Telecom Connection is registered (i.e.
      * the call is ACTIVE). On Android 14+, a foreground service can
@@ -149,80 +133,10 @@ class CallStyleNotifier(
 
     // ---------- Notification builders ----------
 
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
-    private fun buildIncomingCallStyle(
+    private fun buildIncoming(
         callerCallsign: String,
         answer: PendingIntent,
         decline: PendingIntent,
-        fullScreen: PendingIntent,
-    ): Notification {
-        val person =
-            Person
-                .Builder()
-                .setName(callerCallsign)
-                .setImportant(true)
-                .build()
-        // Notification.CallStyle.forIncomingCall does NOT self-trigger
-        // the system full-screen ring on phone — verified empty-handed
-        // on Pixel 8 + Surface Duo where the notification posted, the
-        // operator's paired Garmin Fenix relayed it, but the phone
-        // itself stayed silent. setFullScreenIntent on the notification
-        // is required to launch a real activity that the system treats
-        // as the ring surface; XvCallActivity is that activity.
-        return Notification
-            .Builder(context, NotificationChannels.INCOMING)
-            .setSmallIcon(android.R.drawable.sym_action_call)
-            .setStyle(Notification.CallStyle.forIncomingCall(person, decline, answer))
-            .setCategory(Notification.CATEGORY_CALL)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setFullScreenIntent(fullScreen, true)
-            .build()
-    }
-
-    @androidx.annotation.RequiresApi(Build.VERSION_CODES.S)
-    private fun buildActiveCallStyle(
-        peerCallsign: String,
-        hangup: PendingIntent,
-        fullScreen: PendingIntent,
-    ): Notification {
-        val person =
-            Person
-                .Builder()
-                .setName(peerCallsign)
-                .setImportant(true)
-                .build()
-        // System refuses to post CallStyle notifications unless the
-        // posting context is a phoneCall-typed foreground service OR
-        // the notification carries a fullScreenIntent. XV's voice
-        // service uses microphone|connectedDevice fg type (not phoneCall),
-        // so without FSI the system rejects with IllegalArgumentException
-        // and the active-call surface (with its Hang Up button) never
-        // renders — operator gets stuck mid-call. FSI satisfies the
-        // constraint and gives us a programmable in-call surface for
-        // mute / route controls beyond the CallStyle minimum.
-        return Notification
-            .Builder(context, NotificationChannels.ACTIVE)
-            .setSmallIcon(android.R.drawable.sym_action_call)
-            .setStyle(Notification.CallStyle.forOngoingCall(person, hangup))
-            .setCategory(Notification.CATEGORY_CALL)
-            .setOngoing(true)
-            .setAutoCancel(false)
-            .setUsesChronometer(true)
-            .setFullScreenIntent(fullScreen, true)
-            .build()
-    }
-
-    /**
-     * API <= 30 fallback. CallStyle didn't exist; build a high-priority
-     * notification with Answer + Decline as regular actions plus the
-     * full-screen intent so XvCallActivity launches as the ring surface.
-     */
-    private fun buildIncomingCompat(
-        callerCallsign: String,
-        answer: PendingIntent,
-        decline: PendingIntent,
-        fullScreen: PendingIntent,
     ): Notification =
         NotificationCompat
             .Builder(context, NotificationChannels.INCOMING)
@@ -233,7 +147,6 @@ class CallStyleNotifier(
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setOngoing(true)
             .setAutoCancel(false)
-            .setFullScreenIntent(fullScreen, true)
             .addAction(
                 android.R.drawable.sym_action_call,
                 "Answer",
@@ -244,10 +157,9 @@ class CallStyleNotifier(
                 decline,
             ).build()
 
-    private fun buildActiveCompat(
+    private fun buildActive(
         peerCallsign: String,
         hangup: PendingIntent,
-        fullScreen: PendingIntent,
     ): Notification =
         NotificationCompat
             .Builder(context, NotificationChannels.ACTIVE)
@@ -259,7 +171,6 @@ class CallStyleNotifier(
             .setOngoing(true)
             .setAutoCancel(false)
             .setUsesChronometer(true)
-            .setFullScreenIntent(fullScreen, true)
             .addAction(
                 android.R.drawable.ic_menu_close_clear_cancel,
                 "Hang up",
@@ -303,54 +214,6 @@ class CallStyleNotifier(
         return PendingIntent.getBroadcast(
             context,
             REQUEST_DECLINE + (tempChannelId and 0xFFFF),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    private fun incomingFullScreenPendingIntent(
-        callerCallsign: String,
-        tempChannelId: Int,
-        callerSession: Int,
-    ): PendingIntent {
-        val intent =
-            Intent(context, XvCallActivity::class.java).apply {
-                // FLAG_ACTIVITY_NEW_TASK is mandatory when launching an
-                // activity from a non-activity context (PendingIntent
-                // fired by the system NotificationManager). Without it
-                // the launch fails silently and the ring never appears.
-                // CLEAR_TASK keeps the singleInstance task clean so a
-                // repeat REQUEST_CALL doesn't stack screens.
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TASK,
-                )
-                putExtra(XvCallActivity.EXTRA_MODE, XvCallActivity.MODE_INCOMING)
-                putExtra(XvCallActivity.EXTRA_CALLSIGN, callerCallsign)
-                putExtra(XvCallActivity.EXTRA_TEMP_CHANNEL_ID, tempChannelId)
-                putExtra(XvCallActivity.EXTRA_CALLER_SESSION, callerSession)
-            }
-        return PendingIntent.getActivity(
-            context,
-            REQUEST_FULL_SCREEN + (tempChannelId and 0xFFFF),
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-    }
-
-    private fun activeFullScreenPendingIntent(peerCallsign: String): PendingIntent {
-        val intent =
-            Intent(context, XvCallActivity::class.java).apply {
-                addFlags(
-                    Intent.FLAG_ACTIVITY_NEW_TASK or
-                        Intent.FLAG_ACTIVITY_CLEAR_TASK,
-                )
-                putExtra(XvCallActivity.EXTRA_MODE, XvCallActivity.MODE_ACTIVE)
-                putExtra(XvCallActivity.EXTRA_CALLSIGN, peerCallsign)
-            }
-        return PendingIntent.getActivity(
-            context,
-            REQUEST_FULL_SCREEN_ACTIVE,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
@@ -415,7 +278,5 @@ class CallStyleNotifier(
         private const val REQUEST_ANSWER = 0x10_0000
         private const val REQUEST_DECLINE = 0x20_0000
         private const val REQUEST_HANGUP = 0x30_0000
-        private const val REQUEST_FULL_SCREEN = 0x40_0000
-        private const val REQUEST_FULL_SCREEN_ACTIVE = 0x50_0000
     }
 }

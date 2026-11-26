@@ -24,7 +24,7 @@ import android.util.Log
  *     heads-up. Just a status indicator while the voice subsystem
  *     is up.
  *   - INCOMING_CALL: HIGH importance, CATEGORY_CALL, bypasses DnD.
- *     Used for the Teams-style ring + full-screen-intent on a
+ *     Used for the Teams-style heads-up ring on a
  *     direct-call REQUEST. Mirrors the existing `xv_incoming_call`
  *     channel.
  *   - ACTIVE_CALL: LOW importance, CATEGORY_CALL. For the
@@ -56,7 +56,7 @@ object NotificationChannels {
      *  Matches the existing literal in XvVoiceService.CHANNEL_ID. */
     const val SERVICE = "xv_voice_session"
 
-    /** Heads-up / full-screen-intent ring for incoming direct calls.
+    /** Heads-up ring for incoming direct calls.
      *  Matches the existing literal in
      *  XvVoiceService.INCOMING_CALL_CHANNEL_ID. */
     const val INCOMING_CALL = "xv_incoming_call"
@@ -103,7 +103,7 @@ object NotificationChannels {
             id = INCOMING_CALL,
             name = "XV incoming calls",
             importance = NotificationManager.IMPORTANCE_HIGH,
-            description = "Heads-up + full-screen incoming-call ring for XV direct calls.",
+            description = "Heads-up incoming-call ring for XV direct calls.",
             showBadge = true,
             bypassDnd = true,
             vibrate = true,

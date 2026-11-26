@@ -32,8 +32,16 @@
          blocks the XvCallActivity launch from the background (verified
          2026-05-11 Pixel: startForeground(0x94) threw "not a subset of
          manifest 0x90", BAL_BLOCK on XvCallActivity, operator stuck
-         on the PTT screen with a live call running underneath). -->
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/>
+         on the PTT screen with a live call running underneath).
+
+         DISABLED for the Play submission: only direct calling uses the
+         phoneCall type, and direct calling is not shipping yet. Normal
+         PTT (Telecom self-managed call + voice audio focus) runs under
+         microphone|connectedDevice and does not need it. Re-enable this
+         permission, the phoneCall entry in XvVoiceService's
+         foregroundServiceType below, and
+         XvVoiceService.PHONE_CALL_FGS_ENABLED together. -->
+    <!-- <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL"/> -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <!-- Network reachability (read-only) so NetworkAvailabilityWatcher
@@ -75,16 +83,18 @@
          drops a Play-Store PII flag. -->
 
 
-    <!-- Phase E ring restoration: Notification.CallStyle.forIncomingCall
-         on a HIGH-importance channel does NOT self-trigger the
-         lock-screen / heads-up full-screen ring. It requires
-         setFullScreenIntent to be attached to the notification, and
-         that requires USE_FULL_SCREEN_INTENT. The earlier comment
-         claiming CallStyle alone suffices was incorrect — verified on
-         Pixel 8 + Surface Duo: notification posted, Wear OS companion
-         (Garmin Fenix) rendered the incoming call, but the phone
-         itself stayed silent and never showed any call UI. -->
-    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <!-- DISABLED for the Play submission. USE_FULL_SCREEN_INTENT is
+         restricted by Google Play to calling and alarm apps, and XV
+         does not offer direct calling yet: the Telecom self-managed
+         call only gates audio and has no call UI. Re-enable this
+         together with the direct-calling feature, which is the only
+         time the full-screen ring is needed, and restore CallStyle +
+         setFullScreenIntent in CallStyleNotifier at the same time.
+         Phase E context: a full-screen intent is required for the
+         incoming ring on the phone itself (CallStyle alone is silent
+         on Pixel 8 and Surface Duo). -->
+    <!-- <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/> -->
+
 
     <application
         android:allowBackup="false"
@@ -144,13 +154,12 @@
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             tools:ignore="ExportedActivity"/>
 
-        <!-- Phase E full-screen-intent target. Notification.CallStyle's
-             incoming-ring requires a real activity in setFullScreenIntent
-             for the system to render the ring surface on phone (the
-             notification ALONE only reaches Wear OS companions). This
-             activity is the FSI target — it just provides Answer /
-             Decline / Hang Up affordances that broadcast the same
-             actions CallStyle's own buttons do.
+        <!-- In-call surface for direct calls, launched directly by
+             CallStyleNotifier.launchActiveCallActivity. Provides Answer /
+             Decline / Mute / route / Hang Up affordances that broadcast
+             the same actions as the notification buttons. Not a
+             full-screen-intent target while USE_FULL_SCREEN_INTENT is
+             disabled (see the commented-out permission above).
 
              showWhenLocked + turnScreenOn so the ring fires above the
              lock screen and wakes the display. singleInstance so a
@@ -215,11 +224,14 @@
                 outgoing-active transitions. Without this entry, the
                 runtime promotion fails with "fgType X is not a subset
                 of manifest 0xY" and the activity launch is BAL_BLOCKed.
+                DISABLED until direct calling ships (see the commented-out
+                FOREGROUND_SERVICE_PHONE_CALL permission above). Restore
+                as "microphone|connectedDevice|phoneCall".
              -->
         <service
             android:name=".service.XvVoiceService"
             android:exported="true"
-            android:foregroundServiceType="microphone|connectedDevice|phoneCall">
+            android:foregroundServiceType="microphone|connectedDevice">
             <intent-filter>
                 <action android:name="com.atakmap.android.xv.service.IXvVoice"/>
             </intent-filter>
