@@ -53,4 +53,13 @@ class MumbleTransportSwapWiringTest {
         assertFalse(t.isSwapInFlight())
         assertTrue(outcomes.isEmpty())
     }
+
+    @Test
+    fun `channel 1 can't join Lobby while channel 2 is Root, and vice versa`() {
+        // Lobby is XV's name for Root: the collision check must see them
+        // as one channel and run before the Lobby shortcut.
+        assertFalse(transport(secondary = "Root").joinChannel("Lobby"))
+        assertFalse(transport(secondary = "Lobby").joinChannel("lobby"))
+        assertFalse(transport(secondary = "Bravo").joinChannel("bravo"))
+    }
 }

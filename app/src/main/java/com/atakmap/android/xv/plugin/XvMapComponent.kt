@@ -5884,6 +5884,8 @@ class XvMapComponent : AbstractMapComponent() {
             onPeerAcceptedCall = { handlePeerAcceptedCall() },
             onChannelsSwapped = { outcome -> onChannelsSwappedInternal(outcome) },
             onSecondaryChannelMissing = { missing -> onSecondaryChannelMissingInternal(missing) },
+            onPrimaryChannelMissing = { missing -> onPrimaryChannelMissingInternal(missing) },
+            onSecondaryCollided = { name -> onSecondaryDroppedInternal("Channel 2 '$name' is now channel 1's channel — channel 2 is off") },
         )
 
     private fun handleMumbleRxOpus(
@@ -6368,14 +6370,25 @@ class XvMapComponent : AbstractMapComponent() {
 
     // The saved channel 2 vanished from the server; the transport has
     // already torn VS2 down. Forget it and say so.
-    private fun onSecondaryChannelMissingInternal(missing: String) {
+    // Channel 1's saved channel is gone: it settled in Lobby. Save that,
+    // so later reconnects don't keep looking for the deleted channel.
+    private fun onPrimaryChannelMissingInternal(missing: String) {
+        settings.persistPrimaryChannel(com.atakmap.android.xv.transport.MumbleTransport.LOBBY_DISPLAY_NAME)
+        toastOnMain("Channel 1 '$missing' no longer exists on the server — channel 1 is now Lobby")
+        dropDown?.refreshNow()
+    }
+
+    private fun onSecondaryChannelMissingInternal(missing: String) =
+        onSecondaryDroppedInternal("Channel 2 '$missing' no longer exists on the server — channel 2 is off")
+
+    private fun onSecondaryDroppedInternal(message: String) {
         lastSecondaryChannel = null
         selfSuppressedBySlot.remove(1)
         joinedChannelsBySlot.remove(1)
         // Peers must stop seeing channel 2 in our presence.
         presencePublisher?.setChannels(joinedChannelsBySlot.entries.sortedBy { it.key }.map { it.value })
         pushSlot1CanSpeak()
-        toastOnMain("Channel 2 '$missing' no longer exists on the server — channel 2 is off")
+        toastOnMain(message)
         dropDown?.refreshNow()
     }
 

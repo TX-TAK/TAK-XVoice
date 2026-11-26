@@ -125,6 +125,13 @@ class MumbleTransport(
     // at connect. The secondary has already been torn down; the plugin
     // clears the saved value and tells the operator.
     private val onSecondaryChannelMissing: (name: String) -> Unit = {},
+    // Fires when the saved channel-1 name no longer exists on the server
+    // at connect: channel 1 is settled in Lobby (it's never blank).
+    private val onPrimaryChannelMissing: (name: String) -> Unit = {},
+    // Fires when channel 2 was dropped because it would share channel 1's
+    // channel (e.g. channel 1 fell back to Lobby while channel 2 is
+    // Lobby). The secondary is already torn down; the plugin clears it.
+    private val onSecondaryCollided: (name: String) -> Unit = {},
 ) : VoiceTransport {
     // Per-slot state. Primary is always present; secondary is only
     // populated when config.secondaryChannelName is set AND it's not the
@@ -1056,7 +1063,10 @@ class MumbleTransport(
         if (primarySession != null) {
             val secondaryId = if (isLobby) 0 else primarySession.channelIdByName(name)
             if (secondaryId != null && primary.joinedChannelId == secondaryId) {
-                Log.w(TAG, "spinUpSecondary($name): id=$secondaryId == primary's joined channel — refusing")
+                // Don't leave channel 2 "joining" forever: drop it and
+                // tell the plugin (channel 1 keeps the channel).
+                Log.w(TAG, "spinUpSecondary($name): id=$secondaryId == primary's joined channel — dropping channel 2")
+                dropSecondaryForCollision(name)
                 return
             }
         }
@@ -1211,9 +1221,32 @@ class MumbleTransport(
         primary.session?.joinChannel(channelId)
     }
 
+    // Channel 2 would share channel 1's channel: drop channel 2 and tell
+    // the plugin, which clears the saved value and explains.
+    private fun dropSecondaryForCollision(name: String) {
+        activeSecondaryName = null
+        tearDownSecondary("channel 2 '$name' is channel 1's channel")
+        try {
+            onSecondaryCollided(name)
+        } catch (t: Throwable) {
+            Log.w(TAG, "onSecondaryCollided threw", t)
+        }
+    }
+
     fun joinChannel(name: String): Boolean {
         val trimmed = name.trim()
         cancelSwap("joinChannel('$trimmed')")
+        // Symmetric guard with retargetSecondary: VS1 must never share a
+        // channel with VS2. Without this, the operator could move VS1
+        // onto VS2's channel from the picker and the two slots would
+        // duplicate every voice frame on that channel (each slot sends
+        // its own copy of TX, and both decode incoming frames once each).
+        // Checked before the Lobby branch, Lobby/Root-aware.
+        val secName = activeSecondaryName
+        if (!secName.isNullOrBlank() && AutoJoinPolicy.sameChannel(secName, trimmed)) {
+            Log.w(TAG, "joinChannel('$trimmed'): would collide with VS2 ('$secName') — refusing")
+            return false
+        }
         // "Lobby" is XV's display name for Mumble's Root channel
         // (id=0). Reverse the rename for the join — server-side name
         // is "Root" but operators see it as "Lobby" in the picker.
@@ -1221,16 +1254,6 @@ class MumbleTransport(
             primary.lastSelfJoinAttemptMs = System.currentTimeMillis()
             primary.session?.joinChannel(0)
             return true
-        }
-        // Symmetric guard with retargetSecondary: VS1 must never share a
-        // channel with VS2. Without this, the operator could move VS1
-        // onto VS2's channel from the picker and the two slots would
-        // duplicate every voice frame on that channel (each slot sends
-        // its own copy of TX, and both decode incoming frames once each).
-        val secName = activeSecondaryName
-        if (!secName.isNullOrBlank() && secName.equals(trimmed, ignoreCase = true)) {
-            Log.w(TAG, "joinChannel('$trimmed'): would collide with VS2 ('$secName') — refusing")
-            return false
         }
         val s = primary.session ?: return false
         val id =
@@ -1741,8 +1764,20 @@ class MumbleTransport(
                     slot.lastSelfJoinAttemptMs = System.currentTimeMillis()
                     s.joinChannel(action.id)
                 }
-                is AutoJoinPolicy.Action.PrimaryMissing ->
-                    Log.w(TAG, "[$tag] auto-join '${action.name}' not on server — channel 1 stays in Lobby")
+                is AutoJoinPolicy.Action.PrimaryMissing -> {
+                    // Channel 1 is never blank: it settles in Lobby (and
+                    // the plugin saves that). A channel 2 that is Lobby
+                    // would now share it — drop channel 2 rather than
+                    // leave it "joining" forever.
+                    Log.w(TAG, "[$tag] auto-join '${action.name}' not on server — channel 1 settles in Lobby")
+                    val sec = activeSecondaryName
+                    if (!sec.isNullOrBlank() && AutoJoinPolicy.isLobby(sec)) dropSecondaryForCollision(sec)
+                    try {
+                        onPrimaryChannelMissing(action.name)
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "[$tag] onPrimaryChannelMissing threw", t)
+                    }
+                }
                 is AutoJoinPolicy.Action.SecondaryMissing -> {
                     // Don't park VS2 in Root (it can collide with channel 1
                     // in Lobby). Drop channel 2 and let the plugin forget it.
