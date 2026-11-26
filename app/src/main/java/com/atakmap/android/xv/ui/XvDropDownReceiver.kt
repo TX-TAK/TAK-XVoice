@@ -3488,7 +3488,7 @@ class XvDropDownReceiver(
             android.widget.Toast
                 .makeText(
                     pluginContext,
-                    "No BLE PTT devices to remove — none added yet.",
+                    "No added buttons to forget.",
                     android.widget.Toast.LENGTH_SHORT,
                 ).show()
             return
@@ -3496,16 +3496,16 @@ class XvDropDownReceiver(
         val labels = devices.map { "${it.name}  ·  ${it.mac}" }.toTypedArray()
         android.app.AlertDialog
             .Builder(mapView.context)
-            .setTitle("Remove which BLE PTT device?")
+            .setTitle("Forget which button?")
             .setItems(labels) { _, which ->
                 val picked = devices.getOrNull(which) ?: return@setItems
                 android.app.AlertDialog
                     .Builder(mapView.context)
-                    .setTitle("Remove ${picked.name}?")
+                    .setTitle("Forget ${picked.name}?")
                     .setMessage(
                         "This will forget ${picked.mac} and unassign it from any PTT slot. " +
-                            "You can re-add it later with Scan for BLE PTT device.",
-                    ).setPositiveButton("Remove") { _, _ ->
+                            "You can add it again later with Add a button.",
+                    ).setPositiveButton("Forget") { _, _ ->
                         val err = controller.removeBlePttDevice(picked.mac)
                         android.widget.Toast
                             .makeText(

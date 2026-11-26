@@ -541,60 +541,52 @@
                     android:background="@drawable/xv_button_bg"
                     android:visibility="gone"/>
 
-                <!-- Scan for BLE PTT buttons that don't pair via the
-                     phone's system Bluetooth settings (they advertise a
-                     vendor service, not HID / HoGP). Opens a dialog that
-                     runs a BluetoothLeScanner filtered for the HM-10
-                     transparent-UART service UUID (Pryme BT-PTT-Z,
-                     PTT-Z01, similar HM-10 buttons) plus a name filter
-                     for anything advertising "PTT". On tap, operator
-                     picks the device + which slot (primary or external
-                     button) to assign it to; XV connects via unbonded
-                     GATT through PrymeBleReader. -->
-                <Button
-                    android:id="@+id/xv_btn_scan_ble_ptt"
+                <!-- Add / forget a Bluetooth PTT button, side by side
+                     under the picker. Add scans for BLE PTT buttons that
+                     don't pair via the phone's system Bluetooth settings
+                     (vendor service, not HID / HoGP: Pryme BT-PTT-Z,
+                     PTT-Z01, similar HM-10 buttons, plus anything
+                     advertising "PTT"), then asks which slot to assign.
+                     Forget lists the buttons added that way and removes
+                     one from the picker and any slot. -->
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="Scan for BLE PTT device"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:minHeight="44dp"/>
-                    
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Note: Do not pair Bluetooth buttons in Android Bluetooth Settings. Doing so causes pairing loops. Pair them here using the Scan button above. If you experience loops, 'Forget' the button in Android Settings."
-                    android:textColor="@color/xv_warn"
-                    android:textSize="12sp"
-                    android:layout_marginTop="6dp"
-                    android:layout_marginBottom="6dp"
-                    android:paddingStart="4dp"
-                    android:paddingEnd="4dp" />
+                    android:orientation="horizontal"
+                    android:layout_marginTop="12dp">
 
-                <!-- Remove a previously-added BLE PTT device. Shows a
-                     dialog listing every MAC the operator has added via
-                     the scan-and-pick flow above, then removes it from
-                     the picker + any slot assignment. -->
-                <Button
-                    android:id="@+id/xv_btn_remove_ble_ptt"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Remove BLE PTT device"
-                    android:textColor="@color/xv_text"
-                    android:textAllCaps="false"
-                    android:background="@drawable/xv_button_bg"
-                    android:minHeight="44dp"/>
+                    <Button
+                        android:id="@+id/xv_btn_scan_ble_ptt"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:text="Add a button"
+                        android:textColor="@color/xv_text"
+                        android:textAllCaps="false"
+                        android:background="@drawable/xv_button_bg"
+                        android:minHeight="44dp"/>
+
+                    <Button
+                        android:id="@+id/xv_btn_remove_ble_ptt"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:text="Forget an added button"
+                        android:textColor="@color/xv_text"
+                        android:textAllCaps="false"
+                        android:background="@drawable/xv_button_bg"
+                        android:minHeight="44dp"/>
+                </LinearLayout>
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="For BLE PTT buttons that won't pair via system Bluetooth (they advertise a vendor service, not HID)."
+                    android:text="Add Bluetooth PTT buttons here, not in Android Bluetooth settings: pairing one there causes connect loops. If a button is already paired there, forget it in Android Bluetooth settings."
                     android:textColor="@color/xv_text_dim"
                     android:textSize="11sp"
-                    android:layout_marginTop="4dp"/>
+                    android:layout_marginTop="6dp"/>
 
                 <!-- Auto-connect toggle for compatible BT speakermics / buttons -->
                 <LinearLayout
