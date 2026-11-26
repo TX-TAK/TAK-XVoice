@@ -345,7 +345,13 @@ class AinaBleReader(
             synchronized(gattLock) {
                 if (GattSetup.shouldArmAutoConnect(directRetryCount, auth)) autoConnectArmed = true
                 val d =
-                    GattSetup.retryDelayMs(directRetryCount, autoConnectArmed, auth, unrecognised, failedFast = failedFast)
+                    GattSetup.retryDelayMs(
+                        directRetryCount,
+                        autoConnectArmed,
+                        auth,
+                        unrecognised,
+                        GattSetup.autoConnectWaits(autoConnectAllowed = true, failedFast = failedFast),
+                    )
                 directRetryCount++
                 d to autoConnectArmed
             }
@@ -735,19 +741,27 @@ class AinaBleReader(
             ) {
                 if (bytes == null || bytes.isEmpty()) return
                 synchronized(stateLock) {
-                    if (disposed || !isCurrent(g)) return
-                    if (!reportedConnected) {
-                        // Subscription not confirmed: the link may still
-                        // fail and be abandoned, so nothing counts yet.
-                        Log.i(TAG, "ignoring button notify before subscription is confirmed")
-                        return
-                    }
-                    val mask = bytes[0].toInt() and 0xFF
-                    for ((button, isDown) in decoder.process(mask)) {
-                        dispatchEvent(button, isDown)
+                    if (acceptsButtonNotify(g)) {
+                        val mask = bytes[0].toInt() and 0xFF
+                        for ((button, isDown) in decoder.process(mask)) {
+                            dispatchEvent(button, isDown)
+                        }
                     }
                 }
             }
+
+            // Current handle, reader live, subscription confirmed. Before
+            // confirmation the link may still fail and be abandoned, so
+            // nothing it delivers counts yet.
+            private fun acceptsButtonNotify(g: BluetoothGatt): Boolean =
+                when {
+                    disposed || !isCurrent(g) -> false
+                    !reportedConnected -> {
+                        Log.i(TAG, "ignoring button notify before subscription is confirmed")
+                        false
+                    }
+                    else -> true
+                }
         }
 
     // Button CCCD with notifications enabled locally, or null when the

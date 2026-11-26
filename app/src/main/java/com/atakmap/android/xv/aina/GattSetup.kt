@@ -87,27 +87,36 @@ object GattSetup {
     /**
      * Delay before the next connect attempt. [directRetryCount] is the
      * number of failed attempts so far; [autoConnectArmed] means the
-     * direct-retry budget is spent. [failedFast] means the attempt
-     * failed without waiting on the radio: connectGatt gave no handle,
-     * or the link came up and setup failed (device in range). An
-     * autoConnect re-arm returns at once in those cases, so the short
-     * autoConnect cadence would spin; use the slow one instead.
+     * direct-retry budget is spent. [autoConnectWaits] says whether an
+     * armed reader's autoConnect would actually wait on the radio: false
+     * when the reader may not park in autoConnect at all, or when this
+     * failure did not wait on the radio (see [autoConnectWaits]) — the
+     * short autoConnect cadence would spin then, so the slow one is used.
      */
     fun retryDelayMs(
         directRetryCount: Int,
         autoConnectArmed: Boolean,
         authFailure: Boolean,
         unrecognisedCount: Int,
-        autoConnectAllowed: Boolean = true,
-        failedFast: Boolean = false,
+        autoConnectWaits: Boolean = true,
     ): Long =
         when {
             unrecognisedCount >= UNRECOGNISED_LIMIT -> UNRECOGNISED_RETRY_DELAY_MS
             authFailure -> AUTH_RETRY_DELAY_MS
-            autoConnectArmed && (!autoConnectAllowed || failedFast) -> SLOW_DIRECT_RETRY_DELAY_MS
+            autoConnectArmed && !autoConnectWaits -> SLOW_DIRECT_RETRY_DELAY_MS
             autoConnectArmed -> AUTO_CONNECT_DELAY_MS
             else -> (INITIAL_RETRY_DELAY_MS shl directRetryCount.coerceIn(0, 4)).coerceAtMost(MAX_DIRECT_RETRY_DELAY_MS)
         }
+
+    /**
+     * Whether a re-armed autoConnect would wait for the device rather
+     * than fail again at once. [failedFast]: connectGatt gave no handle,
+     * or the link came up and setup failed (device in range).
+     */
+    fun autoConnectWaits(
+        autoConnectAllowed: Boolean,
+        failedFast: Boolean,
+    ): Boolean = autoConnectAllowed && !failedFast
 
     /** autoConnect takes over once the direct budget is spent or the bond is broken. */
     fun shouldArmAutoConnect(

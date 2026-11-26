@@ -613,8 +613,7 @@ open class BitmaskGattPttReader(
                         autoConnectArmed,
                         auth,
                         unrecognised,
-                        allowAutoConnect(),
-                        failedFast,
+                        GattSetup.autoConnectWaits(allowAutoConnect(), failedFast),
                     )
                 directRetryCount++
                 Triple(d, autoConnectArmed, directRetryCount)
@@ -948,19 +947,31 @@ open class BitmaskGattPttReader(
                 ch: BluetoothGattCharacteristic,
                 bytes: ByteArray,
             ) {
-                if (!reportedConnected) {
-                    // Subscription not confirmed: the link may still fail
-                    // and be abandoned, so nothing it delivers counts yet.
-                    Log.i(config.tag, "ignoring notify on ${ch.uuid} before subscription is confirmed")
-                    return
-                }
-                if (ch.uuid !in subscribedChars) {
-                    Log.i(config.tag, "ignoring notify on unsubscribed ${ch.uuid}")
-                    return
-                }
+                if (!acceptsNotification(ch)) return
                 Log.i(config.tag, "notify ${ch.uuid}: ${bytes.toHexString()}")
-                if (bytes.isEmpty()) return
-                val mask = bytes[0].toInt() and 0xFF
+                if (bytes.isNotEmpty()) dispatchMask(bytes[0].toInt() and 0xFF)
+            }
+
+            // Only a confirmed subscription's own button characteristic(s)
+            // count. Before confirmation the link may still fail and be
+            // abandoned; other notify characteristics can carry bytes a
+            // permissive decoder would read as a phantom press.
+            private fun acceptsNotification(ch: BluetoothGattCharacteristic): Boolean =
+                when {
+                    !reportedConnected -> {
+                        Log.i(config.tag, "ignoring notify on ${ch.uuid} before subscription is confirmed")
+                        false
+                    }
+                    ch.uuid !in subscribedChars -> {
+                        Log.i(config.tag, "ignoring notify on unsubscribed ${ch.uuid}")
+                        false
+                    }
+                    else -> true
+                }
+
+            // Pulse codes fire a down+up without touching [lastHeld];
+            // everything else is diffed against the previous held set.
+            private fun dispatchMask(mask: Int) {
                 val pulseButtons = config.decodePulse(mask)
                 if (pulseButtons.isNotEmpty()) {
                     for (btn in pulseButtons) {
@@ -970,11 +981,12 @@ open class BitmaskGattPttReader(
                     return
                 }
                 val nowHeld = config.decodeMask(mask)
-                val prev = lastHeld
-                val edges = diffEdges(prev, nowHeld) ?: return
-                lastHeld = nowHeld
-                for (btn in edges.down) dispatchEvent(btn, true)
-                for (btn in edges.up) dispatchEvent(btn, false)
+                val edges = diffEdges(lastHeld, nowHeld)
+                if (edges != null) {
+                    lastHeld = nowHeld
+                    for (btn in edges.down) dispatchEvent(btn, true)
+                    for (btn in edges.up) dispatchEvent(btn, false)
+                }
             }
         }
 

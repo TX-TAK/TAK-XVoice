@@ -95,12 +95,16 @@ class GattSetupTest {
         assertEquals(16_000L, GattSetup.retryDelayMs(3, false, false, 0))
         assertEquals(16_000L, GattSetup.retryDelayMs(9, false, false, 0))
         assertEquals(5_000L, GattSetup.retryDelayMs(5, true, false, 0))
-        assertEquals(60_000L, GattSetup.retryDelayMs(5, true, false, 0, autoConnectAllowed = false))
-        assertEquals("armed + fast failure: no 5 s spin", 60_000L, GattSetup.retryDelayMs(5, true, false, 0, failedFast = true))
+        assertEquals(60_000L, GattSetup.retryDelayMs(5, true, false, 0, autoConnectWaits = false))
+        assertEquals(
+            "armed + fast failure: no 5 s spin",
+            60_000L,
+            GattSetup.retryDelayMs(5, true, false, 0, GattSetup.autoConnectWaits(true, failedFast = true))
+        )
         assertEquals(
             "not armed: fast failure keeps the direct backoff",
             2_000L,
-            GattSetup.retryDelayMs(0, false, false, 0, failedFast = true)
+            GattSetup.retryDelayMs(0, false, false, 0, autoConnectWaits = false),
         )
         assertEquals(120_000L, GattSetup.retryDelayMs(0, true, true, 0))
         assertEquals(300_000L, GattSetup.retryDelayMs(0, false, false, GattSetup.UNRECOGNISED_LIMIT))
