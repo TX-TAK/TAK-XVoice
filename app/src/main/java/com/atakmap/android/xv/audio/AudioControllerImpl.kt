@@ -189,6 +189,9 @@ class AudioControllerImpl(
         if (savedMode == null) {
             savedMode = audioManager.mode
         }
+        // Claim before the set so the external-call detector never sees
+        // this IN_COMMUNICATION as somebody else's call.
+        XvAudioModeClaims.claim(XvAudioModeClaims.AUDIO_PLANT)
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         // SCO is owned by ScoLink; not engaged here. Idle phone-speaker
         // playback routes via the call audio path automatically.
@@ -228,6 +231,7 @@ class AudioControllerImpl(
         if (savedMode == null) {
             savedMode = audioManager.mode
         }
+        XvAudioModeClaims.claim(XvAudioModeClaims.AUDIO_PLANT)
         audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
         bumpVoiceCallVolumeIfLow()
         // ScoLink owns SCO; this method must not touch it. The SCO link
@@ -454,7 +458,12 @@ class AudioControllerImpl(
     // saved state is already null. Called either from the cool-down
     // runnable or immediately on suspend / shutdown.
     private fun applyPhoneModeRestore() {
-        savedMode?.let { audioManager.mode = it }
+        try {
+            savedMode?.let { audioManager.mode = it }
+        } finally {
+            // Release after the restore, so the mode is never ours-but-unclaimed.
+            XvAudioModeClaims.release(XvAudioModeClaims.AUDIO_PLANT)
+        }
         savedMode = null
         restoreSpeakerphoneIfOwned()
         restoreVoiceCallVolumeIfOwned()

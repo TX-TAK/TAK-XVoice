@@ -172,6 +172,8 @@ class VoicePlant(
                     nowMs - lastRxPlaybackElapsedMs <= RECENT_OWN_RX_GRACE_MS
             val xvOwnCallOrGrace =
                 xvHasActiveTelecomCallProvider() ||
+                    com.atakmap.android.xv.audio.XvAudioModeClaims
+                        .held() ||
                     recentOwnRx ||
                     lowLatencyHoldActive ||
                     com.atakmap.android.xv.telecom.ActiveCallRegistry

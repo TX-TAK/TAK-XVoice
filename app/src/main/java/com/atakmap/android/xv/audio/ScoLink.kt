@@ -745,6 +745,8 @@ class ScoLink(
             return
         }
         savedMode = currentMode
+        // Claim before the set (see XvAudioModeClaims).
+        XvAudioModeClaims.claim(XvAudioModeClaims.SCO_LINK)
         try {
             audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
             Log.i(TAG, "mode set to IN_COMMUNICATION (savedMode=$savedMode)")
@@ -884,6 +886,8 @@ class ScoLink(
             audioManager.mode = savedMode
         } catch (t: Throwable) {
             Log.w(TAG, "restore mode failed", t)
+        } finally {
+            XvAudioModeClaims.release(XvAudioModeClaims.SCO_LINK)
         }
     }
 
