@@ -1040,6 +1040,23 @@ class XvMapComponent : AbstractMapComponent() {
                     }
                 }
 
+                override fun onPttInputProblem(reason: String?) {
+                    // Non-bond problem with a BT PTT input (device not
+                    // recognised, permission missing). Service throttles.
+                    val msg = reason ?: "Bluetooth PTT device problem — check Settings"
+                    Log.w(TAG, "onPttInputProblem: $msg")
+                    val target = MapView.getMapView() ?: return
+                    try {
+                        target.post {
+                            android.widget.Toast
+                                .makeText(target.context, msg, android.widget.Toast.LENGTH_LONG)
+                                .show()
+                        }
+                    } catch (t: Throwable) {
+                        Log.w(TAG, "input-problem toast threw", t)
+                    }
+                }
+
                 override fun onPrivateCallEnded() {
                     cancelPendingAnswerTimeout("call ended")
                     cancelPendingRingback("call ended")

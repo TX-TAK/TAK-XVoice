@@ -57,14 +57,15 @@ class AinaBleReaderRetryCountTest {
                     callback = cb
                     gattFactory().also { gatts += it }
                 },
+                adapterEnabled = { true },
             )
 
         val cb get() = checkNotNull(callback)
         val current get() = checkNotNull(gatts.last())
     }
 
-    private fun idle() {
-        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30))
+    private fun idle(seconds: Long = 30) {
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(seconds))
     }
 
     private fun harness(gattFactory: () -> BluetoothGatt? = { mockGatt() }): Harness {
@@ -177,10 +178,56 @@ class AinaBleReaderRetryCountTest {
         h.cb.onDescriptorWrite(h.current, cccdOf(h.current), GattSetup.GATT_INSUFFICIENT_AUTHENTICATION)
         assertEquals(1, h.repairs.size)
         assertTrue(h.reader.autoConnectArmedForTest())
-        idle()
+        idle(seconds = 150)
         subscribe(h)
         h.cb.onDescriptorWrite(h.current, cccdOf(h.current), GattSetup.GATT_AUTH_FAIL)
         assertEquals("needs-repair must not repeat within one connect()", 1, h.repairs.size)
+        h.reader.disconnect()
+    }
+
+    @Test
+    fun `held PTT is released when the link drops after subscribing`() {
+        val events = mutableListOf<Pair<AinaButton, Boolean>>()
+        var cb: BluetoothGattCallback? = null
+        val g = mockGatt()
+        val reader =
+            AinaBleReader(
+                context = context,
+                onEvent = { b, d -> events += b to d },
+                gattConnector =
+                AinaBleReader.GattConnector { _, _, _, c ->
+                    cb = c
+                    g
+                },
+                adapterEnabled = { true },
+            )
+        reader.connect(mockDevice())
+        idle()
+        val c = checkNotNull(cb)
+        c.onConnectionStateChange(g, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        c.onServicesDiscovered(g, BluetoothGatt.GATT_SUCCESS)
+        val ch = g.getService(AinaBleReader.SERVICE_UUID)!!.getCharacteristic(AinaBleReader.BUTTON_CHAR_UUID)!!
+        val press = byteArrayOf(AinaButton.PTT.bitMask.toByte())
+        // Before the CCCD is confirmed, presses do not count.
+        c.onCharacteristicChanged(g, ch, press)
+        assertTrue(events.isEmpty())
+        c.onDescriptorWrite(g, cccdOf(g), BluetoothGatt.GATT_SUCCESS)
+        c.onCharacteristicChanged(g, ch, press)
+        assertEquals(listOf(AinaButton.PTT to true), events)
+        c.onConnectionStateChange(g, 8, BluetoothProfile.STATE_DISCONNECTED)
+        assertEquals(AinaButton.PTT to false, events.last())
+        reader.disconnect()
+    }
+
+    @Test
+    fun `setup watchdog reconnects a link stuck before subscription`() {
+        val h = harness()
+        val first = h.current
+        h.cb.onConnectionStateChange(first, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        idle(seconds = 16)
+        verify(atLeast = 1) { first.close() }
+        idle()
+        assertTrue(h.gatts.size >= 2)
         h.reader.disconnect()
     }
 

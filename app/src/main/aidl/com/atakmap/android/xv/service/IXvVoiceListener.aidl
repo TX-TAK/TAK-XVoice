@@ -95,5 +95,11 @@ interface IXvVoiceListener {
     // one-sided bond. Retrying cannot fix it; the operator has to
     // forget and re-pair the device. Fired at most once per reader
     // connect. Plugin surfaces [reason] as a Toast.
-    void onPttInputNeedsRepair(String reason);
+    oneway void onPttInputNeedsRepair(String reason);
+
+    // A Bluetooth PTT input has a problem the operator must fix that is
+    // not a bond issue: the device does not expose the expected buttons
+    // (wrong device / protocol), or a needed permission is missing.
+    // Fired at most once per condition, throttled per slot.
+    oneway void onPttInputProblem(String reason);
 }

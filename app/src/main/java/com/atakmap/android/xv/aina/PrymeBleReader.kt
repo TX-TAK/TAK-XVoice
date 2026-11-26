@@ -44,12 +44,14 @@ class PrymeBleReader(
     onEvent: (AinaButton, isDown: Boolean) -> Unit,
     onConnectionState: (Boolean) -> Unit = {},
     onNeedsRepair: (String) -> Unit = {},
+    onProblem: (String) -> Unit = {},
 ) : BitmaskGattPttReader(
     context = context,
     config = PRYME_CONFIG,
     onEvent = onEvent,
     onConnectionState = onConnectionState,
     onNeedsRepair = onNeedsRepair,
+    onProblem = onProblem,
 ) {
     companion object {
         private val HM10_SERVICE_UUID: UUID = UUID.fromString("0000ffe0-0000-1000-8000-00805f9b34fb")

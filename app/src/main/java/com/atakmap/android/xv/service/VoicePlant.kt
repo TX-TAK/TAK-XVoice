@@ -264,6 +264,10 @@ class VoicePlant(
         // reasons (stale bond). Plugin surfaces [reason] to the operator;
         // the reader keeps retrying slowly until the operator re-pairs.
         fun onPttInputNeedsRepair(reason: String)
+
+        // A BLE PTT reader hit a non-bond problem the operator must fix
+        // (buttons not recognised, scan permission missing).
+        fun onPttInputProblem(reason: String)
     }
 
     private val audioManager =
@@ -580,6 +584,10 @@ class VoicePlant(
     private val primarySlotLock = Any()
 
     private val externalSlotLock = Any()
+
+    // Last time an operator message was raised per slot+kind, so a reader
+    // that keeps reconnecting cannot repeat the same notice every cycle.
+    private val lastInputNoticeAtMs = java.util.concurrent.ConcurrentHashMap<String, Long>()
 
     // MAC of the external button this slot is currently bound to (or null
     // when none). Set at connect-attempt time in [connectExternalButton]
@@ -1486,6 +1494,12 @@ class VoicePlant(
         device: android.bluetooth.BluetoothDevice,
         resolvedKind: String,
     ) {
+        // Speaker-mic wins over an external button on the same device: two
+        // readers would race for one link.
+        if (device.address.equals(connectedExternalButtonMac, ignoreCase = true)) {
+            Log.w(TAG, "connectAina: device is also the External Button — dropping that slot's reader")
+            disconnectExternalButton()
+        }
         // Tell AudioRouter which BT device to prefer when multiple are
         // connected (e.g. AINA + AirPods). Without this hint,
         // preferredDevice() picks "first BT" which is non-deterministic.
@@ -1539,6 +1553,7 @@ class VoicePlant(
                         primaryAinaEvent(PttSource.AINA_V2, owner),
                         { up -> onConn(PttSource.AINA_V2, up) },
                         needsRepairHandler("speaker-mic", owner),
+                        onProblem = problemHandler("speaker-mic", owner),
                     )
                 ainaBle = r
                 r.connect(device)
@@ -1557,6 +1572,7 @@ class VoicePlant(
                         primaryAinaEvent(PttSource.PRYME_BLE, owner),
                         { up -> onConn(PttSource.PRYME_BLE, up) },
                         needsRepairHandler("speaker-mic", owner),
+                        problemHandler("speaker-mic", owner),
                     )
                 prymeBle = r
                 r.connect(device)
@@ -1571,6 +1587,7 @@ class VoicePlant(
                         primaryAinaEvent(PttSource.INRICO_BT02, owner),
                         { up -> onConn(PttSource.INRICO_BT02, up) },
                         needsRepairHandler("speaker-mic", owner),
+                        problemHandler("speaker-mic", owner),
                     )
                 bt02Ble = r
                 r.connectBt02(device)
@@ -1608,11 +1625,15 @@ class VoicePlant(
         )
         val adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter()
         val device = adapter?.let { resolveInputDevice(it, mac, name, "connectExternalButton") }
-        if (adapter == null || device == null) {
+        // The same physical device cannot be both the speaker-mic and the
+        // external button: two readers would race for one GATT / RFCOMM
+        // link. The speaker-mic slot wins.
+        val sameAsPrimary = device != null && device.address.equals(connectedAinaMac, ignoreCase = true)
+        if (adapter == null || device == null || sameAsPrimary) {
             Log.w(
                 TAG,
-                "connectExternalButton: no adapter or device for mac=${com.atakmap.android.xv.aina.redactMac(mac)} " +
-                    "name=$name",
+                "connectExternalButton: not connecting mac=${com.atakmap.android.xv.aina.redactMac(mac)} " +
+                    "name=$name (adapter=${adapter != null} device=${device != null} sameAsSpeakerMic=$sameAsPrimary)",
             )
             disconnectExternalButton()
             return
@@ -1681,6 +1702,7 @@ class VoicePlant(
                         externalButtonEvent(PttSource.AINA_V2, owner),
                         { up -> onConn(PttSource.AINA_V2, up) },
                         needsRepairHandler("external button", owner),
+                        onProblem = problemHandler("external button", owner),
                     )
                 externalButtonBle = r
                 r.connect(device)
@@ -1692,6 +1714,7 @@ class VoicePlant(
                         externalButtonEvent(PttSource.PRYME_BLE, owner),
                         { up -> onConn(PttSource.PRYME_BLE, up) },
                         needsRepairHandler("external button", owner),
+                        problemHandler("external button", owner),
                     )
                 externalButtonPrymeBle = r
                 r.connect(device)
@@ -1708,6 +1731,7 @@ class VoicePlant(
                         externalButtonEvent(PttSource.INRICO_BT02, owner),
                         { up -> onConn(PttSource.INRICO_BT02, up) },
                         needsRepairHandler("external button", owner),
+                        problemHandler("external button", owner),
                     )
                 externalButtonBt02 = r
                 r.connectBt02(device)
@@ -1927,6 +1951,7 @@ class VoicePlant(
         handler@{ detail ->
             if (owner.retired) return@handler
             Log.w(TAG, "$slotLabel needs re-pair ($detail)")
+            if (!claimInputNotice("repair:$slotLabel")) return@handler
             try {
                 callbacks.onPttInputNeedsRepair(
                     "Bluetooth $slotLabel rejected the connection — forget and re-pair it in Android Bluetooth settings",
@@ -1935,6 +1960,34 @@ class VoicePlant(
                 Log.w(TAG, "onPttInputNeedsRepair dispatch threw", t)
             }
         }
+
+    private fun problemHandler(
+        slotLabel: String,
+        owner: PttInputOwner,
+    ): (String) -> Unit =
+        handler@{ message ->
+            if (owner.retired) return@handler
+            Log.w(TAG, "$slotLabel problem: $message")
+            if (!claimInputNotice("problem:$slotLabel")) return@handler
+            try {
+                callbacks.onPttInputProblem(message)
+            } catch (t: Throwable) {
+                Log.w(TAG, "onPttInputProblem dispatch threw", t)
+            }
+        }
+
+    // True (and the slot's notice clock restarted) when [key]'s last
+    // operator notice is older than the throttle window.
+    private fun claimInputNotice(key: String): Boolean {
+        val now = nowMsProvider()
+        val last = lastInputNoticeAtMs[key] ?: 0L
+        if (!com.atakmap.android.xv.aina.GattSetup.shouldSurface(last, now, INPUT_NOTICE_THROTTLE_MS)) {
+            Log.i(TAG, "input notice '$key' throttled (${now - last}ms since last)")
+            return false
+        }
+        lastInputNoticeAtMs[key] = now
+        return true
+    }
 
     /**
      * Reader-level release path: called from a reader's connection
@@ -2174,6 +2227,9 @@ class VoicePlant(
     }
 
     companion object {
+        // One operator notice per slot and kind per window.
+        private const val INPUT_NOTICE_THROTTLE_MS: Long = 10 * 60_000L
+
         private const val TAG = "XvVoicePlant"
 
         // Operator-facing message for the cellular-call PTT gate. Kept

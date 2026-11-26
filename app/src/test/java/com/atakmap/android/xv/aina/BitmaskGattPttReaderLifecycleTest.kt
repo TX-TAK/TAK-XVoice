@@ -87,6 +87,8 @@ class BitmaskGattPttReaderLifecycleTest {
         var n = 0
         val states = mutableListOf<Boolean>()
         val events = mutableListOf<Pair<AinaButton, Boolean>>()
+        repairs.clear()
+        problems.clear()
         val reader =
             BitmaskGattPttReader(
                 context = context,
@@ -99,16 +101,30 @@ class BitmaskGattPttReaderLifecycleTest {
                 ),
                 onEvent = { b, d -> events += b to d },
                 onConnectionState = { states += it },
+                onNeedsRepair = { repairs += it },
                 gattConnector =
                 AinaBleReader.GattConnector { _, _, _, cb ->
                     callbacks += cb
                     fixtures[(n++).coerceAtMost(fixtures.size - 1)].gatt
                 },
+                onProblem = { problems += it },
+                adapterEnabled = { true },
             )
         reader.connect(mockk<BluetoothDevice>(relaxed = true).also { every { it.address } returns "AA:BB:CC:DD:EE:FF" })
         idle()
         states.clear()
         return Run(reader, callbacks, { n }, states, events)
+    }
+
+    private val repairs = mutableListOf<String>()
+    private val problems = mutableListOf<String>()
+
+    private fun subscribeAll(
+        r: Run,
+        f: Fixture,
+    ) {
+        connectAndDiscover(r, f)
+        for (d in f.cccds.values) r.cb.onDescriptorWrite(f.gatt, d, BluetoothGatt.GATT_SUCCESS)
     }
 
     private fun idle() {
@@ -221,5 +237,125 @@ class BitmaskGattPttReaderLifecycleTest {
             emptyList<UUID>(),
             BitmaskGattPttReader.selectButtonCharacteristicUuids(service, listOf(extra), mapOf(service to listOf(button))),
         )
+    }
+
+    @Test
+    fun `button notifications before the subscription is confirmed are dropped`() {
+        val f = fixture(listOf(button))
+        val r = start(listOf(f))
+        connectAndDiscover(r, f)
+        r.cb.onCharacteristicChanged(f.gatt, f.chars.getValue(button), byteArrayOf(0x01))
+        assertTrue(r.events.isEmpty())
+        r.reader.disconnect()
+    }
+
+    @Test
+    fun `held PTT is released when the link drops`() {
+        val f = fixture(listOf(button))
+        val r = start(listOf(f, fixture(listOf(button))))
+        subscribeAll(r, f)
+        r.cb.onCharacteristicChanged(f.gatt, f.chars.getValue(button), byteArrayOf(0x01))
+        assertEquals(listOf(AinaButton.PTT to true), r.events)
+        r.cb.onConnectionStateChange(f.gatt, 8, BluetoothProfile.STATE_DISCONNECTED)
+        assertEquals(listOf(AinaButton.PTT to true, AinaButton.PTT to false), r.events)
+        r.reader.disconnect()
+    }
+
+    @Test
+    fun `held PTT is released on intentional disconnect`() {
+        val f = fixture(listOf(button))
+        val r = start(listOf(f))
+        subscribeAll(r, f)
+        r.cb.onCharacteristicChanged(f.gatt, f.chars.getValue(button), byteArrayOf(0x01))
+        r.reader.disconnect()
+        assertEquals(AinaButton.PTT to false, r.events.last())
+    }
+
+    @Test
+    fun `setup watchdog tears down a link that never subscribes`() {
+        val f = fixture(listOf(button))
+        val r = start(listOf(f, fixture(listOf(button))))
+        r.cb.onConnectionStateChange(f.gatt, BluetoothGatt.GATT_SUCCESS, BluetoothProfile.STATE_CONNECTED)
+        // Discovery never answers.
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(16))
+        verify(atLeast = 1) { f.gatt.close() }
+        assertEquals(false, r.states.lastOrNull())
+        idle()
+        assertTrue(r.connects() >= 2)
+        r.reader.disconnect()
+    }
+
+    @Test
+    fun `high connection priority is requested only once subscribed`() {
+        val f = fixture(listOf(button))
+        val r = start(listOf(f))
+        connectAndDiscover(r, f)
+        verify(exactly = 0) { f.gatt.requestConnectionPriority(any()) }
+        r.cb.onDescriptorWrite(f.gatt, f.cccds.getValue(button), BluetoothGatt.GATT_SUCCESS)
+        verify(exactly = 1) { f.gatt.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH) }
+        r.reader.disconnect()
+    }
+
+    @Test
+    fun `unrecognised device is reported once and backs off to minutes`() {
+        val fixtures =
+            (1..8).map {
+                fixture(listOf(button)).also { f -> every { f.gatt.getService(service) } returns null }
+            }
+        val r = start(fixtures)
+        repeat(GattSetup.UNRECOGNISED_LIMIT) { i ->
+            connectAndDiscover(r, fixtures[i])
+            idle()
+        }
+        assertEquals(1, problems.size)
+        val connectsAtLimit = r.connects()
+        // The next retry is minutes away, not seconds.
+        idle()
+        assertEquals(connectsAtLimit, r.connects())
+        shadowOf(android.os.Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(6))
+        assertTrue(r.connects() > connectsAtLimit)
+        r.reader.disconnect()
+    }
+
+    @Test
+    fun `HCI disconnect reason 15 is not a bond failure but 61 is`() {
+        val f1 = fixture(listOf(button))
+        val r = start(listOf(f1, fixture(listOf(button))))
+        r.cb.onConnectionStateChange(f1.gatt, 15, BluetoothProfile.STATE_DISCONNECTED)
+        assertTrue(repairs.isEmpty())
+        r.reader.disconnect()
+
+        val f = fixture(listOf(button))
+        val r2 = start(listOf(f))
+        r2.cb.onConnectionStateChange(f.gatt, GattSetup.HCI_MIC_FAILURE, BluetoothProfile.STATE_DISCONNECTED)
+        assertEquals(1, repairs.size)
+        r2.reader.disconnect()
+    }
+
+    @Test
+    fun `reconnects pause while the adapter is off`() {
+        val f = fixture(listOf(button))
+        var n = 0
+        val reader =
+            BitmaskGattPttReader(
+                context = context,
+                config =
+                BitmaskGattPttReader.Config(
+                    tag = "Test",
+                    candidateServiceUuids = listOf(service),
+                    decodeMask = PrymeBleReader::decodePrymeMask,
+                ),
+                onEvent = { _, _ -> },
+                gattConnector =
+                AinaBleReader.GattConnector { _, _, _, _ ->
+                    n++
+                    f.gatt
+                },
+                adapterEnabled = { false },
+            )
+        reader.connect(mockk<BluetoothDevice>(relaxed = true).also { every { it.address } returns "AA:BB:CC:DD:EE:FF" })
+        idle()
+        assertEquals(0, n)
+        reader.disconnect()
     }
 }

@@ -9,22 +9,39 @@ package com.atakmap.android.xv.aina
  * write it issued has been confirmed by onDescriptorWrite, and any
  * failure between the ACL connect and that point (discovery failure,
  * missing service / characteristic / CCCD, a rejected or failed
- * descriptor write) tears the link down and goes back through the
- * reconnect backoff instead of being logged and left half-configured.
+ * descriptor write, the setup watchdog) tears the link down and goes
+ * back through the reconnect backoff instead of being logged and left
+ * half-configured.
  */
 object GattSetup {
-    // BluetoothGatt status codes that mean the link-layer security the
-    // peripheral demands is not in place — in practice a stale or
-    // one-sided bond. Retrying the same bond cannot fix these; the
-    // operator has to forget and re-pair the device.
+    // GATT *operation* status codes (onServicesDiscovered,
+    // onDescriptorWrite) meaning the link-layer security the peripheral
+    // demands is not in place — in practice a stale or one-sided bond.
     const val GATT_INSUFFICIENT_AUTHENTICATION = 5
     const val GATT_INSUFFICIENT_ENCRYPTION = 15
     const val GATT_AUTH_FAIL = 137
 
-    fun isAuthFailure(status: Int?): Boolean =
+    // HCI *disconnect reasons* (the status of onConnectionStateChange)
+    // that mean the same thing. A different number space from the
+    // operation statuses above: HCI 15 (0x0F) is "unacceptable BD_ADDR",
+    // not an encryption problem.
+    const val HCI_AUTHENTICATION_FAILURE = 5
+    const val HCI_PIN_OR_KEY_MISSING = 6
+    const val HCI_MIC_FAILURE = 61
+
+    fun isAuthFailure(status: Int?): Boolean = isGattOpAuthFailure(status)
+
+    /** For the status of a GATT operation callback. */
+    fun isGattOpAuthFailure(status: Int?): Boolean =
         status == GATT_INSUFFICIENT_AUTHENTICATION ||
             status == GATT_INSUFFICIENT_ENCRYPTION ||
             status == GATT_AUTH_FAIL
+
+    /** For the HCI reason delivered with STATE_DISCONNECTED. */
+    fun isHciStaleBond(reason: Int?): Boolean =
+        reason == HCI_AUTHENTICATION_FAILURE ||
+            reason == HCI_PIN_OR_KEY_MISSING ||
+            reason == HCI_MIC_FAILURE
 
     // Minimum gap between BluetoothGatt.close() and the next
     // connectGatt(). The BLE stack needs ~100 ms to release the prior
@@ -41,6 +58,73 @@ object GattSetup {
         val since = nowMs - lastCloseMs
         return if (since in 0 until CLOSE_REOPEN_SETTLE_MS) CLOSE_REOPEN_SETTLE_MS - since else 0L
     }
+
+    // From STATE_CONNECTED to a confirmed subscription. A peripheral that
+    // links up and then stalls (discovery or CCCD write never answered)
+    // is torn down and retried rather than left half-configured.
+    const val SETUP_WATCHDOG_MS: Long = 15_000L
+
+    // Consecutive "no button characteristic / service" setups before the
+    // reader stops treating it as transient.
+    const val UNRECOGNISED_LIMIT: Int = 3
+
+    const val MAX_DIRECT_RETRIES: Int = 4
+    const val INITIAL_RETRY_DELAY_MS: Long = 2_000L
+    const val MAX_DIRECT_RETRY_DELAY_MS: Long = 16_000L
+    const val AUTO_CONNECT_DELAY_MS: Long = 5_000L
+
+    // Direct-connect cadence once the budget is spent, for readers that
+    // must not park in autoConnect (it waits forever on a stale address).
+    const val SLOW_DIRECT_RETRY_DELAY_MS: Long = 60_000L
+
+    // A broken bond cannot heal on its own; retry rarely until re-paired.
+    const val AUTH_RETRY_DELAY_MS: Long = 120_000L
+
+    // A device that never exposes the button characteristic is either the
+    // wrong device or wrong firmware; check back occasionally.
+    const val UNRECOGNISED_RETRY_DELAY_MS: Long = 300_000L
+
+    /**
+     * Delay before the next connect attempt. [directRetryCount] is the
+     * number of failed attempts so far; [autoConnectArmed] means the
+     * direct-retry budget is spent.
+     */
+    fun retryDelayMs(
+        directRetryCount: Int,
+        autoConnectArmed: Boolean,
+        authFailure: Boolean,
+        unrecognisedCount: Int,
+        autoConnectAllowed: Boolean = true,
+    ): Long =
+        when {
+            unrecognisedCount >= UNRECOGNISED_LIMIT -> UNRECOGNISED_RETRY_DELAY_MS
+            authFailure -> AUTH_RETRY_DELAY_MS
+            autoConnectArmed && !autoConnectAllowed -> SLOW_DIRECT_RETRY_DELAY_MS
+            autoConnectArmed -> AUTO_CONNECT_DELAY_MS
+            else -> (INITIAL_RETRY_DELAY_MS shl directRetryCount.coerceIn(0, 4)).coerceAtMost(MAX_DIRECT_RETRY_DELAY_MS)
+        }
+
+    /** autoConnect takes over once the direct budget is spent or the bond is broken. */
+    fun shouldArmAutoConnect(
+        directRetryCount: Int,
+        authFailure: Boolean,
+    ): Boolean = directRetryCount >= MAX_DIRECT_RETRIES || authFailure
+
+    @android.annotation.SuppressLint("MissingPermission")
+    fun defaultAdapterEnabled(): Boolean =
+        try {
+            android.bluetooth.BluetoothAdapter.getDefaultAdapter()?.isEnabled == true
+        } catch (_: Throwable) {
+            // Can't tell (permission, stack) — don't block retries on it.
+            true
+        }
+
+    /** Operator-message throttle: true when [nowMs] is past the window since [lastAtMs]. */
+    fun shouldSurface(
+        lastAtMs: Long,
+        nowMs: Long,
+        windowMs: Long,
+    ): Boolean = lastAtMs <= 0L || nowMs - lastAtMs >= windowMs
 }
 
 /**

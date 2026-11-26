@@ -65,6 +65,12 @@ open class BitmaskGattPttReader(
     private val onNeedsRepair: (String) -> Unit = {},
     // Test seam shared with [AinaBleReader].
     private val gattConnector: AinaBleReader.GattConnector = AinaBleReader.DefaultGattConnector,
+    // Non-bond problems the operator has to act on (device not
+    // recognised, BLUETOOTH_SCAN missing). Fired once per condition.
+    private val onProblem: (String) -> Unit = {},
+    // Test seam: whether the Bluetooth adapter is on. Reconnects pause
+    // while it is off.
+    private val adapterEnabled: () -> Boolean = { GattSetup.defaultAdapterEnabled() },
 ) {
     /**
      * Static per-vendor configuration passed to the reader at
@@ -133,10 +139,10 @@ open class BitmaskGattPttReader(
 
     private val handler = Handler(Looper.getMainLooper())
 
-    // Guards [gatt] so a GATT callback can tell whether it belongs to the
-    // current connection. connectGatt + assignment happen under the lock,
-    // so a callback racing the assignment waits for it instead of being
-    // mistaken for a stale handle.
+    // Guards [gatt] and the retry counters. connectGatt + assignment run
+    // under it, so a callback racing the assignment waits for it instead
+    // of being mistaken for a stale handle; close is conditional on the
+    // handle a failure was observed on (see [closeGatt]).
     private val gattLock = Any()
 
     @Volatile
@@ -160,10 +166,8 @@ open class BitmaskGattPttReader(
     @Volatile
     private var disposed: Boolean = false
 
-    @Volatile
+    // Retry counters: read and written only under [gattLock].
     private var directRetryCount: Int = 0
-
-    @Volatile
     private var autoConnectArmed: Boolean = false
 
     // CCCD writes for the current connection, issued one at a time.
@@ -172,31 +176,47 @@ open class BitmaskGattPttReader(
 
     // Characteristics this connection subscribed to. Notifications from
     // anything else are dropped before the mask decoder sees them.
+    // Reset on every new connection and on close.
     @Volatile
     private var subscribedChars: Set<UUID> = emptySet()
 
     // True once onConnectionState(true) has been delivered for the
     // current connection — i.e. the button subscription is confirmed.
+    // Button notifications are ignored until then.
     @Volatile
     private var reportedConnected: Boolean = false
 
-    // Last setup failure was a security/bond failure: retry slowly and
-    // don't nag the operator more than once per connect().
+    // Last setup failure was a security/bond failure: retry rarely and
+    // don't nag the operator more than once until it is fixed.
     @Volatile
     private var lastFailureWasAuth: Boolean = false
 
     @Volatile
     private var repairReported: Boolean = false
 
+    // Consecutive setups that found no button characteristic.
+    @Volatile
+    private var unrecognisedCount: Int = 0
+
+    @Volatile
+    private var unrecognisedReported: Boolean = false
+
+    @Volatile
+    private var cacheRefreshTried: Boolean = false
+
     @Volatile
     private var lastGattCloseMs: Long = 0L
+
+    // Handle the setup watchdog is guarding (set at STATE_CONNECTED).
+    @Volatile
+    private var watchdogGatt: BluetoothGatt? = null
 
     // Previous "buttons currently held" set, used to derive
     // edge-triggered down/up events. Starts empty (nothing held);
     // first notification with a non-empty decode = down events for
-    // each button in the new set. Reset on disconnect so a
-    // reconnect doesn't spuriously fire an "up" for whatever was
-    // held at the moment the link dropped.
+    // each button in the new set. Any path that abandons a connection
+    // releases it first (see [releaseHeld]) so a press can never
+    // outlive the link that delivered it.
     @Volatile
     private var lastHeld: Set<AinaButton> = emptySet()
 
@@ -204,31 +224,75 @@ open class BitmaskGattPttReader(
         Runnable {
             val device = targetDevice ?: return@Runnable
             if (intentionalDisconnect) return@Runnable
+            if (!adapterEnabled()) {
+                // Pointless while the adapter is off; the STATE_ON
+                // reconnect pass in the plugin restarts the reader.
+                Log.i(config.tag, "Bluetooth adapter off — pausing reconnects until it is back on")
+                return@Runnable
+            }
             try {
-                connectInternal(device, useAutoConnect = autoConnectArmed)
+                val armed = synchronized(gattLock) { autoConnectArmed }
+                connectInternal(device, useAutoConnect = armed && allowAutoConnect())
             } catch (t: Throwable) {
                 // A SecurityException (permission revoked) or a stack
                 // RuntimeException on the main looper would otherwise
                 // take ATAK down with it.
                 Log.w(config.tag, "reconnect attempt threw", t)
-                scheduleReconnect("reconnect attempt threw ${t.javaClass.simpleName}")
+                scheduleReconnect("reconnect attempt threw ${t.javaClass.simpleName}", expected = null)
             }
         }
 
+    private val setupWatchdog =
+        Runnable {
+            val g = watchdogGatt ?: return@Runnable
+            if (isCurrent(g) && !reportedConnected) {
+                escalate(g, "button subscription not confirmed within ${GattSetup.SETUP_WATCHDOG_MS}ms")
+            }
+        }
+
+    /** Operator-initiated connect: resets every counter and notice flag. */
     fun connect(device: BluetoothDevice) {
         if (disposed) {
             Log.w(config.tag, "connect() called on disposed reader — ignoring")
             return
         }
         disconnect()
-        intentionalDisconnect = false
-        targetDevice = device
-        directRetryCount = 0
-        autoConnectArmed = false
+        synchronized(gattLock) {
+            directRetryCount = 0
+            autoConnectArmed = false
+        }
         lastFailureWasAuth = false
         repairReported = false
-        // Goes through the runnable so the close→reopen settle gap and
-        // the exception guard apply to the first attempt too.
+        unrecognisedCount = 0
+        unrecognisedReported = false
+        cacheRefreshTried = false
+        startAttempts(device)
+    }
+
+    /**
+     * Reader-initiated switch to [device] (e.g. the BT02's companion LE
+     * peripheral re-resolved under a new random address). Unlike
+     * [connect] it keeps the failure history and notice flags, so a
+     * device that keeps rejecting the bond is not re-announced on every
+     * internal reconnect.
+     */
+    protected fun reconnectTo(device: BluetoothDevice) {
+        if (disposed) return
+        handler.removeCallbacks(retryRunnable)
+        handler.removeCallbacks(setupWatchdog)
+        releaseHeld()
+        closeGatt(expected = null)
+        reportedConnected = false
+        synchronized(gattLock) { directRetryCount = 0 }
+        startAttempts(device)
+    }
+
+    private fun startAttempts(device: BluetoothDevice) {
+        intentionalDisconnect = false
+        targetDevice = device
+        // Goes through the runnable so the close→reopen settle gap, the
+        // adapter check and the exception guard apply to the first
+        // attempt too.
         handler.removeCallbacks(retryRunnable)
         val wait = GattSetup.reopenDelayMs(lastGattCloseMs, SystemClock.elapsedRealtime())
         handler.postDelayed(retryRunnable, wait)
@@ -245,13 +309,14 @@ open class BitmaskGattPttReader(
             handler.postDelayed(retryRunnable, wait)
             return
         }
-        lastHeld = emptySet()
+        releaseHeld()
         subscription = null
+        subscribedChars = emptySet()
         reportedConnected = false
         Log.i(
             config.tag,
             "Connecting to ${redactMac(device.address)} " +
-                "(autoConnect=$useAutoConnect, attempt=${directRetryCount + 1})",
+                "(autoConnect=$useAutoConnect, attempt=${synchronized(gattLock) { directRetryCount } + 1})",
         )
         val opened =
             synchronized(gattLock) {
@@ -268,22 +333,43 @@ open class BitmaskGattPttReader(
                 gatt = g
                 g != null
             }
-        if (!opened) scheduleReconnect("connectGatt returned no handle")
+        if (!opened) scheduleReconnect("connectGatt returned no handle", expected = null)
     }
 
     open fun disconnect() {
         intentionalDisconnect = true
         targetDevice = null
         handler.removeCallbacks(retryRunnable)
-        closeGatt()
+        handler.removeCallbacks(setupWatchdog)
+        releaseHeld()
+        closeGatt(expected = null)
         reportedConnected = false
         dispatchConnectionState(false)
     }
 
     protected fun isReaderDisposed(): Boolean = disposed
 
+    /** True when the reader has a device it is (re)connecting to. */
+    protected fun hasConnectTarget(): Boolean = targetDevice != null && !intentionalDisconnect
+
+    /** Hand control back to the backed-off retry schedule for the current target. */
+    protected fun resumeTargetRetries() {
+        if (!hasConnectTarget() || disposed) return
+        scheduleReconnect("subclass resumed address retries", expected = null)
+    }
+
     /** Consecutive failed attempts since the last confirmed subscription. */
-    protected fun failedAttempts(): Int = directRetryCount
+    protected fun failedAttempts(): Int = synchronized(gattLock) { directRetryCount }
+
+    /** Report a non-bond problem to the operator (wrong device, missing permission). */
+    protected fun reportProblem(message: String) {
+        if (disposed) return
+        try {
+            onProblem(message)
+        } catch (t: Throwable) {
+            Log.w(config.tag, "onProblem handler threw", t)
+        }
+    }
 
     /**
      * Permanent teardown. Marks the reader disposed so any late
@@ -304,9 +390,18 @@ open class BitmaskGattPttReader(
      * reconnect is scheduled for a link that never came up or dropped.
      * Return true to take over — the base then schedules nothing.
      */
+    /**
+     * Whether long-term recovery may park in connectGatt(autoConnect =
+     * true). A reader whose peripheral rotates its address must say no:
+     * autoConnect waits forever on the old address and never fails, so
+     * the reader would never get a chance to re-resolve it.
+     */
+    protected open fun allowAutoConnect(): Boolean = true
+
     protected open fun onReconnectNeeded(
         reason: String,
         failedAttempts: Int,
+        authFailure: Boolean,
     ): Boolean = false
 
     /**
@@ -332,20 +427,47 @@ open class BitmaskGattPttReader(
         isDown: Boolean,
     ) {
         if (disposed) return
-        onEvent(button, isDown)
+        try {
+            onEvent(button, isDown)
+        } catch (t: Throwable) {
+            Log.w(config.tag, "onEvent handler threw", t)
+        }
+    }
+
+    // Send an up edge for every button the link currently has held. Runs
+    // before any connection is abandoned: a press that arrived on a link
+    // which then failed (no STATE_DISCONNECTED follows our own close())
+    // must not stay keyed.
+    private fun releaseHeld() {
+        val held = lastHeld
+        lastHeld = emptySet()
+        for (btn in held) {
+            Log.i(config.tag, "releasing $btn held on an abandoned link")
+            dispatchEvent(btn, false)
+        }
     }
 
     private fun isCurrent(g: BluetoothGatt): Boolean = synchronized(gattLock) { g === gatt }
 
-    private fun closeGatt() {
+    /**
+     * Close the current handle. With [expected] non-null, only if it is
+     * still that handle: a failure observed on a binder thread must not
+     * close a newer connection that replaced it in the meantime. Returns
+     * false when [expected] was already stale.
+     */
+    private fun closeGatt(expected: BluetoothGatt?): Boolean {
         val g =
             synchronized(gattLock) {
+                if (expected != null && gatt !== expected) return false
                 val old = gatt
                 gatt = null
                 old
             }
         subscription = null
-        if (g == null) return
+        subscribedChars = emptySet()
+        watchdogGatt = null
+        handler.removeCallbacks(setupWatchdog)
+        if (g == null) return true
         try {
             g.disconnect()
         } catch (_: Throwable) {
@@ -355,26 +477,30 @@ open class BitmaskGattPttReader(
         } catch (_: Throwable) {
         }
         lastGattCloseMs = SystemClock.elapsedRealtime()
+        return true
     }
 
     /**
-     * Setup or post-connect failure: drop the half-configured link and
-     * go back through the reconnect backoff. Auth failures are surfaced
-     * once as "needs re-pair" and retried at the slow cadence.
+     * Setup or post-connect failure on [g]: release anything held, report
+     * disconnected, drop the half-configured link and go back through the
+     * reconnect backoff. [opStatus] is a GATT operation status; bond
+     * failures among them are surfaced once as "needs re-pair" and
+     * retried at the slow cadence.
      */
     private fun escalate(
+        g: BluetoothGatt,
         reason: String,
-        status: Int? = null,
+        opStatus: Int? = null,
     ) {
+        if (!isCurrent(g)) return
         Log.w(config.tag, "setup failed: $reason — reconnecting")
-        val auth = GattSetup.isAuthFailure(status)
+        val auth = GattSetup.isGattOpAuthFailure(opStatus)
         lastFailureWasAuth = auth
-        if (auth) reportNeedsRepair("status=$status")
-        if (reportedConnected) {
-            reportedConnected = false
-            dispatchConnectionState(false)
-        }
-        scheduleReconnect(reason)
+        if (auth) reportNeedsRepair("status=$opStatus")
+        releaseHeld()
+        reportedConnected = false
+        dispatchConnectionState(false)
+        scheduleReconnect(reason, expected = g)
     }
 
     private fun reportNeedsRepair(detail: String) {
@@ -388,43 +514,85 @@ open class BitmaskGattPttReader(
         }
     }
 
-    private fun scheduleReconnect(reason: String) {
+    private fun scheduleReconnect(
+        reason: String,
+        expected: BluetoothGatt?,
+    ) {
         if (intentionalDisconnect || disposed) return
         val device = targetDevice ?: return
-        closeGatt()
-        if (directRetryCount >= MAX_DIRECT_RETRIES || lastFailureWasAuth) {
-            autoConnectArmed = true
-        }
-        val delayMs =
-            if (autoConnectArmed) {
-                AUTO_CONNECT_DELAY_MS
-            } else {
-                val base = INITIAL_RETRY_DELAY_MS shl directRetryCount.coerceAtMost(4)
-                base.coerceAtMost(MAX_DIRECT_RETRY_DELAY_MS)
+        // A stale handle's failure: whoever replaced it owns the retry.
+        if (!closeGatt(expected)) return
+        val auth = lastFailureWasAuth
+        val unrecognised = unrecognisedCount
+        val (delayMs, armed, attempts) =
+            synchronized(gattLock) {
+                if (GattSetup.shouldArmAutoConnect(directRetryCount, auth)) autoConnectArmed = true
+                val d =
+                    GattSetup.retryDelayMs(directRetryCount, autoConnectArmed, auth, unrecognised, allowAutoConnect())
+                directRetryCount++
+                Triple(d, autoConnectArmed, directRetryCount)
             }
-        directRetryCount++
-        val attempts = directRetryCount
         handler.post {
             if (intentionalDisconnect || disposed || targetDevice !== device) return@post
-            if (onReconnectNeeded(reason, attempts)) return@post
+            if (onReconnectNeeded(reason, attempts, auth)) return@post
             Log.i(
                 config.tag,
                 "Scheduling reconnect to ${redactMac(device.address)} in ${delayMs}ms " +
-                    "($reason, autoConnect=$autoConnectArmed)",
+                    "($reason, autoConnect=$armed)",
             )
             handler.removeCallbacks(retryRunnable)
             handler.postDelayed(retryRunnable, delayMs)
         }
     }
 
-    private fun onSubscribed() {
-        directRetryCount = 0
-        autoConnectArmed = false
+    private fun onSubscribed(g: BluetoothGatt) {
+        synchronized(gattLock) {
+            directRetryCount = 0
+            autoConnectArmed = false
+        }
         lastFailureWasAuth = false
         repairReported = false
+        unrecognisedCount = 0
+        unrecognisedReported = false
+        cacheRefreshTried = false
+        handler.removeCallbacks(setupWatchdog)
+        watchdogGatt = null
+        // High priority only once the link is useful: a device stuck in a
+        // setup-failure loop should not hold the radio at HIGH.
+        try {
+            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
+        } catch (e: SecurityException) {
+            Log.w(config.tag, "Lacking BLUETOOTH_CONNECT permission to request high priority", e)
+        }
         reportedConnected = true
         Log.i(config.tag, "button subscription ACTIVE — PTT ready")
         dispatchConnectionState(true)
+    }
+
+    // No subscribable button characteristic on this device.
+    private fun onUnrecognised(g: BluetoothGatt) {
+        val n = ++unrecognisedCount
+        if (!cacheRefreshTried) {
+            // A stale GATT cache (firmware update, address reuse) can hide
+            // the service; clear it once before concluding anything.
+            cacheRefreshTried = true
+            refreshGattCache(g)
+        }
+        if (n >= GattSetup.UNRECOGNISED_LIMIT && !unrecognisedReported) {
+            unrecognisedReported = true
+            Log.e(config.tag, "no button characteristic after $n connects — not a supported device/firmware")
+            reportProblem("Bluetooth PTT device not recognised — check the device picked for this slot")
+        }
+        escalate(g, "no subscribable button characteristic ($n in a row)")
+    }
+
+    private fun refreshGattCache(g: BluetoothGatt) {
+        try {
+            val ok = g.javaClass.getMethod("refresh").invoke(g)
+            Log.i(config.tag, "GATT cache refresh requested (result=$ok)")
+        } catch (t: Throwable) {
+            Log.w(config.tag, "GATT cache refresh unavailable: ${t.javaClass.simpleName}")
+        }
     }
 
     private fun writeCccd(
@@ -454,12 +622,11 @@ open class BitmaskGattPttReader(
         when (step) {
             is CccdSubscriptionSequencer.Step.Write -> {
                 if (!writeCccd(g, step.target)) {
-                    escalate("writeDescriptor(enable) rejected for ${step.target.characteristic?.uuid}")
+                    escalate(g, "writeDescriptor(enable) rejected for ${step.target.characteristic?.uuid}")
                 }
             }
-            CccdSubscriptionSequencer.Step.Done -> onSubscribed()
-            CccdSubscriptionSequencer.Step.NothingToSubscribe ->
-                escalate("no subscribable button characteristic — wrong device or firmware")
+            CccdSubscriptionSequencer.Step.Done -> onSubscribed(g)
+            CccdSubscriptionSequencer.Step.NothingToSubscribe -> onUnrecognised(g)
             CccdSubscriptionSequencer.Step.Ignore -> Unit
         }
     }
@@ -532,13 +699,11 @@ open class BitmaskGattPttReader(
                 when (newState) {
                     BluetoothProfile.STATE_CONNECTED -> {
                         Log.i(config.tag, "Connected (status=$status), discovering services")
-                        try {
-                            g.requestConnectionPriority(BluetoothGatt.CONNECTION_PRIORITY_HIGH)
-                        } catch (e: SecurityException) {
-                            Log.w(config.tag, "Lacking BLUETOOTH_CONNECT permission to request high priority", e)
-                        }
                         // Not "connected" yet: that waits for the CCCD
-                        // write confirmation in onDescriptorWrite.
+                        // write confirmation. The watchdog bounds the wait.
+                        watchdogGatt = g
+                        handler.removeCallbacks(setupWatchdog)
+                        handler.postDelayed(setupWatchdog, GattSetup.SETUP_WATCHDOG_MS)
                         val started =
                             try {
                                 g.discoverServices()
@@ -546,12 +711,13 @@ open class BitmaskGattPttReader(
                                 Log.w(config.tag, "discoverServices threw", t)
                                 false
                             }
-                        if (!started) escalate("discoverServices() refused")
+                        if (!started) escalate(g, "discoverServices() refused")
                     }
                     BluetoothProfile.STATE_DISCONNECTED -> {
                         Log.i(config.tag, "Disconnected (status=$status)")
-                        lastHeld = emptySet()
+                        releaseHeld()
                         subscription = null
+                        subscribedChars = emptySet()
                         // Two paths can land here in the same
                         // millisecond during a controlled teardown:
                         //   1. [disconnect] already fired the false
@@ -569,13 +735,16 @@ open class BitmaskGattPttReader(
                         // the callback AND scheduleReconnect.
                         when (classifyDisconnect(intentionalDisconnect, disposed)) {
                             DisconnectAction.NOTIFY_AND_RECONNECT -> {
-                                if (GattSetup.isAuthFailure(status)) {
+                                // [status] here is an HCI disconnect reason.
+                                if (GattSetup.isHciStaleBond(status)) {
                                     lastFailureWasAuth = true
-                                    reportNeedsRepair("status=$status")
+                                    reportNeedsRepair("disconnect reason=$status")
+                                } else {
+                                    lastFailureWasAuth = false
                                 }
                                 reportedConnected = false
                                 dispatchConnectionState(false)
-                                scheduleReconnect("status=$status")
+                                scheduleReconnect("status=$status", expected = g)
                             }
                             DisconnectAction.SUPPRESS_INTENTIONAL,
                             DisconnectAction.SUPPRESS_DISPOSED,
@@ -591,7 +760,7 @@ open class BitmaskGattPttReader(
             ) {
                 if (!isCurrent(g)) return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
-                    escalate("service discovery failed status=$status", status)
+                    escalate(g, "service discovery failed status=$status", status)
                     return
                 }
                 // One-time enumeration of every service + characteristic
@@ -634,7 +803,7 @@ open class BitmaskGattPttReader(
                 if (descriptor.uuid != CCCD_UUID) return
                 val seq = subscription ?: return
                 if (status != BluetoothGatt.GATT_SUCCESS) {
-                    escalate("CCCD write failed status=$status on ${descriptor.characteristic?.uuid}", status)
+                    escalate(g, "CCCD write failed status=$status on ${descriptor.characteristic?.uuid}", status)
                     return
                 }
                 runStep(g, seq.onWritten(descriptor))
@@ -663,6 +832,12 @@ open class BitmaskGattPttReader(
                 bytes: ByteArray?,
             ) {
                 if (bytes == null) return
+                if (!reportedConnected) {
+                    // Subscription not confirmed: the link may still fail
+                    // and be abandoned, so nothing it delivers counts yet.
+                    Log.i(config.tag, "ignoring notify on ${ch.uuid} before subscription is confirmed")
+                    return
+                }
                 if (ch.uuid !in subscribedChars) {
                     Log.i(config.tag, "ignoring notify on unsubscribed ${ch.uuid}")
                     return
@@ -732,11 +907,6 @@ open class BitmaskGattPttReader(
     }
 
     companion object {
-        private const val MAX_DIRECT_RETRIES = 4
-        private const val INITIAL_RETRY_DELAY_MS = 2_000L
-        private const val MAX_DIRECT_RETRY_DELAY_MS = 16_000L
-        private const val AUTO_CONNECT_DELAY_MS = 5_000L
-
         val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
 
         /**
