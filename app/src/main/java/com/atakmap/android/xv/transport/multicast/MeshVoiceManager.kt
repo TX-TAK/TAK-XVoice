@@ -873,7 +873,7 @@ class MeshVoiceManager(
         return StatusSnapshot(
             active = meshTxActive,
             bridging = bridging,
-            cleartext = legs.values.any { !it.encryptedNow } || patchLegs.values.any { !it.encryptedNow },
+            cleartext = legs.values.any { sendsCleartext(it) } || patchLegs.values.any { sendsCleartext(it) },
             keyNeeded = legs.values.any { it.awaitingKey } || patchLegs.values.any { it.awaitingKey },
             legCount = legs.size + patchLegs.size,
             patched = patchLegs.isNotEmpty(),
@@ -944,11 +944,17 @@ class MeshVoiceManager(
         // re-derives to a different group, and a leg keyed only by
         // channel name would otherwise silently stay on the old
         // server's multicast group forever.
+        //
+        // Same for a crypto-policy / wire-format / mode change on the SAME
+        // endpoint: the leg's codec and TX gating are fixed at build time,
+        // so e.g. CLEARTEXT -> REQUIRED would keep transmitting clear until
+        // restart. Rebuilding is cheap and keeps the key — the registry and
+        // election live on this manager, not on the leg.
         val stale =
             legs.filter { (channel, leg) ->
                 val cfg = desired[channel] ?: return@filter true
                 val endpoint = resolveEndpoint(cfg)
-                endpoint != null && endpoint != leg.endpoint
+                (endpoint != null && endpoint != leg.endpoint) || legConfigChanged(leg.config, cfg)
             }.keys
         stale.forEach { channel ->
             legs.remove(channel)?.let { runCatching { it.close() } }
@@ -1030,6 +1036,26 @@ class MeshVoiceManager(
             rendezvousLeg = null
         }
     }
+
+    // A live leg's codec + TX gating were built from its config; any of
+    // these changing means the leg must be rebuilt (see reconcileLegs).
+    private fun legConfigChanged(
+        live: ChannelMulticastConfig,
+        wanted: ChannelMulticastConfig,
+    ): Boolean =
+        live.cryptoPolicy != wanted.cryptoPolicy ||
+            live.wireFormat != wanted.wireFormat ||
+            live.mode != wanted.mode
+
+    // Can this leg put cleartext voice on the air right now? An unkeyed
+    // REQUIRED leg is silent (encodeTx returns null), not clear — that
+    // state is surfaced as KEY NEEDED, never as the red CLEAR badge.
+    private fun sendsCleartext(leg: MeshLeg): Boolean =
+        when (leg.config.cryptoPolicy) {
+            CryptoPolicy.CLEARTEXT -> true
+            CryptoPolicy.PREFERRED -> !leg.encryptedNow
+            CryptoPolicy.REQUIRED -> false
+        }
 
     private fun resolveEndpoint(cfg: ChannelMulticastConfig): MulticastEndpoint? {
         if (cfg.pinnedGroup != null && cfg.pinnedPort != null) {

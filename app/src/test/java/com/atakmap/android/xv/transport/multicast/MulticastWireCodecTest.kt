@@ -175,6 +175,21 @@ class MulticastWireCodecTest {
         )
     }
 
+    @Test
+    fun `unkeyed REQUIRED receiver classifies an encrypted frame as ENCRYPTED_NO_KEY`() {
+        // The KEY NEEDED cue is driven by this count; with REQUIRED as the
+        // default it must not be swallowed by the policy branch.
+        val tx = XvNativeWireCodec(ssrc, CryptoPolicy.REQUIRED, keyRegistry = registryWithKey())
+        tx.beginBurst()
+        val datagram = tx.encodeTx(opus)!!
+
+        val rx = XvNativeWireCodec(ssrc = 1L, cryptoPolicy = CryptoPolicy.REQUIRED, keyRegistry = ChannelKeyRegistry(1))
+        assertEquals(
+            MulticastWireCodec.DropReason.ENCRYPTED_NO_KEY,
+            dropReason(rx.decodeRx(datagram, sourceHost = "198.51.100.7")),
+        )
+    }
+
     // ---- XV native, non-voice datagrams ----
 
     @Test

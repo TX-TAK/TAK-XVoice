@@ -84,4 +84,19 @@ class LegacyCryptoPolicyMigrationTest {
         assertEquals(WireFormat.XV_NATIVE, d.wireFormat)
         assertEquals(CryptoPolicy.CLEARTEXT, d.patchCryptoPolicy)
     }
+
+    @Test
+    fun `explicitly PREFERRED channels are excluded from the default upgrade`() {
+        val explicit = LegacyCryptoPolicyMigration.explicitlyPreferred(mapOf("Chosen" to "PREFERRED", "other" to "REQUIRED"))
+        assertEquals(setOf(MulticastGroupDerivation.canonicalChannelName("Chosen")), explicit)
+        val upgraded =
+            LegacyCryptoPolicyMigration.upgradeOldDefault(
+                listOf(
+                    cfg(MulticastGroupDerivation.canonicalChannelName("Chosen"), CryptoPolicy.PREFERRED),
+                    cfg("other", CryptoPolicy.PREFERRED),
+                ),
+                explicit,
+            )
+        assertEquals(listOf(cfg("other", CryptoPolicy.REQUIRED)), upgraded)
+    }
 }

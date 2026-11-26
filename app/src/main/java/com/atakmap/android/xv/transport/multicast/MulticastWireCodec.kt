@@ -194,19 +194,6 @@ class XvNativeWireCodec(
             }
         }
 
-        if (cryptoPolicy == CryptoPolicy.REQUIRED) {
-            return MulticastWireCodec.RxResult.Dropped(
-                if (registry?.hasKey() == true) {
-                    MulticastWireCodec.DropReason.CLEARTEXT_FORBIDDEN
-                } else {
-                    // No key yet: everything is undecryptable, cleartext
-                    // or not. UNKNOWN_EPOCH tells diagnostics "keying
-                    // hasn't converged" instead of implying a peer is
-                    // violating policy.
-                    MulticastWireCodec.DropReason.UNKNOWN_EPOCH
-                },
-            )
-        }
         // Byte 0 below 0x80 is an epoch byte, never RTP v2: this is an
         // AEAD frame we hold no usable key for. Classify it as the
         // keying gap it is — ENCRYPTED_NO_KEY when we have no key at
@@ -219,6 +206,21 @@ class XvNativeWireCodec(
                     MulticastWireCodec.DropReason.UNKNOWN_EPOCH
                 } else {
                     MulticastWireCodec.DropReason.ENCRYPTED_NO_KEY
+                },
+            )
+        }
+        // Only datagrams that look like cleartext RTP (byte 0 >= 0x80) get
+        // here — the epoch-byte check above runs first so an unkeyed
+        // REQUIRED leg still counts ENCRYPTED_NO_KEY (the KEY NEEDED cue).
+        if (cryptoPolicy == CryptoPolicy.REQUIRED) {
+            return MulticastWireCodec.RxResult.Dropped(
+                if (registry?.hasKey() == true) {
+                    MulticastWireCodec.DropReason.CLEARTEXT_FORBIDDEN
+                } else {
+                    // Unkeyed: a peer still waiting on the key (old XV on
+                    // PREFERRED) is not violating policy — report keying
+                    // that hasn't converged, not CLEARTEXT_FORBIDDEN.
+                    MulticastWireCodec.DropReason.UNKNOWN_EPOCH
                 },
             )
         }

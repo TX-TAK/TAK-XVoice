@@ -430,6 +430,16 @@ class XvSettings(
     // the per-channel configs (see LegacyCryptoPolicyMigration for the
     // rules), then delete them. Idempotent: once the keys are gone there
     // is nothing left to fold. Returns the number of configs corrected.
+    // Legacy `xv_crypto_policy_<channel>` values, keyed by channel (prefix
+    // stripped); non-string values are skipped.
+    private fun legacyCryptoPolicyPrefs(p: SharedPreferences): Map<String, String> {
+        val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
+        return p.all
+            .filterKeys { it.startsWith(prefix) }
+            .mapNotNull { (k, v) -> (v as? String)?.let { k.removePrefix(prefix) to it } }
+            .toMap()
+    }
+
     fun migrateLegacyCryptoPolicyPrefs(): Int {
         val p = prefs()
         val prefix = LegacyCryptoPolicyMigration.LEGACY_PREF_PREFIX
@@ -453,10 +463,15 @@ class XvSettings(
     // (see LegacyCryptoPolicyMigration.upgradeOldDefault). Flag-guarded so
     // a later explicit "Prefer encrypted" choice is never overridden.
     // Returns the number of configs upgraded.
+    //
+    // MUST run before migrateLegacyCryptoPolicyPrefs(), which deletes the
+    // legacy prefs this reads: a legacy PREFERRED value is a deliberate
+    // operator choice and is excluded from the upgrade.
     fun migrateFailoverDefaultToRequired(): Int {
         val p = prefs() ?: return 0
         if (p.getBoolean(PREF_REQUIRED_DEFAULT_MIGRATED, false)) return 0
-        val upgrades = LegacyCryptoPolicyMigration.upgradeOldDefault(channelMulticastConfigs())
+        val explicit = LegacyCryptoPolicyMigration.explicitlyPreferred(legacyCryptoPolicyPrefs(p))
+        val upgrades = LegacyCryptoPolicyMigration.upgradeOldDefault(channelMulticastConfigs(), explicit)
         upgrades.forEach { persistChannelMulticastConfig(it) }
         p.edit().putBoolean(PREF_REQUIRED_DEFAULT_MIGRATED, true).apply()
         return upgrades.size

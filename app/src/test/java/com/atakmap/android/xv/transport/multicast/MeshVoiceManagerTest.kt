@@ -1,5 +1,6 @@
 package com.atakmap.android.xv.transport.multicast
 
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -297,6 +298,49 @@ class MeshVoiceManagerTest {
 
         assertTrue(old.closed)
         assertEquals(1, h.created.count { it.config.wireFormat == WireFormat.OPENMANET_RTP })
+    }
+
+    @Test
+    fun `crypto-policy change on the same endpoint rebuilds the primary leg and keeps the key`() {
+        var policy = CryptoPolicy.PREFERRED
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = policy) })
+        h.joinAndTick()
+        val key = ByteArray(AeadCodec.KEY_BYTES) { 0x42 }
+        h.manager.installPresharedKey("ops-1", key)
+        val old = h.channelLeg()
+
+        policy = CryptoPolicy.REQUIRED
+        h.manager.tick()
+
+        assertTrue("old codec must not keep running", old.closed)
+        val rebuilt = h.channelLeg()
+        assertEquals(CryptoPolicy.REQUIRED, rebuilt.config.cryptoPolicy)
+        assertEquals(old.endpoint, rebuilt.endpoint)
+        assertTrue("key survives the rebuild", rebuilt.encryptedNow)
+        assertArrayEquals(key, h.manager.currentKeyFor("ops-1"))
+    }
+
+    @Test
+    fun `mode change on the same endpoint rebuilds the primary leg`() {
+        var mode = MulticastMode.FAILOVER
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(mode = mode) })
+        h.joinAndTick()
+        val old = h.channelLeg()
+        mode = MulticastMode.ALWAYS
+        h.manager.tick()
+        assertTrue(old.closed)
+        assertEquals(MulticastMode.ALWAYS, h.channelLeg().config.mode)
+    }
+
+    @Test
+    fun `unchanged config does not churn the leg`() {
+        val h = Harness()
+        h.joinAndTick()
+        val leg = h.channelLeg()
+        h.manager.tick()
+        h.manager.tick()
+        assertFalse(leg.closed)
+        assertTrue(leg === h.channelLeg())
     }
 
     // ---- RX merge + dedup ----
@@ -1072,7 +1116,7 @@ class MeshVoiceManagerTest {
 
     @Test
     fun `status badge reflects failover and cleartext state`() {
-        val h = Harness()
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = CryptoPolicy.PREFERRED) })
         h.joinAndTick()
         assertEquals("MESH READY · CLEAR", h.manager.statusBadge())
         h.mumbleUp = false
@@ -1088,7 +1132,7 @@ class MeshVoiceManagerTest {
         h.joinAndTick()
         val ready = h.manager.statusSnapshot()!!
         assertFalse(ready.active)
-        assertTrue("default channel is PREFERRED with no key yet → cleartext", ready.cleartext)
+        assertFalse("default channel is REQUIRED: unkeyed it is silent, never clear", ready.cleartext)
         assertEquals(1, ready.legCount)
 
         h.mumbleUp = false
@@ -1099,11 +1143,23 @@ class MeshVoiceManagerTest {
 
     @Test
     fun `status snapshot clears the cleartext flag once a key is live`() {
-        val h = Harness()
+        val h = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = CryptoPolicy.PREFERRED) })
         h.joinAndTick()
         assertTrue(h.manager.statusSnapshot()!!.cleartext)
         h.manager.installPresharedKey("Ops-1", ByteArray(AeadCodec.KEY_BYTES) { 0x42 })
         assertFalse("keyed PREFERRED leg is encrypted", h.manager.statusSnapshot()!!.cleartext)
+    }
+
+    @Test
+    fun `unkeyed REQUIRED leg is never flagged CLEAR, a CLEARTEXT leg always is`() {
+        val req = Harness()
+        req.joinAndTick()
+        assertFalse(req.manager.statusSnapshot()!!.cleartext)
+        assertFalse(req.manager.statusBadge().orEmpty().contains("CLEAR"))
+
+        val clear = Harness(configOverride = { ChannelMulticastConfig.defaultFor(it).copy(cryptoPolicy = CryptoPolicy.CLEARTEXT) })
+        clear.joinAndTick()
+        assertTrue(clear.manager.statusSnapshot()!!.cleartext)
     }
 
     @Test

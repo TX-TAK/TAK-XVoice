@@ -84,4 +84,19 @@ class XvSettingsCryptoPolicyMigrationTest {
         assertEquals(0, settings.migrateFailoverDefaultToRequired())
         assertEquals(CryptoPolicy.PREFERRED, settings.effectiveChannelMulticastConfig("ops").cryptoPolicy)
     }
+
+    @Test
+    fun `a legacy PREFERRED pref proves a deliberate choice and is not upgraded`() {
+        settings.persistChannelMulticastConfig(ChannelMulticastConfig("chosen", cryptoPolicy = CryptoPolicy.PREFERRED))
+        settings.persistChannelMulticastConfig(ChannelMulticastConfig("old-default", cryptoPolicy = CryptoPolicy.PREFERRED))
+        prefs.edit().putString("xv_crypto_policy_chosen", "PREFERRED").commit()
+
+        // Production order: upgrade first (reads the legacy prefs), then fold.
+        assertEquals(1, settings.migrateFailoverDefaultToRequired())
+        settings.migrateLegacyCryptoPolicyPrefs()
+
+        assertEquals(CryptoPolicy.PREFERRED, settings.effectiveChannelMulticastConfig("chosen").cryptoPolicy)
+        assertEquals(CryptoPolicy.REQUIRED, settings.effectiveChannelMulticastConfig("old-default").cryptoPolicy)
+        assertTrue(prefs.all.keys.none { it.startsWith("xv_crypto_policy_") })
+    }
 }

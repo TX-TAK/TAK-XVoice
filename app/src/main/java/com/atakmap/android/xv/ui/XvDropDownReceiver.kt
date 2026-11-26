@@ -1486,9 +1486,12 @@ class XvDropDownReceiver(
                     return@setPositiveButton
                 }
 
-                val newConfig = existingConfig.copy(
+                // withPrimaryCryptoPolicy switches an interop-framed primary
+                // back to XV_NATIVE when an encrypted policy is chosen —
+                // otherwise validate() rejects the save and the channel can
+                // never be re-encrypted from here.
+                val newConfig = existingConfig.withPrimaryCryptoPolicy(cryptoMode).copy(
                     mode = mode,
-                    cryptoPolicy = cryptoMode,
                     patchGroup = pg,
                     patchPort = pp,
                     // A newly pinned/changed patch endpoint defaults to the

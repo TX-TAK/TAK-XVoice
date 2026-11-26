@@ -60,9 +60,26 @@ object LegacyCryptoPolicyMigration {
      * an operator choice. Interop formats are CLEARTEXT and untouched.
      * An operator who really wants PREFERRED re-selects it afterwards;
      * the upgrade never runs twice.
+     *
+     * @param explicitlyPreferred canonical names whose legacy
+     *   `xv_crypto_policy_<channel>` pref said PREFERRED — proof of a
+     *   deliberate operator choice (only the channel dialog wrote it), so
+     *   those channels are left alone.
      */
-    fun upgradeOldDefault(configs: List<ChannelMulticastConfig>): List<ChannelMulticastConfig> =
+    fun upgradeOldDefault(
+        configs: List<ChannelMulticastConfig>,
+        explicitlyPreferred: Set<String> = emptySet(),
+    ): List<ChannelMulticastConfig> =
         configs
             .filter { it.wireFormat == WireFormat.XV_NATIVE && it.cryptoPolicy == CryptoPolicy.PREFERRED }
+            .filter { it.channelName !in explicitlyPreferred }
             .map { it.copy(cryptoPolicy = CryptoPolicy.REQUIRED) }
+
+    /** Canonical channel names whose legacy pref value is PREFERRED. */
+    fun explicitlyPreferred(legacy: Map<String, String>): Set<String> =
+        legacy
+            .filterValues { it == CryptoPolicy.PREFERRED.name }
+            .keys
+            .map { MulticastGroupDerivation.canonicalChannelName(it) }
+            .toSet()
 }

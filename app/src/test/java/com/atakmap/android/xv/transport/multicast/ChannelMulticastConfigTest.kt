@@ -246,4 +246,46 @@ class ChannelMulticastConfigTest {
         val json = """{"channel":"ops-1","mode":"FAILOVER","wireFormat":"FUTURE_FORMAT","cryptoPolicy":"CLEARTEXT"}"""
         assertNull(ChannelMulticastConfig.fromJson(json))
     }
+
+    // ---- gear-dialog policy change ----
+
+    @Test
+    fun `choosing an encrypted policy re-encrypts an interop-framed primary`() {
+        for (format in listOf(WireFormat.VX_COMPAT, WireFormat.OPENMANET_RTP)) {
+            val interop =
+                ChannelMulticastConfig(
+                    channelName = "ops-1",
+                    wireFormat = format,
+                    cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                    pinnedGroup = "239.1.2.3",
+                    pinnedPort = 5007,
+                    patchGroup = "239.9.9.9",
+                    patchPort = 5010,
+                )
+            for (policy in listOf(CryptoPolicy.REQUIRED, CryptoPolicy.PREFERRED)) {
+                val updated = interop.withPrimaryCryptoPolicy(policy)
+                assertNull("$format -> $policy must validate", updated.validate())
+                assertEquals(WireFormat.XV_NATIVE, updated.wireFormat)
+                assertEquals(policy, updated.cryptoPolicy)
+                assertEquals("pin and patch are untouched", "239.1.2.3", updated.pinnedGroup)
+                assertEquals("239.9.9.9", updated.patchGroup)
+            }
+        }
+    }
+
+    @Test
+    fun `choosing cleartext keeps the current wire format`() {
+        val openManet =
+            ChannelMulticastConfig(
+                channelName = "ops-1",
+                wireFormat = WireFormat.OPENMANET_RTP,
+                cryptoPolicy = CryptoPolicy.CLEARTEXT,
+                pinnedGroup = "239.1.2.3",
+                pinnedPort = 5007,
+            )
+        assertEquals(openManet, openManet.withPrimaryCryptoPolicy(CryptoPolicy.CLEARTEXT))
+        val native = ChannelMulticastConfig.defaultFor("ops-1").withPrimaryCryptoPolicy(CryptoPolicy.CLEARTEXT)
+        assertEquals(WireFormat.XV_NATIVE, native.wireFormat)
+        assertNull(native.validate())
+    }
 }

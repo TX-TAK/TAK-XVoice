@@ -171,6 +171,20 @@ data class ChannelMulticastConfig(
     }
 
     /**
+     * This config with the primary leg's crypto policy set to [policy],
+     * keeping every other field. An encrypted policy forces
+     * [WireFormat.XV_NATIVE] (interop formats have no crypto layer, so
+     * keeping one would fail [validate]) — that is how an operator
+     * re-encrypts a channel that was set to VX/OpenMANET framing.
+     * CLEARTEXT keeps the current wire format.
+     */
+    fun withPrimaryCryptoPolicy(policy: CryptoPolicy): ChannelMulticastConfig =
+        copy(
+            cryptoPolicy = policy,
+            wireFormat = if (policy == CryptoPolicy.CLEARTEXT) wireFormat else WireFormat.XV_NATIVE,
+        )
+
+    /**
      * Canonical JSON for persistence and for embedding in a comms-plan
      * bundle. Field order is FIXED (schema v1) so the same config
      * always emits byte-identical JSON — comms-plan signatures depend

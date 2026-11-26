@@ -1493,6 +1493,9 @@ class XvMapComponent : AbstractMapComponent() {
         // element on our self-CoT and listens for the same element on
         // others' CoT to build a registry of XV-callable peers.
         // Independent of Mumble — works even when Mumble is down.
+        // Before the presence layer: its VX-interop prompt reads each
+        // channel's crypto policy, which these migrations correct.
+        runCryptoPolicyMigrations()
         startPresenceLayer()
         // Mesh voice sits alongside presence — both work Mumble-down.
         // The manager no-ops internally until the operator enables the
@@ -1530,7 +1533,6 @@ class XvMapComponent : AbstractMapComponent() {
         // Runs before the auto-connects so autoConnectAina picks it up as
         // primary and autoConnectExternalButton no-ops on it.
         migrateBt02FromExternalButtonSlotIfNeeded()
-        migrateLegacyCryptoPolicyPrefs()
         // Auto-connect to a bonded AINA speakermic if one is present.
         // V1/V2 generation is auto-detected by BluetoothDevice.getType()
         // inside connectAinaInternal. Without this, on a fresh ATAK launch
@@ -3270,7 +3272,7 @@ class XvMapComponent : AbstractMapComponent() {
     private fun startMeshVoice() {
         // Idempotent; also run at plugin load. Here too so the legs are
         // never built from configs the legacy fold hasn't corrected yet.
-        migrateLegacyCryptoPolicyPrefs()
+        runCryptoPolicyMigrations()
         val deviceUid = MumbleAuth.deviceUid()
         if (deviceUid.isNullOrBlank()) {
             Log.w(TAG, "mesh voice: no device UID — not starting")
@@ -4019,11 +4021,14 @@ class XvMapComponent : AbstractMapComponent() {
                 null
             }
         key?.let { meshVoiceManager?.installPresharedKey(config.channelName, it) }
+        // Carry forward a key/name already held for this channel — a null
+        // here would drop the held key from the re-sealed vault.
         recordShareableChannel(
-            com.atakmap.android.xv.provisioning.CommsPlan.Channel(
-                displayName = config.channelName,
+            com.atakmap.android.xv.provisioning.ShareableChannelRecord.updated(
+                prior = synchronized(provisionedChannels) { provisionedChannels[config.channelName] },
                 config = config,
-                preSharedKey = key,
+                newKey = key,
+                liveKey = meshVoiceManager?.currentKeyFor(config.channelName),
             ),
         )
         persistMeshKeysEncrypted()
@@ -4036,12 +4041,14 @@ class XvMapComponent : AbstractMapComponent() {
     // Fold the retired per-channel crypto-policy prefs into the configs
     // (single source of truth). Best-effort: a failure leaves the configs
     // as the transport already enforced them.
-    private fun migrateLegacyCryptoPolicyPrefs() {
+    private fun runCryptoPolicyMigrations() {
         try {
-            val fixed = settings.migrateLegacyCryptoPolicyPrefs()
-            if (fixed > 0) Log.i(TAG, "crypto-policy migration: restored REQUIRED on $fixed channel(s)")
+            // Order matters: the default upgrade reads the legacy prefs
+            // (explicit PREFERRED choices) that the fold then deletes.
             val upgraded = settings.migrateFailoverDefaultToRequired()
             if (upgraded > 0) Log.i(TAG, "crypto-policy migration: $upgraded channel(s) moved to the REQUIRED default")
+            val fixed = settings.migrateLegacyCryptoPolicyPrefs()
+            if (fixed > 0) Log.i(TAG, "crypto-policy migration: restored REQUIRED on $fixed channel(s)")
         } catch (t: Throwable) {
             Log.w(TAG, "crypto-policy migration failed", t)
         }
@@ -4090,10 +4097,11 @@ class XvMapComponent : AbstractMapComponent() {
         val prior = synchronized(provisionedChannels) { provisionedChannels[canonical] }
         if (prior != null || newKey != null) {
             recordShareableChannel(
-                com.atakmap.android.xv.provisioning.CommsPlan.Channel(
-                    displayName = prior?.displayName ?: canonical,
+                com.atakmap.android.xv.provisioning.ShareableChannelRecord.updated(
+                    prior = prior,
                     config = config,
-                    preSharedKey = newKey ?: prior?.preSharedKey,
+                    newKey = newKey,
+                    liveKey = meshVoiceManager?.currentKeyFor(canonical),
                 ),
             )
         }
@@ -4125,14 +4133,21 @@ class XvMapComponent : AbstractMapComponent() {
                 // multicast override or the name-derived default, so ANY
                 // channel the operator can see is shareable — server, known,
                 // or discovered — not just ones this device created.
+                // The CONFIG always comes from settings (the single source
+                // of truth): the provisioned record's config is a snapshot
+                // that goes stale after a gear-dialog or interop change, and
+                // exporting it would hand peers the old policy / framing.
+                val prior = provisioned[canonical]
+                val liveConfig =
+                    settings.channelMulticastConfigFor(canonical)
+                        ?: prior?.config
+                        ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
+                            .defaultFor(name)
                 val base =
-                    provisioned[canonical]
+                    prior?.copy(config = liveConfig)
                         ?: com.atakmap.android.xv.provisioning.CommsPlan.Channel(
                             displayName = name,
-                            config =
-                            settings.channelMulticastConfigFor(name)
-                                ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
-                                    .defaultFor(name),
+                            config = liveConfig,
                         )
                 // Attach the LIVE key when we hold one (rotation-safe — a
                 // stale snapshot key imports cleanly then decrypts nothing,
