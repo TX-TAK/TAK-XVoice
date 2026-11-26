@@ -141,26 +141,50 @@ object ChannelListPolicy {
         ch2: String?,
         online: Boolean = true,
     ): Action {
-        val name = channel.name
         val ch2On = !ch2.isNullOrBlank()
-        val onCh1 = same(name, ch1)
-        val onCh2 = ch2On && same(name, ch2)
+        val onCh1 = same(channel.name, ch1)
+        val onCh2 = ch2On && same(channel.name, ch2)
         return when {
-            channel.access == Access.NONE -> Action.Explain("No access to $name")
-            // A lit [2] can always be cleared, even on a mesh-only row
-            // while offline (otherwise channel 2 is trapped there).
-            slot == 1 && onCh2 -> Action.ClearSecondary
-            channel.offline && slot == 1 -> Action.Explain("Channel 2 needs a server channel — $name is mesh-only")
+            channel.access == Access.NONE -> Action.Explain("No access to ${channel.name}")
+            slot == 0 -> tapOne(channel, onCh1, onCh2, online)
+            else -> tapTwo(channel, onCh1, onCh2, ch2On)
+        }
+    }
+
+    // [1] pill. Mesh-only rows can't be channel 1 while the server is up;
+    // channel 1 can't be tapped off; swap needs the server.
+    private fun tapOne(
+        channel: Channel,
+        onCh1: Boolean,
+        onCh2: Boolean,
+        online: Boolean,
+    ): Action {
+        val name = channel.name
+        return when {
             channel.offline && online && !onCh1 ->
                 Action.Explain("$name is mesh-only — it carries channel 1 when the server is unreachable")
-            slot == 0 && onCh1 -> Action.Explain("Channel 1 is always set — pick another channel to move it")
+            onCh1 -> Action.Explain("Channel 1 is always set — pick another channel to move it")
             // Swap is two server moves: only possible online. Offline, say
             // how to get there instead of a swap that can only fail.
-            slot == 0 && onCh2 && online -> Action.Swap
-            slot == 0 && onCh2 ->
-                Action.Explain("$name is channel 2 — swapping needs the server; tap its lit 2 to clear it first")
-            slot == 0 -> Action.SetPrimary(name)
+            onCh2 && online -> Action.Swap
+            onCh2 -> Action.Explain("$name is channel 2 — swapping needs the server; tap its lit 2 to clear it first")
+            else -> Action.SetPrimary(name)
+        }
+    }
+
+    // [2] pill. A lit [2] can always be cleared — even on a mesh-only row
+    // while offline (otherwise channel 2 is trapped there) — so that check
+    // comes before the mesh-only explanation.
+    private fun tapTwo(
+        channel: Channel,
+        onCh1: Boolean,
+        onCh2: Boolean,
+        ch2On: Boolean,
+    ): Action {
+        val name = channel.name
+        return when {
             onCh2 -> Action.ClearSecondary
+            channel.offline -> Action.Explain("Channel 2 needs a server channel — $name is mesh-only")
             onCh1 && ch2On -> Action.Swap
             onCh1 -> Action.Explain("$name is channel 1 — pick a different channel for 2")
             else -> Action.SetSecondary(name)
