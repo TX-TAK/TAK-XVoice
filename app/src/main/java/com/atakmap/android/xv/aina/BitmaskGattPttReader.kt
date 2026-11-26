@@ -631,29 +631,59 @@ open class BitmaskGattPttReader(
         }
     }
 
+    // Turn on local notifications for a notify-capable [ch] and return
+    // its CCCD to write, or null when it can't be subscribed.
+    private fun enableLocally(
+        g: BluetoothGatt,
+        ch: BluetoothGattCharacteristic,
+    ): BluetoothGattDescriptor? {
+        val notify = (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
+        val cccd =
+            when {
+                !notify -> null
+                !g.setCharacteristicNotification(ch, true) -> {
+                    Log.w(config.tag, "setCharacteristicNotification(true) failed for ${ch.uuid}")
+                    null
+                }
+                else ->
+                    ch.getDescriptor(CCCD_UUID).also {
+                        if (it == null) Log.w(config.tag, "CCCD missing on ${ch.uuid} — cannot enable notifications")
+                    }
+            }
+        if (cccd != null) Log.i(config.tag, "subscribing to ${ch.uuid}")
+        return cccd
+    }
+
     // Matched characteristics for this device, restricted to the
     // configured button characteristic(s) where the vendor's is known.
-    private fun selectTargetCharacteristics(g: BluetoothGatt): List<BluetoothGattCharacteristic> {
+    private fun selectTargetCharacteristics(g: BluetoothGatt): List<BluetoothGattCharacteristic> =
         if (config.candidateCharacteristicUuids.isNotEmpty()) {
-            // Characteristic-first matching: locate the known
-            // button-state characteristic(s) wherever they live in the
-            // GATT tree, without needing to know (or trust) the parent
-            // vendor service UUID.
-            val found =
-                g.services
-                    .asSequence()
-                    .flatMap { it.characteristics.asSequence() }
-                    .filter { it.uuid in config.candidateCharacteristicUuids }
-                    .toList()
-            if (found.isEmpty()) {
-                Log.w(
-                    config.tag,
-                    "no known characteristic on device " +
-                        "(tried ${config.candidateCharacteristicUuids}) — wrong device or firmware",
-                )
-            }
-            return found
+            characteristicsByUuid(g)
+        } else {
+            characteristicsByService(g)
         }
+
+    // Characteristic-first matching: locate the known button-state
+    // characteristic(s) wherever they live in the GATT tree, without
+    // needing to know (or trust) the parent vendor service UUID.
+    private fun characteristicsByUuid(g: BluetoothGatt): List<BluetoothGattCharacteristic> {
+        val found =
+            g.services
+                .asSequence()
+                .flatMap { it.characteristics.asSequence() }
+                .filter { it.uuid in config.candidateCharacteristicUuids }
+                .toList()
+        if (found.isEmpty()) {
+            Log.w(
+                config.tag,
+                "no known characteristic on device " +
+                    "(tried ${config.candidateCharacteristicUuids}) — wrong device or firmware",
+            )
+        }
+        return found
+    }
+
+    private fun characteristicsByService(g: BluetoothGatt): List<BluetoothGattCharacteristic> {
         val service =
             config.candidateServiceUuids
                 .asSequence()
@@ -772,22 +802,7 @@ open class BitmaskGattPttReader(
                         Log.i(config.tag, "  char: ${ch.uuid} [${describeProps(ch.properties)}]")
                     }
                 }
-                val cccds = mutableListOf<BluetoothGattDescriptor>()
-                for (ch in selectTargetCharacteristics(g)) {
-                    val notify = (ch.properties and BluetoothGattCharacteristic.PROPERTY_NOTIFY) != 0
-                    if (!notify) continue
-                    if (!g.setCharacteristicNotification(ch, true)) {
-                        Log.w(config.tag, "setCharacteristicNotification(true) failed for ${ch.uuid}")
-                        continue
-                    }
-                    val cccd = ch.getDescriptor(CCCD_UUID)
-                    if (cccd == null) {
-                        Log.w(config.tag, "CCCD missing on ${ch.uuid} — cannot enable notifications")
-                        continue
-                    }
-                    Log.i(config.tag, "subscribing to ${ch.uuid}")
-                    cccds += cccd
-                }
+                val cccds = selectTargetCharacteristics(g).mapNotNull { ch -> enableLocally(g, ch) }
                 subscribedChars = cccds.mapNotNull { it.characteristic?.uuid }.toSet()
                 val seq = CccdSubscriptionSequencer(cccds)
                 subscription = seq
@@ -799,14 +814,13 @@ open class BitmaskGattPttReader(
                 descriptor: BluetoothGattDescriptor,
                 status: Int,
             ) {
-                if (!isCurrent(g)) return
-                if (descriptor.uuid != CCCD_UUID) return
-                val seq = subscription ?: return
-                if (status != BluetoothGatt.GATT_SUCCESS) {
+                val seq = subscription
+                if (seq == null || descriptor.uuid != CCCD_UUID || !isCurrent(g)) return
+                if (status == BluetoothGatt.GATT_SUCCESS) {
+                    runStep(g, seq.onWritten(descriptor))
+                } else {
                     escalate(g, "CCCD write failed status=$status on ${descriptor.characteristic?.uuid}", status)
-                    return
                 }
-                runStep(g, seq.onWritten(descriptor))
             }
 
             @Suppress("DEPRECATION", "OVERRIDE_DEPRECATION")

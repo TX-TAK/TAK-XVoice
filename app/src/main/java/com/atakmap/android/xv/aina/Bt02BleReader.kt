@@ -194,13 +194,17 @@ class Bt02BleReader(
         failedAttempts: Int,
         authFailure: Boolean,
     ): Boolean {
-        val name = rescanName ?: return false
-        if (authFailure || failedAttempts < RESCAN_AFTER_FAILURES) return false
-        if (!shouldRescanByName(failedAttempts, authFailure, rescanRounds++)) return false
-        Log.i(TAG, "companion LE address unresponsive after $failedAttempts attempts ($reason) — re-scanning for $name")
-        targetBleName = name
-        beginDiscovery()
-        return true
+        val name = rescanName
+        // Rounds only count once the address has failed enough times, so
+        // the scan / address-retry alternation starts on a scan.
+        val eligible = name != null && !authFailure && failedAttempts >= RESCAN_AFTER_FAILURES
+        val rescan = eligible && shouldRescanByName(failedAttempts, authFailure, rescanRounds++)
+        if (rescan) {
+            Log.i(TAG, "companion LE address unresponsive after $failedAttempts attempts ($reason) — re-scanning for $name")
+            targetBleName = name
+            beginDiscovery()
+        }
+        return rescan
     }
 
     // With a name to re-resolve by, stay on direct connects (which time
@@ -389,9 +393,12 @@ class Bt02BleReader(
             window: Int,
             screenOn: Boolean = true,
         ): List<ScanFilter>? {
-            val name = expectedName?.trim()?.takeIf { isBt02Name(it) } ?: return null
-            if (!useNameFilter(name, window, screenOn)) return null
-            return listOf(ScanFilter.Builder().setDeviceName(name).build())
+            val name = expectedName?.trim()?.takeIf { isBt02Name(it) }
+            return if (name != null && useNameFilter(name, window, screenOn)) {
+                listOf(ScanFilter.Builder().setDeviceName(name).build())
+            } else {
+                null
+            }
         }
 
         /** Pure half of [scanFiltersFor]. */

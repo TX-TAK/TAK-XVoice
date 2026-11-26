@@ -688,17 +688,20 @@ class AinaBleReader(
     // service, characteristic or descriptor is missing / refused.
     private fun buttonCccd(g: BluetoothGatt): BluetoothGattDescriptor? {
         val ch = g.getService(SERVICE_UUID)?.getCharacteristic(BUTTON_CHAR_UUID)
-        if (ch == null) {
-            Log.w(TAG, "AINA service or button characteristic not found on device")
-            return null
-        }
-        if (!g.setCharacteristicNotification(ch, true)) {
-            Log.w(TAG, "setCharacteristicNotification(true) failed")
-            return null
-        }
-        return ch.getDescriptor(CCCD_UUID).also {
-            if (it == null) Log.w(TAG, "CCCD missing on button characteristic")
-        }
+        val cccd =
+            when {
+                ch == null -> {
+                    Log.w(TAG, "AINA service or button characteristic not found on device")
+                    null
+                }
+                !g.setCharacteristicNotification(ch, true) -> {
+                    Log.w(TAG, "setCharacteristicNotification(true) failed")
+                    null
+                }
+                else -> ch.getDescriptor(CCCD_UUID)
+            }
+        if (ch != null && cccd == null) Log.w(TAG, "no usable CCCD on button characteristic")
+        return cccd
     }
 
     /**
