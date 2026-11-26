@@ -184,5 +184,12 @@ object ChannelSwap {
 
         /** Server refused both legs; nothing changed. */
         data object Failed : Outcome()
+
+        /**
+         * Abandoned before it resolved: channel 2 was torn down, a direct
+         * call started, another join was requested, or the transport
+         * disconnected. No toast; the plugin re-reads the current slots.
+         */
+        data object Cancelled : Outcome()
     }
 }

@@ -11,12 +11,13 @@
       cleared (channel 1 is never blank).
     - No-access channels show grey, non-tappable pills.
   Long-press the row for mesh options. Subchannel indent is applied in
-  code via paddingStart.
+  code via paddingStart. Pills are 52x48dp (48dp minimum touch target);
+  their contentDescription / selected state are set per row in code.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
-    android:layout_height="56dp"
+    android:layout_height="64dp"
     android:background="?android:attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:orientation="horizontal"
@@ -55,8 +56,8 @@
 
     <TextView
         android:id="@+id/xv_row_pill_1"
-        android:layout_width="44dp"
-        android:layout_height="32dp"
+        android:layout_width="52dp"
+        android:layout_height="48dp"
         android:layout_marginStart="8dp"
         android:background="@drawable/xv_pill_off"
         android:contentDescription="@string/xv_cd_channel_1"
@@ -68,8 +69,8 @@
 
     <TextView
         android:id="@+id/xv_row_pill_2"
-        android:layout_width="44dp"
-        android:layout_height="32dp"
+        android:layout_width="52dp"
+        android:layout_height="48dp"
         android:layout_marginStart="8dp"
         android:background="@drawable/xv_pill_off"
         android:contentDescription="@string/xv_cd_channel_2"

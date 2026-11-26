@@ -57,7 +57,7 @@
     <!-- Current assignment + Swap -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="52dp"
+        android:layout_height="60dp"
         android:layout_marginStart="12dp"
         android:layout_marginEnd="12dp"
         android:background="@drawable/xv_card_bg"
@@ -118,7 +118,8 @@
         <Button
             android:id="@+id/xv_channels_swap"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="48dp"
+            android:minWidth="48dp"
             android:background="@drawable/xv_pill_off"
             android:contentDescription="@string/xv_cd_swap"
             android:paddingStart="12dp"

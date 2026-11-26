@@ -264,6 +264,14 @@ class XvSettings(
         prefs()?.edit()?.putString(PREF_SECONDARY_CHANNEL, name)?.apply()
     }
 
+    // Left-handed layout: main-panel PTT buttons sit at the start (left)
+    // of each channel row. Display-only; PTT → channel mapping unchanged.
+    fun persistedPttOnLeft(): Boolean = prefs()?.getBoolean(PREF_PTT_ON_LEFT, false) ?: false
+
+    fun persistPttOnLeft(onLeft: Boolean) {
+        prefs()?.edit()?.putBoolean(PREF_PTT_ON_LEFT, onLeft)?.apply()
+    }
+
     // Snapshot of the server's channel directory, refreshed while
     // Mumble is connected (1 Hz tick, write-on-change). This is what
     // makes registration configure EVERY channel for offline use: when
@@ -524,6 +532,9 @@ class XvSettings(
 
         // Last channel-2 (secondary slot) pick. Restored on connect.
         private const val PREF_SECONDARY_CHANNEL = "secondary_channel"
+
+        // Left-handed main-panel layout (PTT buttons on the left).
+        private const val PREF_PTT_ON_LEFT = "ptt_on_left"
 
         // Mesh-voice (multicast) master toggle + per-channel overrides.
         // See persistedMeshVoiceEnabled / channelMulticastConfigs.

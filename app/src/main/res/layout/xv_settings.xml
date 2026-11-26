@@ -132,6 +132,45 @@
                     android:layout_height="wrap_content"
                     android:visibility="gone"/>
 
+                <!-- Left-handed layout: moves each main-panel PTT button
+                     to the start (left) of its channel row. Display-only;
+                     the PTT1 → channel 1 / PTT2 → channel 2 mapping is
+                     unchanged. -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Layout"
+                    android:textColor="@color/xv_text_dim"
+                    android:textSize="11sp"
+                    android:textAllCaps="true"
+                    android:letterSpacing="0.1"/>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="@drawable/xv_card_bg"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
+                    android:orientation="horizontal"
+                    android:padding="12dp">
+
+                    <TextView
+                        android:id="@+id/xv_label_ptt_left"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:labelFor="@+id/xv_switch_ptt_left"
+                        android:text="Left-handed (PTT on the left)"
+                        android:textColor="@color/xv_text"
+                        android:textSize="14sp"/>
+
+                    <Switch
+                        android:id="@+id/xv_switch_ptt_left"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"/>
+                </LinearLayout>
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -378,6 +417,8 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:id="@+id/xv_label_mission_channels"
+                        android:labelFor="@+id/xv_switch_mission_channels"
                         android:text="Mission auto-channels"
                         android:textColor="@color/xv_text"
                         android:textSize="14sp"/>
@@ -731,6 +772,8 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
+                            android:id="@+id/xv_label_auto_connect_bt"
+                            android:labelFor="@+id/xv_switch_auto_connect_bt"
                             android:text="Auto-connect compatible Bluetooth"
                             android:textColor="@color/xv_text"
                             android:textSize="14sp"/>

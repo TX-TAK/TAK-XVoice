@@ -128,14 +128,26 @@ class MissionChannelProvisioner(
     }
 
     /**
-     * The operator explicitly re-arranged channel 1 (e.g. a channel
+     * The operator explicitly re-arranged channel 1 (a completed channel
      * swap). Treat it like a manual move off the mission channel: stop
-     * driving until the mission itself changes. Without this, a swap
-     * issued before the provisioner had observed the operator on the
-     * mission channel would be reverted by the next 1 Hz Join. No-op
-     * when no mission is active.
+     * driving until the mission itself changes.
+     *
+     * [activeMission] is the primary active mission at the time. When the
+     * provisioner hasn't reconciled it yet (swap before the first 1 Hz
+     * tick, or right after SET_MISSIONS) its target is recorded here, so
+     * the next tick sees "same mission, yielded" instead of a fresh drive
+     * cycle that would immediately Join and revert the swap. No-op when
+     * no mission is active.
      */
-    fun yieldToOperator() {
+    fun yieldToOperator(activeMission: String?) {
+        val desired = activeMission?.let { channelNameForMission(it) }?.takeIf { it.isNotBlank() }
+        if (desired != null && !sameChannel(desired, target)) {
+            target = desired
+            reachedTarget = false
+            createAttempts = 0
+            lastCreateTick = Int.MIN_VALUE
+            unavailableEmitted = false
+        }
         if (target != null) yielded = true
     }
 

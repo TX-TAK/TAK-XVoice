@@ -485,25 +485,38 @@ class XvMapComponent : AbstractMapComponent() {
     @Volatile
     private var lastSecondaryChannelLoaded: Boolean = false
 
+    private val lastSecondaryChannelLock = Any()
+
+    // Read from the UI thread and the reconnect thread at startup, so the
+    // lazy load is locked and writes the value BEFORE flipping "loaded".
     private var lastSecondaryChannel: String?
-        get() {
-            if (!lastSecondaryChannelLoaded && heldMapView != null) {
-                lastSecondaryChannelLoaded = true
-                if (lastSecondaryChannelMem == null) {
-                    lastSecondaryChannelMem =
-                        SecondaryChannelPersistence.restore(settings.persistedSecondaryChannel())
+        get() =
+            synchronized(lastSecondaryChannelLock) {
+                if (!lastSecondaryChannelLoaded && heldMapView != null) {
+                    if (lastSecondaryChannelMem == null) {
+                        lastSecondaryChannelMem =
+                            SecondaryChannelPersistence.restore(settings.persistedSecondaryChannel())
+                    }
+                    lastSecondaryChannelLoaded = true
                 }
+                lastSecondaryChannelMem
             }
-            return lastSecondaryChannelMem
-        }
         set(value) {
             val v = value?.trim()?.takeIf { it.isNotEmpty() }
-            lastSecondaryChannelMem = v
-            if (heldMapView != null) {
-                lastSecondaryChannelLoaded = true
-                settings.persistSecondaryChannel(v.orEmpty())
+            synchronized(lastSecondaryChannelLock) {
+                lastSecondaryChannelMem = v
+                if (heldMapView != null) {
+                    lastSecondaryChannelLoaded = true
+                    settings.persistSecondaryChannel(v.orEmpty())
+                }
             }
         }
+
+    // On-screen PTT held (pressed, possibly still priming). The service
+    // only reports TX once audio is on the air, so this closes the
+    // priming window for the swap gate.
+    @Volatile
+    private var onScreenPttHeld: Boolean = false
 
     @Volatile
     private var heldMapView: MapView? = null
@@ -765,6 +778,9 @@ class XvMapComponent : AbstractMapComponent() {
         val pluginContext = context
         heldMapView = mapView
         heldPluginContext = pluginContext
+        // Load the saved channel 2 now, on the UI thread, before any
+        // reconnect thread can race the lazy getter.
+        lastSecondaryChannel?.let { Log.i(TAG, "restored channel 2 '$it'") }
 
         // primary_channel is read on connect (connectMumbleWithDefaults)
         // to restore the operator's last-joined channel and override the
@@ -2708,6 +2724,10 @@ class XvMapComponent : AbstractMapComponent() {
 
             override fun channelUserCounts(): Map<Int, Int> = mumbleTransport()?.channelUserCounts() ?: emptyMap()
 
+            override fun pttOnLeft(): Boolean = settings.persistedPttOnLeft()
+
+            override fun setPttOnLeft(onLeft: Boolean) = settings.persistPttOnLeft(onLeft)
+
             override fun availableAinaDevices(): List<com.atakmap.android.xv.aina.AinaDeviceInfo> {
                 // Speaker-mic slot = audio-carrying PTT hardware only
                 // (AINA V1 SPP + V2 BLE, and — as they land — wired
@@ -4257,6 +4277,9 @@ class XvMapComponent : AbstractMapComponent() {
         if (!settings.persistedMissionChannelsEnabled()) return
         val provisioner = missionChannelProvisioner ?: return
         val transport = mumbleTransport() ?: return
+        // A swap moves channel 1 in two steps; don't reconcile against
+        // its half-way state.
+        if (transport.isSwapInFlight()) return
         val directory = transport.availableChannels().map { it.name }
         val action =
             provisioner.reconcile(
@@ -5557,11 +5580,11 @@ class XvMapComponent : AbstractMapComponent() {
         val mumbleFactory: (String, String) -> MumbleTransport = { primarySuffix, secondarySuffix ->
             val freshSecondary = lastSecondaryChannel
             val freshPrimary =
-                if (firstMumbleAttempt) {
-                    cfg.channelName
-                } else {
-                    SecondaryChannelPersistence.restore(settings.persistedPrimaryChannel()) ?: cfg.channelName
-                }
+                SecondaryChannelPersistence.reconnectPrimary(
+                    firstAttempt = firstMumbleAttempt,
+                    configured = cfg.channelName,
+                    persisted = settings.persistedPrimaryChannel(),
+                )
             firstMumbleAttempt = false
             val cfgForAttempt =
                 if (freshSecondary != cfg.secondaryChannelName || freshPrimary != cfg.channelName) {
@@ -5599,7 +5622,7 @@ class XvMapComponent : AbstractMapComponent() {
                 primarySlotSuffix = primarySuffix,
                 secondarySlotSuffix = secondarySuffix,
                 autoAcceptPrivateCalls = { autoAcceptPrivateCalls },
-                onChannelChanged = { slot, channelId, channelName, byAdmin ->
+                onChannelChanged = { slot, channelId, channelName, byAdmin, transientLanding ->
                     val name =
                         channelName
                             ?: if (slot == 0) cfgForAttempt.channelName else cfgForAttempt.secondaryChannelName ?: "?"
@@ -5670,10 +5693,13 @@ class XvMapComponent : AbstractMapComponent() {
                     if (isNewJoin && !swapInFlight) {
                         statusTones?.play(com.atakmap.android.xv.audio.StatusToneKind.CHANNEL_JOIN)
                     }
-                    // Channel 2 follows server-confirmed slot-1 moves
-                    // (picker, admin move, swap rollback) so a reload
-                    // restores where VS2 actually is.
-                    if (slot == 1 && SecondaryChannelPersistence.shouldPersistMove(name, swapInFlight)) {
+                    // Persist only settled positions: not the transient
+                    // ServerSync landing that precedes the auto-join to
+                    // the saved channel, and not a swap leg (the swap's
+                    // outcome persists both slots). Channel 2 follows
+                    // server-confirmed slot-1 moves (picker, admin move).
+                    val settled = !transientLanding && !swapInFlight
+                    if (slot == 1 && SecondaryChannelPersistence.shouldPersistMove(name, !settled)) {
                         lastSecondaryChannel = name
                     }
                     // Telecom call is NOT tied to channel membership —
@@ -5701,7 +5727,7 @@ class XvMapComponent : AbstractMapComponent() {
                         // next time, not be force-routed to REACT by
                         // OTS's user-group default.
                         val isPrivateTempChannel = name?.startsWith("TAK PRIVATE - ") == true
-                        if (channelId >= 0 && !isPrivateTempChannel && !name.isNullOrBlank()) {
+                        if (settled && channelId >= 0 && !isPrivateTempChannel && !name.isNullOrBlank()) {
                             try {
                                 settings.persistPrimaryChannel(name)
                             } catch (t: Throwable) {
@@ -5751,6 +5777,8 @@ class XvMapComponent : AbstractMapComponent() {
                     // meantime, default to "can speak" so the next PTT
                     // isn't spuriously denied during the cold instant.
                     voiceClient?.ifBound { it.setCanSpeakOnSlot(slot, true) }
+                    selfSuppressedBySlot.remove(slot)
+                    if (slot == 0) pushSlot1CanSpeak()
                     // Push the UI immediately — without this, the
                     // dropdown sticks on the previous channel name
                     // (notably "TAK PRIVATE - <hex>" after a call ends
@@ -5761,7 +5789,11 @@ class XvMapComponent : AbstractMapComponent() {
                 onSelfSuppressedChanged = { slot, suppressed ->
                     Log.i(TAG, "self suppress on slot=$slot → $suppressed")
                     selfSuppressedBySlot[slot] = suppressed
-                    voiceClient?.ifBound { it.setCanSpeakOnSlot(slot, !suppressed) }
+                    if (slot == 0) {
+                        voiceClient?.ifBound { it.setCanSpeakOnSlot(0, !suppressed) }
+                    }
+                    // Slot 1 follows channel 2 when it's on, channel 1 when off.
+                    pushSlot1CanSpeak()
                 },
                 onIncomingCallRequest = { callerCallsign, tempChannelId, callerSession ->
                     // Phase E: a peer's REQUEST_CALL arrived. Hand off
@@ -5827,6 +5859,7 @@ class XvMapComponent : AbstractMapComponent() {
                     voiceClient?.ifBound { it.engagePrivateCallMic() }
                 },
                 onChannelsSwapped = { outcome -> onChannelsSwappedInternal(outcome) },
+                onSecondaryChannelMissing = { missing -> onSecondaryChannelMissingInternal(missing) },
             )
         }
         val transport: VoiceTransport =
@@ -5895,27 +5928,16 @@ class XvMapComponent : AbstractMapComponent() {
     // Updates lastSecondaryChannel so the next reconnect picks the same
     // VS2. The transport rejects names that collide with VS1.
     // Why channel swap is unavailable right now, or null when it can run.
-    // Mirrors ChannelSwap.decide's preconditions with plugin-side state
-    // (PTT lives in the plugin, not the transport) so the UI can grey
-    // the control instead of failing on tap.
+    // Asks the transport the same question swapChannels will (no drift
+    // between the greyed button and the tap's toast).
     private fun swapUnavailableReasonInternal(): String? {
-        val t = mumbleTransport() ?: return com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(
-            com.atakmap.android.xv.transport.ChannelSwap.Refusal.NOT_CONNECTED,
-        )
-        val refusal =
-            com.atakmap.android.xv.transport.ChannelSwap.decide(
-                com.atakmap.android.xv.transport.ChannelSwap.State(
-                    primaryConnected = t.isConnected,
-                    primaryChannelId = t.joinedChannelId(),
-                    secondaryPresent = !lastSecondaryChannel.isNullOrBlank(),
-                    secondaryConnected = t.secondaryConnected(),
-                    secondaryChannelId = t.secondaryChannelId(),
-                    inPrivateCall = t.isInPrivateCall(),
-                    transmitting = txActiveSlot >= 0,
-                    swapInFlight = t.isSwapInFlight(),
-                ),
-            )
-        return (refusal as? com.atakmap.android.xv.transport.ChannelSwap.Decision.Refuse)
+        val t =
+            mumbleTransport()
+                ?: return com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(
+                    com.atakmap.android.xv.transport.ChannelSwap.Refusal.NOT_CONNECTED,
+                )
+        val decision = t.previewSwap(transmitting = keyedForSwap())
+        return (decision as? com.atakmap.android.xv.transport.ChannelSwap.Decision.Refuse)
             ?.let { com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(it.reason) }
     }
 
@@ -5928,38 +5950,71 @@ class XvMapComponent : AbstractMapComponent() {
             toast("Not connected — can't swap channels")
             return
         }
-        val decision = t.swapChannels(transmitting = txActiveSlot >= 0)
-        when (decision) {
-            is com.atakmap.android.xv.transport.ChannelSwap.Decision.Refuse -> {
-                Log.i(TAG, "swap refused: ${decision.reason}")
-                toast(com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(decision.reason))
-            }
-            is com.atakmap.android.xv.transport.ChannelSwap.Decision.Proceed -> {
-                Log.i(TAG, "swap started: ${decision.plan}")
-                // The operator chose the new channel 1 deliberately; the
-                // mission provisioner must not drag VS1 back on its next
-                // 1 Hz tick.
-                missionChannelProvisioner?.yieldToOperator()
-            }
+        val decision = t.swapChannels(transmitting = keyedForSwap())
+        if (decision is com.atakmap.android.xv.transport.ChannelSwap.Decision.Refuse) {
+            Log.i(TAG, "swap refused: ${decision.reason}")
+            toast(com.atakmap.android.xv.transport.ChannelSwap.refusalMessage(decision.reason))
+        } else {
+            Log.i(TAG, "swap started: $decision")
         }
     }
 
     private fun onChannelsSwappedInternal(outcome: com.atakmap.android.xv.transport.ChannelSwap.Outcome) {
         when (outcome) {
             is com.atakmap.android.xv.transport.ChannelSwap.Outcome.Completed -> {
-                // Channel 1 is persisted by onChannelChanged(slot 0); the
-                // slot-1 leg was skipped there while the swap was in flight.
-                outcome.secondaryName?.let { lastSecondaryChannel = it }
+                // Both slots were skipped by onChannelChanged while in
+                // flight; persist the settled pair now.
+                persistSettledSlots(outcome.primaryName, outcome.secondaryName)
                 statusTones?.play(com.atakmap.android.xv.audio.StatusToneKind.CHANNEL_JOIN)
+                // The operator chose the new channel 1: the mission
+                // provisioner must not drag it back. Runs on the mesh tick
+                // thread so the provisioner stays single-threaded.
+                val mission = activeMissionNames.firstOrNull()
+                meshTickHandler.post { missionChannelProvisioner?.yieldToOperator(mission) }
             }
             is com.atakmap.android.xv.transport.ChannelSwap.Outcome.RolledBack -> {
+                persistCurrentSlots()
                 val which = if (outcome.failedSlot == 0) "channel 1" else "channel 2"
-                toast("Swap failed — server refused $which; channels unchanged")
+                toastOnMain("Swap failed — server refused $which; channels unchanged")
             }
             com.atakmap.android.xv.transport.ChannelSwap.Outcome.Failed -> {
-                toast("Swap failed — server refused both moves; channels unchanged")
+                persistCurrentSlots()
+                toastOnMain("Swap failed — server refused both moves; channels unchanged")
             }
+            com.atakmap.android.xv.transport.ChannelSwap.Outcome.Cancelled -> persistCurrentSlots()
         }
+        pushSlot1CanSpeak()
+        dropDown?.refreshNow()
+    }
+
+    private fun persistSettledSlots(
+        primaryName: String?,
+        secondaryName: String?,
+    ) {
+        SecondaryChannelPersistence.restore(primaryName)?.let { settings.persistPrimaryChannel(it) }
+        if (!lastSecondaryChannel.isNullOrBlank()) {
+            SecondaryChannelPersistence.restore(secondaryName)?.let { lastSecondaryChannel = it }
+        }
+    }
+
+    private fun persistCurrentSlots() {
+        val t = mumbleTransport() ?: return
+        persistSettledSlots(t.joinedChannelName(), t.secondaryChannelName())
+    }
+
+    // The saved channel 2 vanished from the server; the transport has
+    // already torn VS2 down. Forget it and say so.
+    private fun onSecondaryChannelMissingInternal(missing: String) {
+        lastSecondaryChannel = null
+        selfSuppressedBySlot.remove(1)
+        joinedChannelsBySlot.remove(1)
+        pushSlot1CanSpeak()
+        toastOnMain("Channel 2 '$missing' no longer exists on the server — channel 2 is off")
+        dropDown?.refreshNow()
+    }
+
+    private fun toastOnMain(message: String) {
+        meshTickHandler.post { toast(message) }
     }
 
     private fun setSecondaryChannelInternal(channelName: String) {
@@ -5978,6 +6033,12 @@ class XvMapComponent : AbstractMapComponent() {
             if (hadSecondary && trimmed.isEmpty()) {
                 statusTones?.play(com.atakmap.android.xv.audio.StatusToneKind.CHANNEL_LEAVE)
             }
+            if (trimmed.isEmpty()) {
+                // Channel 2 off: forget its listen-only verdict so PTT2
+                // keys channel 1 under channel 1's own gate.
+                selfSuppressedBySlot.remove(1)
+            }
+            pushSlot1CanSpeak()
             Log.i(TAG, "MUMBLE_SET_SECONDARY: applied '$trimmed' (empty=clear)")
         } else {
             Log.w(TAG, "MUMBLE_SET_SECONDARY: '$trimmed' rejected (collision with primary or unresolvable)")
@@ -6243,11 +6304,29 @@ class XvMapComponent : AbstractMapComponent() {
     // the moment to avoid a bigger refactor, but the only event paths
     // that reach it are dead.
     private fun dispatchPttDown(slot: Int) {
+        onScreenPttHeld = true
         voiceClient?.ifBound { it.pttDown(slot) }
     }
 
     private fun dispatchPttUp(slot: Int) {
+        onScreenPttHeld = false
         voiceClient?.ifBound { it.pttUp(slot) }
+    }
+
+    // Transmitting for the swap gate: on the air, or an on-screen PTT is
+    // held and still priming (mic warm-up / talk-permit tone).
+    private fun keyedForSwap(): Boolean = txActiveSlot >= 0 || onScreenPttHeld
+
+    // Push slot 1's can-speak to the service. With channel 2 off it
+    // mirrors channel 1 so PTT2 keys channel 1 (PttSlotGate).
+    private fun pushSlot1CanSpeak() {
+        val canSpeak =
+            PttSlotGate.canSpeakSlot1(
+                channel2On = !lastSecondaryChannel.isNullOrBlank(),
+                slot0Suppressed = selfSuppressedBySlot[0] == true,
+                slot1Suppressed = selfSuppressedBySlot[1] == true,
+            )
+        voiceClient?.ifBound { it.setCanSpeakOnSlot(1, canSpeak) }
     }
 
     private fun disconnectAinaInternal() {

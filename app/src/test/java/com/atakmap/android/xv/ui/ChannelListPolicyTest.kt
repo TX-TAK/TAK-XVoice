@@ -115,4 +115,37 @@ class ChannelListPolicyTest {
         assertEquals(Pill.OFF, ChannelListPolicy.pillState(1, command, "Alpha", null))
         assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(0, restricted, "Alpha", "Command"))
     }
+
+    // ---- offline / mesh-only rows ----
+
+    @Test
+    fun `mesh-only channel can never be channel 2`() {
+        assertTrue(ChannelListPolicy.onPillTap(1, adHoc, "Alpha", null, online = true) is Action.Explain)
+        assertTrue(ChannelListPolicy.onPillTap(1, adHoc, "Alpha", null, online = false) is Action.Explain)
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(1, adHoc, "Alpha", null, online = false))
+    }
+
+    @Test
+    fun `mesh-only channel 1 while online explains instead of a failing server join`() {
+        assertTrue(ChannelListPolicy.onPillTap(0, adHoc, "Alpha", null, online = true) is Action.Explain)
+        assertEquals(Pill.DISABLED, ChannelListPolicy.pillState(0, adHoc, "Alpha", null, online = true))
+    }
+
+    @Test
+    fun `mesh-only channel 1 while offline is assignable`() {
+        assertEquals(Action.SetPrimary("Ad-hoc 1"), ChannelListPolicy.onPillTap(0, adHoc, "Alpha", null, online = false))
+        assertEquals(Pill.OFF, ChannelListPolicy.pillState(0, adHoc, "Alpha", null, online = false))
+    }
+
+    // ---- Root / Lobby alias ----
+
+    @Test
+    fun `channel 1 saved as Root lights the Lobby row`() {
+        assertEquals(Pill.ON, ChannelListPolicy.pillState(0, lobby, ch1 = "Root", ch2 = null))
+    }
+
+    @Test
+    fun `Lobby can't become channel 2 while channel 1 is Root`() {
+        assertTrue(ChannelListPolicy.onPillTap(1, lobby, ch1 = "Root", ch2 = null) is Action.Explain)
+    }
 }

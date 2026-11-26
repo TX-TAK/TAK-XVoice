@@ -199,6 +199,11 @@ class XvDropDownReceiver(
         // Users per server channel id, for the channel list's meta line.
         fun channelUserCounts(): Map<Int, Int> = emptyMap()
 
+        // Left-handed main panel: PTT buttons at the start of each row.
+        fun pttOnLeft(): Boolean = false
+
+        fun setPttOnLeft(onLeft: Boolean) {}
+
         // ---- AINA speakermic picker (Settings → Preferences) ----
         // Bonded devices whose name looks like an AINA. Each entry's
         // generation is derived from BluetoothDevice.getType() so the UI
@@ -630,7 +635,12 @@ class XvDropDownReceiver(
      * value is unchanged).
      */
     fun refreshNow() {
-        mainHandler.post { refreshMain() }
+        mainHandler.post {
+            refreshMain()
+            // A swap landing / channel-2 change must reach an open channel
+            // list now, not on the next 2 s tick.
+            channelListNeedingRepaint()?.let { populateChannelList(it) }
+        }
     }
 
     // The Settings → Devices panel root, tracked while it's attached so
@@ -715,13 +725,17 @@ class XvDropDownReceiver(
         h = 31 * h + controller.channelUserCounts().hashCode()
         h = 31 * h + (controller.swapUnavailableReason()?.hashCode() ?: 0)
         h = 31 * h + controller.availableChannels().joinToString { "${it.participation}" }.hashCode()
+        // Talkers, so "<peer> talking" on a row appears and clears live.
+        h = 31 * h + controller.activeSpeakers(0).hashCode()
+        h = 31 * h + controller.activeSpeakers(1).hashCode()
+        h = 31 * h + controller.isMumbleConnected().hashCode()
         return h
     }
 
     fun show() {
         mainHandler.post {
             val v = inflateMain()
-            showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+            showMainDropDown(v)
             startRefreshLoop()
             warnIfPermissionsRevoked()
         }
@@ -757,7 +771,14 @@ class XvDropDownReceiver(
 
     override fun onDropDownSelectionRemoved() {}
 
-    override fun onDropDownClose() = stopRefreshLoop()
+    override fun onDropDownClose() {
+        stopRefreshLoop()
+        // Don't keep (or later repaint) a detached channel list, and don't
+        // carry an old search into the next visit.
+        openPickerSlot = null
+        channelListRoot = null
+        channelListQuery = ""
+    }
 
     override fun onDropDownSizeChanged(
         p0: Double,
@@ -807,6 +828,20 @@ class XvDropDownReceiver(
         v.findViewById<View>(R.id.xv_ptt_header_1).setOnClickListener { showChannelList() }
         v.findViewById<View>(R.id.xv_ptt_header_2).setOnClickListener { showChannelList() }
         v.findViewById<View>(R.id.xv_btn_add_vs2).setOnClickListener { showChannelList() }
+        // Left-handed: move each PTT to the start of its row (display
+        // only — PTT1 still keys channel 1, PTT2 channel 2).
+        if (controller.pttOnLeft()) {
+            for ((card, ptt) in listOf(R.id.xv_ptt_card_1 to R.id.xv_btn_ptt, R.id.xv_ptt_card_2 to R.id.xv_btn_ptt2)) {
+                val row = v.findViewById<android.widget.LinearLayout>(card)
+                val btn = v.findViewById<View>(ptt)
+                row.removeView(btn)
+                row.addView(btn, 0)
+                (btn.layoutParams as android.widget.LinearLayout.LayoutParams).apply {
+                    marginStart = 0
+                    marginEnd = (8 * pluginContext.resources.displayMetrics.density).toInt()
+                }
+            }
+        }
         // Long names shrink to fit instead of marquee-scrolling (marquee
         // was jittery and hid the tail of long names).
         val unitSp = android.util.TypedValue.COMPLEX_UNIT_SP
@@ -866,19 +901,17 @@ class XvDropDownReceiver(
         val connected = controller.isMumbleConnected()
         val reconnect = if (connected) null else controller.mumbleReconnectInfo()
         val dot = v.findViewById<View>(R.id.xv_status_dot)
-        // Three states: green=live, amber=reconnecting (transient drop
-        // being retried by ReconnectingMumbleTransport), dim=down.
-        val dotColor =
-            when {
-                connected -> R.color.xv_ok
-                reconnect != null -> R.color.xv_warn
-                else -> R.color.xv_text_dim
-            }
+        // System / network state is Bluebonnet: solid when live, half
+        // strength while ReconnectingMumbleTransport retries, dim when down.
+        val netColor = if (connected || reconnect != null) R.color.xv_net else R.color.xv_text_dim
         dot.background?.colorFilter =
             PorterDuffColorFilter(
-                pluginContext.resources.getColor(dotColor, null),
+                pluginContext.resources.getColor(netColor, null),
                 PorterDuff.Mode.SRC_IN,
             )
+        dot.alpha = if (reconnect != null) 0.5f else 1.0f
+        v.findViewById<TextView>(R.id.xv_server_label).setTextColor(pluginContext.resources.getColor(netColor, null))
+        v.findViewById<TextView>(R.id.xv_audio_route).setTextColor(pluginContext.resources.getColor(netColor, null))
         v.findViewById<TextView>(R.id.xv_server_label).text =
             when {
                 reconnect != null -> {
@@ -1053,6 +1086,7 @@ class XvDropDownReceiver(
         v.findViewById<TextView>(ids.members).apply {
             visibility = if (live) View.VISIBLE else View.GONE
             text = "👥 $memberCount"
+            contentDescription = "$memberCount ${if (memberCount == 1) "member" else "members"} on channel ${slot + 1}"
         }
     }
 
@@ -1064,7 +1098,7 @@ class XvDropDownReceiver(
         listenOnly: Boolean,
     ): String =
         when {
-            !connected && slot == 0 -> "not connected"
+            !connected -> "not connected"
             !live -> "joining…"
             listenOnly -> "listen only"
             else -> "quiet"
@@ -1112,6 +1146,14 @@ class XvDropDownReceiver(
                 else -> 1.0f
             }
         ptt.setBackgroundResource(if (transmitting) R.drawable.xv_ptt_bg_tx else R.drawable.xv_ptt_bg)
+        val state =
+            when {
+                transmitting -> ", transmitting"
+                listenOnly -> ", listen only"
+                !live && slot == 1 -> ", not available"
+                else -> ""
+            }
+        ptt.contentDescription = "Push to talk on channel ${slot + 1}$state"
     }
 
     private fun showSettings() {
@@ -1151,6 +1193,8 @@ class XvDropDownReceiver(
             populateChannelList(v)
         }
         val search = v.findViewById<android.widget.EditText>(R.id.xv_channels_search)
+        // Every visit starts unfiltered.
+        channelListQuery = ""
         search.setText(channelListQuery)
         search.addTextChangedListener(
             AfterTextChanged { text ->
@@ -1201,6 +1245,7 @@ class XvDropDownReceiver(
         val counts: Map<Int, Int>,
         val speakers1: List<String>,
         val speakers2: List<String>,
+        val online: Boolean,
     ) {
         fun talkingOn(display: String): List<String> =
             when {
@@ -1219,11 +1264,14 @@ class XvDropDownReceiver(
         val ch2 = controller.secondaryChannelName()?.takeIf { it.isNotBlank() }
         val state =
             ChannelListState(
-                ch1 = controller.currentChannelName(),
-                ch2 = ch2,
+                // Root → "Lobby" so a slot saved as "Root" still lights
+                // the Lobby row.
+                ch1 = controller.currentChannelName()?.let { MumbleTransport.lobbyLabel(it) },
+                ch2 = ch2?.let { MumbleTransport.lobbyLabel(it) },
                 counts = controller.channelUserCounts(),
                 speakers1 = controller.activeSpeakers(0),
                 speakers2 = if (ch2 != null) controller.activeSpeakers(1) else emptyList(),
+                online = controller.isMumbleConnected(),
             )
         renderAssignmentBar(v, state)
 
@@ -1261,9 +1309,11 @@ class XvDropDownReceiver(
             text = state.ch2?.let { MumbleTransport.lobbyLabel(it) } ?: "off"
             setTextColor(res.getColor(if (on2) R.color.xv_text else R.color.xv_text_dim, null))
         }
-        v
-            .findViewById<TextView>(R.id.xv_channels_slot_2_badge)
-            .setBackgroundResource(if (on2) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off)
+        v.findViewById<TextView>(R.id.xv_channels_slot_2_badge).apply {
+            setBackgroundResource(if (on2) R.drawable.xv_hex_badge else R.drawable.xv_hex_badge_off)
+            // Dark text only on the filled badge; on the outline it vanishes.
+            setTextColor(res.getColor(if (on2) R.color.xv_bg else R.color.xv_text_dim, null))
+        }
         val swapOk = controller.swapUnavailableReason() == null
         v.findViewById<Button>(R.id.xv_channels_swap).apply {
             // Tappable even when unavailable: the tap toasts the reason
@@ -1295,11 +1345,14 @@ class XvDropDownReceiver(
             text = display
             setTextColor(res.getColor(if (noAccess) R.color.xv_text_dim else R.color.xv_text, null))
         }
-        rv.findViewById<TextView>(R.id.xv_row_meta).text =
-            channelRowMeta(ch, state.counts[ch.id] ?: 0, state.talkingOn(display))
+        val talking = state.talkingOn(display)
+        rv.findViewById<TextView>(R.id.xv_row_meta).text = channelRowMetaStyled(ch, state.counts[ch.id] ?: 0, talking)
         for (slot in 0..1) {
             val pill = rv.findViewById<TextView>(if (slot == 0) R.id.xv_row_pill_1 else R.id.xv_row_pill_2)
-            stylePill(pill, ChannelListPolicy.pillState(slot, ch, state.ch1, state.ch2))
+            val pillState = ChannelListPolicy.pillState(slot, ch, state.ch1, state.ch2, state.online)
+            stylePill(pill, pillState)
+            pill.isSelected = pillState == ChannelListPolicy.Pill.ON
+            pill.contentDescription = pillDescription(slot, display, pillState)
             pill.setOnClickListener { onChannelPillTap(list, slot, ch, state.ch1, state.ch2) }
         }
         rv.setOnLongClickListener {
@@ -1307,6 +1360,41 @@ class XvDropDownReceiver(
             true
         }
         return rv
+    }
+
+    private fun pillDescription(
+        slot: Int,
+        display: String,
+        state: ChannelListPolicy.Pill,
+    ): String {
+        val what =
+            when (state) {
+                ChannelListPolicy.Pill.ON -> "is channel ${slot + 1}"
+                ChannelListPolicy.Pill.OFF -> "make channel ${slot + 1}"
+                ChannelListPolicy.Pill.DISABLED -> "can't be channel ${slot + 1}"
+            }
+        return "$display: $what"
+    }
+
+    // Meta line with the talker names in Honey (voice activity).
+    private fun channelRowMetaStyled(
+        ch: ChannelListPolicy.Channel,
+        users: Int,
+        talking: List<String>,
+    ): CharSequence {
+        val text = channelRowMeta(ch, users, talking)
+        if (talking.isEmpty()) return text
+        val names = talking.joinToString(", ")
+        val start = text.indexOf(names)
+        if (start < 0) return text
+        return android.text.SpannableString(text).apply {
+            setSpan(
+                android.text.style.ForegroundColorSpan(pluginContext.resources.getColor(R.color.xv_voice, null)),
+                start,
+                start + names.length + " talking".length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE,
+            )
+        }
     }
 
     private fun stylePill(
@@ -1366,7 +1454,7 @@ class XvDropDownReceiver(
         ch1: String?,
         ch2: String?,
     ) {
-        when (val action = ChannelListPolicy.onPillTap(slot, ch, ch1, ch2)) {
+        when (val action = ChannelListPolicy.onPillTap(slot, ch, ch1, ch2, online = controller.isMumbleConnected())) {
             is ChannelListPolicy.Action.SetPrimary -> controller.setPrimaryChannel(action.name)
             is ChannelListPolicy.Action.SetSecondary -> controller.setSecondaryChannel(action.name)
             ChannelListPolicy.Action.ClearSecondary -> controller.setSecondaryChannel("")
@@ -2150,6 +2238,15 @@ class XvDropDownReceiver(
     // The latched mode and timeouts are persisted via the Controller —
     // they take effect immediately for any future TX entry.
     private fun wireTxRxSection(v: View) {
+        // Left-handed layout. The main view is cached between visits, so
+        // drop the cache: the next Back re-inflates with the new order.
+        v.findViewById<Switch>(R.id.xv_switch_ptt_left).apply {
+            isChecked = controller.pttOnLeft()
+            setOnCheckedChangeListener { _, on ->
+                controller.setPttOnLeft(on)
+                mainView = null
+            }
+        }
         val sw = v.findViewById<Switch>(R.id.xv_switch_latched)
         sw.isChecked = controller.latchedMode()
         sw.setOnCheckedChangeListener { _, on -> controller.setLatchedMode(on) }
@@ -2878,7 +2975,7 @@ class XvDropDownReceiver(
             statusView.setCompoundDrawablesRelative(null, null, null, null)
             statusView.setTextColor(pluginContext.resources.getColor(R.color.xv_text_dim, null))
         } else {
-            val meshColor = if (mesh.cleartext) R.color.xv_err else R.color.xv_accent
+            val meshColor = if (mesh.cleartext) R.color.xv_err else R.color.xv_net
             statusView.text = mesh.label
             XvGlyphs.setLeadingIcon(statusView, R.drawable.ic_xv_mesh, dpSize = 14, tintColorRes = meshColor)
             statusView.setTextColor(
@@ -3846,8 +3943,28 @@ class XvDropDownReceiver(
             } else {
                 inflateMain()
             }
-        showDropDown(v, FIVE_TWELFTHS_WIDTH, FULL_HEIGHT, FULL_WIDTH, HALF_HEIGHT, this)
+        showMainDropDown(v)
         startRefreshLoop()
+    }
+
+    // The compact main panel opens only as big as it needs: a third of
+    // the width in landscape, and in portrait its measured content height
+    // (plus slack for the in-call bar) instead of half the screen. The
+    // channel list and Settings keep the larger panes.
+    private fun showMainDropDown(v: View) {
+        showDropDown(v, THIRD_WIDTH, FULL_HEIGHT, FULL_WIDTH, mainPanelPortraitHeight(v), this)
+    }
+
+    private fun mainPanelPortraitHeight(v: View): Double {
+        val dm = pluginContext.resources.displayMetrics
+        val portraitHeight = maxOf(dm.heightPixels, dm.widthPixels).toDouble()
+        val portraitWidth = minOf(dm.heightPixels, dm.widthPixels)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(portraitWidth, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+        )
+        val fraction = v.measuredHeight / portraitHeight + MAIN_PANEL_HEIGHT_SLACK
+        return fraction.coerceIn(QUARTER_SCREEN, HALF_HEIGHT)
     }
 
     companion object {
@@ -3857,6 +3974,10 @@ class XvDropDownReceiver(
         // Surface Duo idle (constant wakeups for nothing changing);
         // 2 s is fine for slow-moving fields like reconnect countdown.
         private const val REFRESH_MS = 2_000L
+
+        // Extra portrait height for the main panel beyond its measured
+        // content: room for the in-call bar without clipping a row.
+        private const val MAIN_PANEL_HEIGHT_SLACK = 0.06
 
         // Debounce for connectivity-driven Settings-picker rebuilds. Long
         // enough to swallow the connect/disconnect churn of a BT power-

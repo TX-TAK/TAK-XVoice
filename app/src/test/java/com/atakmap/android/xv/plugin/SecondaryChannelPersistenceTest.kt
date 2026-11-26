@@ -78,4 +78,21 @@ class SecondaryChannelPersistenceTest {
         assertFalse(SecondaryChannelPersistence.shouldPersistMove("TAK PRIVATE - x", swapInFlight = false))
         assertFalse(SecondaryChannelPersistence.shouldPersistMove(null, swapInFlight = false))
     }
+
+    @Test
+    fun `first reconnect attempt honours the configured channel`() {
+        assertEquals("Alpha", SecondaryChannelPersistence.reconnectPrimary(true, "Alpha", "Bravo"))
+    }
+
+    @Test
+    fun `later attempts use persisted channel 1 so a swap survives a reconnect`() {
+        // After a swap channel 1 is Bravo; channel 2 (Alpha) is re-read too.
+        assertEquals("Bravo", SecondaryChannelPersistence.reconnectPrimary(false, "Alpha", "Bravo"))
+    }
+
+    @Test
+    fun `later attempts fall back to configured when nothing usable is persisted`() {
+        assertEquals("Alpha", SecondaryChannelPersistence.reconnectPrimary(false, "Alpha", ""))
+        assertEquals("Alpha", SecondaryChannelPersistence.reconnectPrimary(false, "Alpha", "TAK PRIVATE - x"))
+    }
 }

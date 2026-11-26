@@ -26,4 +26,17 @@ object SecondaryChannelPersistence {
         name: String?,
         swapInFlight: Boolean,
     ): Boolean = !swapInFlight && restore(name) != null
+
+    /**
+     * Channel 1 for a reconnect attempt. The first attempt honours the
+     * configured channel (an explicit request: debug connect, comms-plan
+     * import). Later attempts use the persisted channel 1, so a reconnect
+     * after a picker move or a swap lands VS1 where the operator left it
+     * (not on the channel VS2 now holds).
+     */
+    fun reconnectPrimary(
+        firstAttempt: Boolean,
+        configured: String,
+        persisted: String?,
+    ): String = if (firstAttempt) configured else restore(persisted) ?: configured
 }

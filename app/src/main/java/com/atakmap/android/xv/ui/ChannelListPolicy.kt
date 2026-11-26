@@ -109,21 +109,37 @@ object ChannelListPolicy {
         ) : Action()
     }
 
+    // "Root" is Mumble's name for the lobby; XV shows it as "Lobby".
+    // Treat them as one channel so a slot persisted as "Root" still
+    // lights the Lobby row (and Lobby can't also be put on the other slot).
+    private fun canonical(name: String): String {
+        val n = name.trim()
+        return if (n.equals("root", ignoreCase = true)) "lobby" else n.lowercase()
+    }
+
     private fun same(
         a: String?,
         b: String?,
-    ): Boolean = a != null && b != null && a.trim().equals(b.trim(), ignoreCase = true)
+    ): Boolean = a != null && b != null && canonical(a) == canonical(b)
 
     /**
      * Decide the effect of tapping [slot]'s pill (0 = [1], 1 = [2]) on
-     * [channel], given the current channel 1 ([ch1]) and channel 2
-     * ([ch2], null/blank = off).
+     * [channel], given the current channel 1 ([ch1]), channel 2 ([ch2],
+     * null/blank = off), and whether the voice server is connected
+     * ([online]).
+     *
+     * Offline / mesh-only rows: channel 2 is a second server identity, so
+     * it can never be a mesh-only channel. Channel 1 can be one only while
+     * the server is down (the mesh leg then carries it); while online the
+     * server channel drives the mesh leg, so the tap explains instead of
+     * silently failing a server join.
      */
     fun onPillTap(
         slot: Int,
         channel: Channel,
         ch1: String?,
         ch2: String?,
+        online: Boolean = true,
     ): Action {
         val name = channel.name
         val ch2On = !ch2.isNullOrBlank()
@@ -131,6 +147,9 @@ object ChannelListPolicy {
         val onCh2 = ch2On && same(name, ch2)
         return when {
             channel.access == Access.NONE -> Action.Explain("No access to $name")
+            channel.offline && slot == 1 -> Action.Explain("Channel 2 needs a server channel — $name is mesh-only")
+            channel.offline && online && !onCh1 ->
+                Action.Explain("$name is mesh-only — it carries channel 1 when the server is unreachable")
             slot == 0 && onCh1 -> Action.Explain("Channel 1 is always set — pick another channel to move it")
             slot == 0 && onCh2 -> Action.Swap
             slot == 0 -> Action.SetPrimary(name)
@@ -149,11 +168,13 @@ object ChannelListPolicy {
         channel: Channel,
         ch1: String?,
         ch2: String?,
+        online: Boolean = true,
     ): Pill =
         when {
             slot == 0 && same(channel.name, ch1) -> Pill.ON
             slot == 1 && !ch2.isNullOrBlank() && same(channel.name, ch2) -> Pill.ON
             channel.access == Access.NONE -> Pill.DISABLED
+            channel.offline && (slot == 1 || online) -> Pill.DISABLED
             else -> Pill.OFF
         }
 }

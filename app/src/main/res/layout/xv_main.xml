@@ -2,7 +2,9 @@
 <!--
   Main XV control panel — compact operational view (approved UX v2).
 
-  One row per channel: [hex slot badge] [name + who's talking] [PTT].
+  One row per channel: [hex slot badge] [name + who's talking] [👥 N] [PTT].
+  The PTT is large (about half the row, 72dp tall) so it's easy to find
+  with a gloved thumb; a left-handed setting moves it to the row start.
     - Channel 1 is never blank while XV is in use; channel 2 is optional.
     - Speaker-mic PTT1 always keys channel 1, PTT2 always keys channel 2
       (both key channel 1 when channel 2 is off). The mapping is fixed;
@@ -130,7 +132,7 @@
             android:fontFamily="monospace"
             android:singleLine="true"
             android:text="not connected"
-            android:textColor="@color/xv_text_dim"
+            android:textColor="@color/xv_net"
             android:textSize="11sp" />
 
         <TextView
@@ -142,15 +144,18 @@
             android:paddingStart="8dp"
             android:singleLine="true"
             android:text="Auto"
-            android:textColor="@color/xv_text_dim"
+            android:textColor="@color/xv_net"
             android:textSize="11sp" />
     </LinearLayout>
 
-    <!-- Channel 1 row. -->
+    <!-- Channel 1 row. Option B sizing: tall row with a large PTT
+         (about half the row) beside the name; the 👥 count is its own
+         48dp target, not nested in the tappable name area. Left-handed
+         mode moves the PTT to the start of the row at inflate. -->
     <LinearLayout
         android:id="@+id/xv_ptt_card_1"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="84dp"
         android:layout_marginTop="8dp"
         android:background="@drawable/xv_card_bg"
         android:gravity="center_vertical"
@@ -163,8 +168,8 @@
             android:layout_width="24dp"
             android:layout_height="27dp"
             android:background="@drawable/xv_hex_badge"
-            android:contentDescription="@string/xv_cd_channel_1"
             android:gravity="center"
+            android:importantForAccessibility="no"
             android:text="1"
             android:textColor="@color/xv_bg"
             android:textSize="13sp"
@@ -175,48 +180,26 @@
             android:id="@+id/xv_ptt_header_1"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:background="?android:attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_vertical"
+            android:minWidth="48dp"
             android:orientation="vertical">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/xv_ptt_channel_1"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/xv_ptt_channel_1"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:fontFamily="monospace"
-                    android:singleLine="true"
-                    android:textColor="@color/xv_text"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    tools:text="ALPHA ▾" />
-
-                <TextView
-                    android:id="@+id/xv_members_1"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:background="?android:attr/selectableItemBackground"
-                    android:contentDescription="@string/xv_cd_members"
-                    android:paddingStart="6dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="6dp"
-                    android:paddingBottom="4dp"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    tools:text="👥 4" />
-            </LinearLayout>
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:singleLine="true"
+                android:textColor="@color/xv_text"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                tools:text="Alpha  ▾" />
 
             <TextView
                 android:id="@+id/xv_ptt_activity_1"
@@ -233,24 +216,43 @@
                 tools:text="quiet" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/xv_members_1"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minWidth="48dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:textColor="@color/xv_text_dim"
+            android:textSize="12sp"
+            tools:text="👥 4" />
+
         <Button
             android:id="@+id/xv_btn_ptt"
-            android:layout_width="104dp"
-            android:layout_height="52dp"
+            android:layout_width="0dp"
+            android:layout_height="72dp"
+            android:layout_marginStart="4dp"
+            android:layout_weight="0.9"
             android:background="@drawable/xv_ptt_bg"
-            android:contentDescription="@string/xv_cd_ptt_1"
             android:letterSpacing="0.2"
             android:text="PTT"
             android:textColor="@color/xv_text"
-            android:textSize="15sp"
+            android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Channel 2 row. gone while channel 2 is off (see xv_btn_add_vs2). -->
+    <!-- Channel 2 row. Option B sizing: tall row with a large PTT
+         (about half the row) beside the name; the 👥 count is its own
+         48dp target, not nested in the tappable name area. Left-handed
+         mode moves the PTT to the start of the row at inflate. -->
     <LinearLayout
         android:id="@+id/xv_ptt_card_2"
         android:layout_width="match_parent"
-        android:layout_height="64dp"
+        android:layout_height="84dp"
         android:layout_marginTop="6dp"
         android:background="@drawable/xv_card_bg"
         android:gravity="center_vertical"
@@ -265,59 +267,38 @@
             android:layout_width="24dp"
             android:layout_height="27dp"
             android:background="@drawable/xv_hex_badge"
-            android:contentDescription="@string/xv_cd_channel_2"
             android:gravity="center"
+            android:importantForAccessibility="no"
             android:text="2"
             android:textColor="@color/xv_bg"
             android:textSize="13sp"
             android:textStyle="bold" />
 
+        <!-- Tap the name area → unified channel list. -->
         <LinearLayout
             android:id="@+id/xv_ptt_header_2"
             android:layout_width="0dp"
             android:layout_height="match_parent"
-            android:layout_marginStart="10dp"
+            android:layout_marginStart="8dp"
             android:layout_weight="1"
             android:background="?android:attr/selectableItemBackground"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center_vertical"
+            android:minWidth="48dp"
             android:orientation="vertical">
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/xv_ptt_channel_2"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/xv_ptt_channel_2"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:fontFamily="monospace"
-                    android:singleLine="true"
-                    android:textColor="@color/xv_text"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    tools:text="COMMAND ▾" />
-
-                <TextView
-                    android:id="@+id/xv_members_2"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:background="?android:attr/selectableItemBackground"
-                    android:contentDescription="@string/xv_cd_members"
-                    android:paddingStart="6dp"
-                    android:paddingTop="4dp"
-                    android:paddingEnd="6dp"
-                    android:paddingBottom="4dp"
-                    android:textColor="@color/xv_text_dim"
-                    android:textSize="11sp"
-                    tools:text="👥 7" />
-            </LinearLayout>
+                android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:singleLine="true"
+                android:textColor="@color/xv_text"
+                android:textSize="16sp"
+                android:textStyle="bold"
+                tools:text="Command  ▾" />
 
             <TextView
                 android:id="@+id/xv_ptt_activity_2"
@@ -334,16 +315,32 @@
                 tools:text="quiet" />
         </LinearLayout>
 
+        <TextView
+            android:id="@+id/xv_members_2"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:background="?android:attr/selectableItemBackground"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:minWidth="48dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:textColor="@color/xv_text_dim"
+            android:textSize="12sp"
+            tools:text="👥 4" />
+
         <Button
             android:id="@+id/xv_btn_ptt2"
-            android:layout_width="104dp"
-            android:layout_height="52dp"
+            android:layout_width="0dp"
+            android:layout_height="72dp"
+            android:layout_marginStart="4dp"
+            android:layout_weight="0.9"
             android:background="@drawable/xv_ptt_bg"
-            android:contentDescription="@string/xv_cd_ptt_2"
             android:letterSpacing="0.2"
             android:text="PTT"
             android:textColor="@color/xv_text"
-            android:textSize="15sp"
+            android:textSize="18sp"
             android:textStyle="bold" />
     </LinearLayout>
 
@@ -351,7 +348,7 @@
     <TextView
         android:id="@+id/xv_btn_add_vs2"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
+        android:layout_height="48dp"
         android:layout_marginTop="6dp"
         android:background="@drawable/xv_pill_off"
         android:clickable="true"

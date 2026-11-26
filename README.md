@@ -153,7 +153,10 @@ XV also adds:
   it read-only on each device's card, and swapping channels is the one
   way to invert which button keys which net.
 - **Compact main panel** — one row per channel (slot badge, channel
-  name, who is talking, PTT). Tapping a channel opens one searchable
+  name, who is talking, and a large PTT button about half the row wide).
+  The panel opens only as tall as it needs instead of half the screen.
+  A **Left-handed** setting (Settings › TX/RX) moves the PTT buttons to
+  the left edge. Tapping a channel opens one searchable
   channel list with **[1] [2]** pills per row, subchannels indented,
   and **Swap** in its header; long-press a channel for mesh options.
   With channel 2 off, its row becomes "+ Add channel 2". The 👥 count

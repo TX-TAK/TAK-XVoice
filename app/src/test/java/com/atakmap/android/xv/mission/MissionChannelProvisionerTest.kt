@@ -215,7 +215,7 @@ class MissionChannelProvisionerTest {
             MissionChannelProvisioner.Action.Join("Alpha"),
             p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Charlie", allowCreate = true),
         )
-        p.yieldToOperator()
+        p.yieldToOperator("Alpha")
         assertEquals(
             MissionChannelProvisioner.Action.NoOp,
             p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Bravo", allowCreate = true),
@@ -226,7 +226,7 @@ class MissionChannelProvisionerTest {
     fun `yield clears when the mission changes`() {
         val p = MissionChannelProvisioner()
         p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Charlie", allowCreate = true)
-        p.yieldToOperator()
+        p.yieldToOperator("Alpha")
         assertEquals(
             MissionChannelProvisioner.Action.Join("Bravo"),
             p.reconcile(listOf("Bravo"), dirOf("Alpha", "Bravo"), joinedChannel = "Charlie", allowCreate = true),
@@ -236,10 +236,35 @@ class MissionChannelProvisionerTest {
     @Test
     fun `yield with no mission is a no-op`() {
         val p = MissionChannelProvisioner()
-        p.yieldToOperator()
+        p.yieldToOperator(null)
         assertEquals(
             MissionChannelProvisioner.Action.Join("Alpha"),
             p.reconcile(listOf("Alpha"), dirOf("Alpha"), joinedChannel = "Charlie", allowCreate = true),
         )
+    }
+
+    @Test
+    fun `swap before the first tick sticks`() {
+        val p = MissionChannelProvisioner()
+        // SET_MISSIONS just arrived; operator swaps before any reconcile.
+        p.yieldToOperator("Alpha")
+        assertEquals(
+            MissionChannelProvisioner.Action.NoOp,
+            p.reconcile(listOf("Alpha"), dirOf("Alpha", "Bravo"), joinedChannel = "Bravo", allowCreate = true),
+        )
+        assertEquals("Alpha", p.currentTarget())
+    }
+
+    @Test
+    fun `without a yield the mission channel is still driven`() {
+        // Yield happens only on a completed swap; a rolled-back swap leaves
+        // the provisioner driving the mission channel as before.
+        val p = MissionChannelProvisioner()
+        repeat(2) {
+            assertEquals(
+                MissionChannelProvisioner.Action.Join("Alpha"),
+                p.reconcile(listOf("Alpha"), dirOf("Alpha"), joinedChannel = "Charlie", allowCreate = true),
+            )
+        }
     }
 }
