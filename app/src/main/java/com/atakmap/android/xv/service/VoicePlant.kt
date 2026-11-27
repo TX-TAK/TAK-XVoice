@@ -861,20 +861,21 @@ class VoicePlant(
     }
 
     init {
-        // Concentus codec warmup on a background thread. Loads
-        // org.concentus.* classes, runs SILK/CELT static init, and
-        // gives the JIT a chance to compile encode()/decode() hot
-        // paths before the operator's first PTT. Saves ~15-30ms on
-        // the very first burst after plugin load (one-time win, not
-        // per-burst — class loading is global). Background thread so
-        // plugin-load critical path isn't blocked. Result is
-        // discarded; the Concentus encoder has no native resources
-        // to leak.
+        // Concentus codec warmup on a background thread, so the
+        // operator's first PTT doesn't run a cold codec. Concentus is
+        // pure Java and encode() runs on the capture read thread: on the
+        // first burst after a fresh start the SILK/CELT paths are still
+        // interpreted, frames take longer than their 10 ms budget, the
+        // AudioRecord backs up and drops audio, and listeners hear ~1-2 s
+        // of garble that clears once ART compiles the hot loops. The old
+        // warmup only constructed the codecs, which compiled nothing.
+        // Encode (and decode) a few seconds of voice-like audio instead.
+        // Background thread so the plugin-load critical path isn't
+        // blocked; results are discarded (no native resources).
         Thread({
             try {
-                ConcentusOpusEncoder().close()
-                ConcentusOpusDecoder().close()
-                Log.i(TAG, "Concentus codec warmup complete")
+                val warmed = CodecWarmup.run()
+                Log.i(TAG, "Concentus codec warmup complete: $warmed")
             } catch (t: Throwable) {
                 Log.w(TAG, "Concentus codec warmup threw (non-fatal)", t)
             }
