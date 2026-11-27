@@ -1704,13 +1704,13 @@ class XvMapComponent : AbstractMapComponent() {
         // Before the presence layer: its VX-interop prompt reads each
         // channel's crypto policy, which these migrations correct.
         runCryptoPolicyMigrations()
-        startPresenceLayer()
-        // Mesh voice sits alongside presence — both work Mumble-down.
-        // The manager no-ops internally until the operator enables the
-        // mesh-voice master toggle, so starting it unconditionally is
+        // Presence, then mesh voice alongside it — both work Mumble-down.
+        // The mesh manager no-ops internally until the operator enables
+        // the mesh-voice master toggle, so starting it unconditionally is
         // free and lets a mid-session enable bring legs up on the next
-        // tick without a plugin reload.
-        startMeshVoice()
+        // tick without a plugin reload. Both need the TAK identity, which
+        // is loaded off the main thread first (see below).
+        startVoiceLayersAfterIdentityLoad()
 
         Log.i(TAG, "XV loaded — voice plant lives in service")
         // One-shot diagnostic at load: dump the bonded-device picker
@@ -1864,6 +1864,7 @@ class XvMapComponent : AbstractMapComponent() {
         context: Context,
         mapView: MapView,
     ) {
+        destroyed = true
         stopMeshVoice()
         presenceListener?.stop()
         presenceListener = null
@@ -3508,7 +3509,49 @@ class XvMapComponent : AbstractMapComponent() {
             }
         }
 
-    private fun startPresenceLayer() {
+    // Set in onDestroyImpl: a background identity load that lands after
+    // ATAK tore the plugin down must not start anything.
+    @Volatile
+    private var destroyed = false
+
+    /**
+     * Load the TAK identity off the main thread, then start presence and
+     * mesh voice on it with the result.
+     *
+     * Loading the client keystore is a PKCS12 key derivation (deliberately
+     * slow) behind ATAK's certificate database, which can stay locked while
+     * ATAK enrolls. Both layers did it on the main thread during plugin
+     * load, so ATAK hit "not responding" and was killed repeatedly on a
+     * freshly enrolled Pixel 11 Pro (2026-11-26). Loaded once here, shared.
+     */
+    private fun startVoiceLayersAfterIdentityLoad() {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val takHost =
+            try {
+                TakServerDiscovery.pick(null)?.host
+            } catch (_: Throwable) {
+                null
+            }
+        Thread({
+            val identity =
+                try {
+                    takHost?.let { MumbleAuth.loadTakIdentity(it) }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "TAK identity load failed — presence/mesh start without it", t)
+                    null
+                }
+            main.post {
+                if (destroyed) return@post
+                startPresenceLayer(takHost, identity)
+                startMeshVoice(identity)
+            }
+        }, "xv-identity-load").apply { isDaemon = true }.start()
+    }
+
+    private fun startPresenceLayer(
+        server: String?,
+        takIdentity: MumbleAuth.TakIdentity?,
+    ) {
         val deviceUid = MumbleAuth.deviceUid()
         if (deviceUid.isNullOrBlank()) {
             Log.w(TAG, "presence layer: no device UID available — skipping CoT publish/listen")
@@ -3526,20 +3569,9 @@ class XvMapComponent : AbstractMapComponent() {
         }
 
         // Cert fingerprint is best-effort: only available once a TAK
-        // server is enrolled. We attempt a lookup against the connected
-        // server (if any); null is fine — the CoT detail just won't carry
-        // certFp until the encryption layer needs it.
-        val takPick =
-            try {
-                TakServerDiscovery.pick(null)
-            } catch (t: Throwable) {
-                null
-            }
-        val server = takPick?.host
-        val certFp =
-            server?.let { host ->
-                MumbleAuth.loadTakIdentity(host)?.let { id -> MumbleAuth.certFingerprint(id.leaf) }
-            }
+        // server is enrolled. null is fine — the CoT detail just won't
+        // carry certFp until the encryption layer needs it.
+        val certFp = takIdentity?.let { id -> MumbleAuth.certFingerprint(id.leaf) }
         val publisher =
             XvCotPublisher(
                 deviceUid = deviceUid,
@@ -3581,7 +3613,7 @@ class XvMapComponent : AbstractMapComponent() {
     // rebuilds against fresh identity/settings (e.g. after a re-enroll).
     // Pure-Kotlin core: every Android/ATAK touchpoint is injected as a
     // lambda so the decision surface stays unit-tested (MeshVoiceManagerTest).
-    private fun startMeshVoice() {
+    private fun startMeshVoice(takIdentity: MumbleAuth.TakIdentity?) {
         // Idempotent; also run at plugin load. Here too so the legs are
         // never built from configs the legacy fold hasn't corrected yet.
         runCryptoPolicyMigrations()
@@ -3603,13 +3635,6 @@ class XvMapComponent : AbstractMapComponent() {
         }
         pub.start()
         bridgeCotPublisher = pub
-        val takHost =
-            try {
-                TakServerDiscovery.pick(null)?.host
-            } catch (_: Throwable) {
-                null
-            }
-        val takIdentity = takHost?.let { MumbleAuth.loadTakIdentity(it) }
         val ourCertDer = takIdentity?.leaf?.encoded
         val ourPrivateKey = takIdentity?.privateKey
 
