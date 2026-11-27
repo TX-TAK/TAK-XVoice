@@ -3739,8 +3739,8 @@ class XvMapComponent : AbstractMapComponent() {
                         channel,
                     )
                 }.getOrNull()
-            } ?: return cfg
-        return cfg.copy(pinnedGroup = endpoint.groupAddress, pinnedPort = endpoint.port)
+            }
+        return endpoint?.let { cfg.copy(pinnedGroup = it.groupAddress, pinnedPort = it.port) } ?: cfg
     }
 
     // Live Mumble host when connected; otherwise the configured TAK server
