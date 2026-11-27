@@ -97,6 +97,25 @@ object TakServerDiscovery {
             return null
         }
         lastWarnedEmpty = false
+        // A loopback "TAK server" is a bridge running on this device (the
+        // Meshtastic plugin's local server, for one); it never hosts the
+        // team's Mumble. Field repro 2026-11-26: on a phone where that
+        // bridge was the first connected server, XV dialed Mumble at
+        // 127.0.0.1 and was refused forever. Prefer any real server,
+        // connected or not; loopback only when nothing else exists.
+        val real = hosts.filterNot { isLoopback(it.host) }
+        val candidates = real.ifEmpty { hosts }
+        return selectFrom(candidates)
+    }
+
+    /** True for 127.0.0.0/8, ::1 and "localhost" (case-insensitive). */
+    @VisibleForTesting
+    internal fun isLoopback(host: String): Boolean {
+        val h = host.trim().removePrefix("[").removeSuffix("]").lowercase()
+        return h == "localhost" || h == "::1" || h.startsWith("127.")
+    }
+
+    private fun selectFrom(hosts: List<TakHost>): TakHost {
         val live = hosts.firstOrNull { it.connected }
         if (live != null) {
             if (lastAutoPickedHost != live.host) {

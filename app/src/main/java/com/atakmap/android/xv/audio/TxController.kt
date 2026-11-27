@@ -1149,6 +1149,7 @@ class TxController(
         // log "encoder is null!" and drop on each cold-SCO burst.)
         framesSent = 0
         txFrameNumber = 0
+        encodeStats.reset()
         postRestartHoldUntilMs = 0
         postRestartDropFramesRemaining = 0
         encoder = opusEncoderFactory()
@@ -1188,6 +1189,11 @@ class TxController(
     }
 
     private var framesSent: Long = 0
+
+    // Per-burst Opus encode cost, logged on TX stop. Encode runs on the
+    // capture read thread, so a frame that takes longer than its 10 ms
+    // budget backs up the AudioRecord (first-burst garble diagnosis).
+    private val encodeStats = EncodeTimingStats()
 
     // Trailing-frame ring buffer to swallow the PTT release click. The
     // physical button click on the AINA V1/V2 happens at time T; the
@@ -1453,9 +1459,10 @@ class TxController(
         enc: OpusEncoder,
     ) {
         val rmsIn = rms(pcm)
+        val encodeStartNs = System.nanoTime()
         val opus =
             try {
-                enc.encode(pcm)
+                enc.encode(pcm).also { encodeStats.record(System.nanoTime() - encodeStartNs) }
             } catch (t: Throwable) {
                 // Concentus throws AssertionError inside Resampler when
                 // given pathological input (a stuck DC-offset fill, e.g.).
@@ -1558,7 +1565,7 @@ class TxController(
             } catch (t: Throwable) {
                 Log.w(TAG, "onPttStateChanged(false) threw", t)
             }
-            Log.i(TAG, "TX stopped after $framesSent frames (slot=$burstSlot)")
+            Log.i(TAG, "TX stopped after $framesSent frames (slot=$burstSlot) encode: ${encodeStats.summary()}")
             txDiag("stopped after $framesSent frames slot=$burstSlot")
         }
         // 5-second cool-down: keep SCO warm so a re-press lands instantly.

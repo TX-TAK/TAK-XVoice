@@ -55,6 +55,37 @@ class TakServerDiscoveryTest {
     }
 
     @Test
+    fun `selectAuto skips a connected loopback bridge for a real server`() {
+        // Meshtastic plugin's on-device TAK server listed first and up.
+        val bridge = host("Meshtastic", "127.0.0.1", connected = true)
+        val real = host("Team", "tak.example.com", connected = true)
+        assertEquals(real, TakServerDiscovery.selectAuto(listOf(bridge, real)))
+    }
+
+    @Test
+    fun `selectAuto prefers a disconnected real server over a connected loopback`() {
+        val bridge = host("Meshtastic", "127.0.0.1", connected = true)
+        val real = host("Team", "tak.example.com", connected = false)
+        assertEquals(real, TakServerDiscovery.selectAuto(listOf(bridge, real)))
+    }
+
+    @Test
+    fun `selectAuto falls back to loopback when it is the only server`() {
+        val bridge = host("Meshtastic", "localhost", connected = true)
+        assertEquals(bridge, TakServerDiscovery.selectAuto(listOf(bridge)))
+    }
+
+    @Test
+    fun `isLoopback recognises loopback forms only`() {
+        listOf("127.0.0.1", "127.1.2.3", "localhost", "LOCALHOST", "::1", "[::1]").forEach {
+            assertEquals(it, true, TakServerDiscovery.isLoopback(it))
+        }
+        listOf("tak.example.com", "192.0.2.10", "10.127.0.1").forEach {
+            assertEquals(it, false, TakServerDiscovery.isLoopback(it))
+        }
+    }
+
+    @Test
     fun `selectAuto picks first connected when multiple are configured`() {
         val a = host("A", "a.example.com", connected = false)
         val b = host("B", "b.example.com", connected = true)

@@ -1704,13 +1704,13 @@ class XvMapComponent : AbstractMapComponent() {
         // Before the presence layer: its VX-interop prompt reads each
         // channel's crypto policy, which these migrations correct.
         runCryptoPolicyMigrations()
-        startPresenceLayer()
-        // Mesh voice sits alongside presence — both work Mumble-down.
-        // The manager no-ops internally until the operator enables the
-        // mesh-voice master toggle, so starting it unconditionally is
+        // Presence, then mesh voice alongside it — both work Mumble-down.
+        // The mesh manager no-ops internally until the operator enables
+        // the mesh-voice master toggle, so starting it unconditionally is
         // free and lets a mid-session enable bring legs up on the next
-        // tick without a plugin reload.
-        startMeshVoice()
+        // tick without a plugin reload. Both need the TAK identity, which
+        // is loaded off the main thread first (see below).
+        startVoiceLayersAfterIdentityLoad()
 
         Log.i(TAG, "XV loaded — voice plant lives in service")
         // One-shot diagnostic at load: dump the bonded-device picker
@@ -1864,6 +1864,7 @@ class XvMapComponent : AbstractMapComponent() {
         context: Context,
         mapView: MapView,
     ) {
+        destroyed = true
         stopMeshVoice()
         presenceListener?.stop()
         presenceListener = null
@@ -3508,7 +3509,49 @@ class XvMapComponent : AbstractMapComponent() {
             }
         }
 
-    private fun startPresenceLayer() {
+    // Set in onDestroyImpl: a background identity load that lands after
+    // ATAK tore the plugin down must not start anything.
+    @Volatile
+    private var destroyed = false
+
+    /**
+     * Load the TAK identity off the main thread, then start presence and
+     * mesh voice on it with the result.
+     *
+     * Loading the client keystore is a PKCS12 key derivation (deliberately
+     * slow) behind ATAK's certificate database, which can stay locked while
+     * ATAK enrolls. Both layers did it on the main thread during plugin
+     * load, so ATAK hit "not responding" and was killed repeatedly on a
+     * freshly enrolled Pixel 11 Pro (2026-11-26). Loaded once here, shared.
+     */
+    private fun startVoiceLayersAfterIdentityLoad() {
+        val main = android.os.Handler(android.os.Looper.getMainLooper())
+        val takHost =
+            try {
+                TakServerDiscovery.pick(null)?.host
+            } catch (_: Throwable) {
+                null
+            }
+        Thread({
+            val identity =
+                try {
+                    takHost?.let { MumbleAuth.loadTakIdentity(it) }
+                } catch (t: Throwable) {
+                    Log.w(TAG, "TAK identity load failed — presence/mesh start without it", t)
+                    null
+                }
+            main.post {
+                if (destroyed) return@post
+                startPresenceLayer(takHost, identity)
+                startMeshVoice(identity)
+            }
+        }, "xv-identity-load").apply { isDaemon = true }.start()
+    }
+
+    private fun startPresenceLayer(
+        server: String?,
+        takIdentity: MumbleAuth.TakIdentity?,
+    ) {
         val deviceUid = MumbleAuth.deviceUid()
         if (deviceUid.isNullOrBlank()) {
             Log.w(TAG, "presence layer: no device UID available — skipping CoT publish/listen")
@@ -3526,20 +3569,9 @@ class XvMapComponent : AbstractMapComponent() {
         }
 
         // Cert fingerprint is best-effort: only available once a TAK
-        // server is enrolled. We attempt a lookup against the connected
-        // server (if any); null is fine — the CoT detail just won't carry
-        // certFp until the encryption layer needs it.
-        val takPick =
-            try {
-                TakServerDiscovery.pick(null)
-            } catch (t: Throwable) {
-                null
-            }
-        val server = takPick?.host
-        val certFp =
-            server?.let { host ->
-                MumbleAuth.loadTakIdentity(host)?.let { id -> MumbleAuth.certFingerprint(id.leaf) }
-            }
+        // server is enrolled. null is fine — the CoT detail just won't
+        // carry certFp until the encryption layer needs it.
+        val certFp = takIdentity?.let { id -> MumbleAuth.certFingerprint(id.leaf) }
         val publisher =
             XvCotPublisher(
                 deviceUid = deviceUid,
@@ -3581,7 +3613,7 @@ class XvMapComponent : AbstractMapComponent() {
     // rebuilds against fresh identity/settings (e.g. after a re-enroll).
     // Pure-Kotlin core: every Android/ATAK touchpoint is injected as a
     // lambda so the decision surface stays unit-tested (MeshVoiceManagerTest).
-    private fun startMeshVoice() {
+    private fun startMeshVoice(takIdentity: MumbleAuth.TakIdentity?) {
         // Idempotent; also run at plugin load. Here too so the legs are
         // never built from configs the legacy fold hasn't corrected yet.
         runCryptoPolicyMigrations()
@@ -3593,88 +3625,17 @@ class XvMapComponent : AbstractMapComponent() {
         stopMeshVoice()
         val ctx = heldPluginContext
 
-        val pub = com.atakmap.android.xv.presence.XvBridgeCotPublisher(deviceUid)
-        pub.setCallsignSupplier {
-            try {
-                com.atakmap.android.maps.MapView.getMapView()?.deviceCallsign
-            } catch (_: Throwable) {
-                null
-            }
-        }
-        pub.start()
-        bridgeCotPublisher = pub
-        val takHost =
-            try {
-                TakServerDiscovery.pick(null)?.host
-            } catch (_: Throwable) {
-                null
-            }
-        val takIdentity = takHost?.let { MumbleAuth.loadTakIdentity(it) }
+        startBridgeCotPublisher(deviceUid)
         val ourCertDer = takIdentity?.leaf?.encoded
         val ourPrivateKey = takIdentity?.privateKey
 
         val manager =
             MeshVoiceManager(
                 ourUid = deviceUid,
-                ourCallsign = {
-                    try {
-                        MapView.getMapView()?.deviceCallsign
-                    } catch (_: Throwable) {
-                        null
-                    }
-                },
+                ourCallsign = { currentCallsign() },
                 meshEnabled = { settings.persistedMeshVoiceEnabled() },
-                configForChannel = { channel ->
-                    val cfg =
-                        settings.channelMulticastConfigFor(channel)
-                            ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
-                                .defaultFor(channel)
-                    // A shared/known channel remembers its originating
-                    // server. On a device with no server identity of its
-                    // own (wiped / never enrolled), derive the endpoint
-                    // from that remembered host and hand the manager a
-                    // PINNED copy — otherwise resolveEndpoint has no
-                    // identity, no leg ever joins, and PTT bonks. Field
-                    // repro 2026-07-16 22:41: a wiped device accepted 11
-                    // CoT-shared channels and brought up zero legs.
-                    if (cfg.pinnedGroup == null && activeMumbleHost == null) {
-                        settings
-                            .channelServer(channel)
-                            ?.let { host ->
-                                runCatching {
-                                    com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation.derive(
-                                        com.atakmap.android.xv.transport.multicast.ServerIdentity.fromHostname(host),
-                                        channel,
-                                    )
-                                }.getOrNull()
-                            }?.let { endpoint -> cfg.copy(pinnedGroup = endpoint.groupAddress, pinnedPort = endpoint.port) }
-                            ?: cfg
-                    } else {
-                        cfg
-                    }
-                },
-                serverIdentity = {
-                    // Live Mumble host when connected; otherwise the
-                    // configured TAK server (same box for OTS). The
-                    // fallback is what makes cold-start failover work:
-                    // with the server unreachable at plugin load there
-                    // is no activeMumbleHost, but derivation only needs
-                    // the hostname the team configured, not a live
-                    // connection to it.
-                    val host =
-                        activeMumbleHost
-                            ?: try {
-                                TakServerDiscovery.pickPreferred(settings.persistedPreferredTakHost())?.host
-                            } catch (_: Throwable) {
-                                null
-                            }
-                    host?.let {
-                        runCatching {
-                            com.atakmap.android.xv.transport.multicast.ServerIdentity
-                                .fromHostname(it)
-                        }.getOrNull()
-                    }
-                },
+                configForChannel = { channel -> meshConfigForChannel(channel) },
+                serverIdentity = { meshServerIdentity() },
                 mumbleConnected = { activeTransport?.isConnected == true },
                 legFactory = { cfg, endpoint, registry, sink ->
                     MulticastMeshLeg(
@@ -3695,28 +3656,7 @@ class XvMapComponent : AbstractMapComponent() {
                         }
                     }
                 },
-                relayToMumble = { opus, burstStart, slot ->
-                    // Bridge relay: a server-less mesh speaker's frame
-                    // goes onto the Mumble channel over OUR session —
-                    // and ONLY there. Never route this through
-                    // sendOpusToActiveTransport: while bridging, that
-                    // path's mesh copy (sendTxOpus) is live, so the
-                    // relayed frame would go straight BACK onto the
-                    // group with OUR ssrc — every mesh speaker echoed
-                    // once by the bridge, heard doubled by the whole
-                    // group (field repro 2026-07-16). Same reasoning
-                    // for the burst edge: reset only the Mumble
-                    // sequence, not the mesh legs' TX state.
-                    if (burstStart) mumbleTransport()?.beginVoiceBurst(slot)
-                    activeTransport?.sendFrame(
-                        com.atakmap.android.xv.transport.VoiceFrame(
-                            opusPayload = opus,
-                            senderId = "self",
-                            monotonicTimestampMs = System.nanoTime() / 1_000_000,
-                            targetSlot = slot,
-                        ),
-                    )
-                },
+                relayToMumble = { opus, burstStart, slot -> relayMeshFrameToMumble(opus, burstStart, slot) },
                 onMeshTxStateChanged = { meshTxActive ->
                     // Server-less TX must stay allowed: while mesh is
                     // the active leg the plant's canTransmit gate (keyed
@@ -3739,83 +3679,12 @@ class XvMapComponent : AbstractMapComponent() {
                 knownPeerUids = { presenceRegistry?.all()?.map { it.deviceUid }.orEmpty() },
                 certFpForUid = { uid -> presenceRegistry?.get(uid)?.certFingerprint },
                 ourCertDer = { ourCertDer },
-                unwrapKey = { wrapped ->
-                    ourPrivateKey?.let {
-                        try {
-                            com.atakmap.android.xv.transport.multicast.TakCertCryptoBox
-                                .unwrapChannelKey(wrapped, it)
-                        } catch (t: Throwable) {
-                            Log.w(TAG, "mesh key unwrap failed", t)
-                            null
-                        }
-                    }
-                },
-                wrapKeyFor = { recipientCertDer, key ->
-                    try {
-                        val cert =
-                            java.security.cert.CertificateFactory
-                                .getInstance("X.509")
-                                .generateCertificate(recipientCertDer.inputStream())
-                                as java.security.cert.X509Certificate
-                        com.atakmap.android.xv.transport.multicast.TakCertCryptoBox
-                            .wrapChannelKey(key, cert)
-                    } catch (t: Throwable) {
-                        Log.w(TAG, "mesh key wrap failed", t)
-                        null
-                    }
-                },
-                logWarn = { msg ->
-                    // Route bridge warnings to BOTH logcat and the on-device
-                    // DiagnosticLogger file so a pulled field log captures
-                    // them. Messages are already redacted at the emit site.
-                    Log.w("XvMesh", msg)
-                    com.atakmap.android.xv.util.DiagnosticLogger.event(
-                        tag = "XvMesh",
-                        severity = 'W',
-                        message = msg,
-                    )
-                },
-                logDiag = { msg ->
-                    // Mesh burst-boundary + bridge/failover state trace →
-                    // logcat AND the DiagnosticLogger file, so the mesh<->
-                    // Mumble bridge full-duplex/relay path (echo hunt) is
-                    // finally visible in pulled logs. Redacted at the emit
-                    // site (source hosts tokenized via hostToken).
-                    Log.i("XvMesh", msg)
-                    com.atakmap.android.xv.util.DiagnosticLogger.event(
-                        tag = "XvMesh",
-                        severity = 'I',
-                        message = msg,
-                    )
-                },
+                unwrapKey = { wrapped -> ourPrivateKey?.let { unwrapMeshKey(wrapped, it) } },
+                wrapKeyFor = { recipientCertDer, key -> wrapMeshKeyFor(recipientCertDer, key) },
+                logWarn = { msg -> meshLog('W', msg) },
+                logDiag = { msg -> meshLog('I', msg) },
                 bridgeCotPublisher = bridgeCotPublisher,
-                onPeerBeacon = { msg ->
-                    presenceRegistry?.upsert(
-                        com.atakmap.android.xv.presence.XvPresence(
-                            deviceUid = msg.uid,
-                            version = "Mesh Peer",
-                            capabilities = emptySet(),
-                            certFingerprint = null,
-                            server = null,
-                            channels = msg.channels.map {
-                                com.atakmap.android.xv.presence.XvChannel(
-                                    name = it.name,
-                                    id = 0,
-                                    keyEpoch = it.keyEpoch,
-                                    group = it.group,
-                                    port = it.port
-                                )
-                            },
-                            lastSeenMs = System.currentTimeMillis(),
-                            mumbleSession = null,
-                            callsign = msg.callsign,
-                            mumbleConnected = msg.mumbleConnected,
-                            isBridging = msg.bridging,
-                            bridgeLastSeenMs = System.currentTimeMillis(),
-                            source = com.atakmap.android.xv.presence.PresenceSource.MESH,
-                        )
-                    )
-                },
+                onPeerBeacon = { msg -> upsertMeshPeer(msg) },
             )
         meshVoiceManager = manager
 
@@ -3823,18 +3692,7 @@ class XvMapComponent : AbstractMapComponent() {
         // seeding, so a channel provisioned/imported in a prior session is
         // keyed and shareable again the moment mesh comes up.
         restoreMeshKeysEncrypted()
-        // Seed the primary channel: the live Mumble join when there is
-        // one, else the persisted last channel. The persisted fallback
-        // is the cold-start failover case — plugin loads while the
-        // server is unreachable, no Mumble join ever fires, but the
-        // operator's channel is known and the mesh leg must come up
-        // anyway.
-        val liveJoined = joinedChannelsBySlot[0]?.name?.takeIf { it.isNotBlank() }
-        val persistedSeed =
-            settings
-                .persistedPrimaryChannel()
-                .takeIf { it.isNotBlank() && !it.startsWith("TAK PRIVATE - ") }
-        (liveJoined ?: persistedSeed)?.let { manager.onChannelJoined(0, it) }
+        seedMeshPrimaryChannel(manager)
         // Mission auto-channels share the same 1 Hz tick. The channel
         // name simply IS the mission name (deterministic + shared across
         // the team), so mesh derivation lands everyone on the same group.
@@ -3842,6 +3700,181 @@ class XvMapComponent : AbstractMapComponent() {
         meshTickHandler.removeCallbacks(meshTickRunnable)
         meshTickHandler.postDelayed(meshTickRunnable, MESH_TICK_MS)
         Log.i(TAG, "mesh voice started: uid=$deviceUid enrolled=${ourCertDer != null}")
+    }
+
+    // ---- startMeshVoice helpers (MeshVoiceManager injection points) ----
+
+    private fun currentCallsign(): String? =
+        try {
+            MapView.getMapView()?.deviceCallsign
+        } catch (_: Throwable) {
+            null
+        }
+
+    private fun startBridgeCotPublisher(deviceUid: String) {
+        val pub = com.atakmap.android.xv.presence.XvBridgeCotPublisher(deviceUid)
+        pub.setCallsignSupplier { currentCallsign() }
+        pub.start()
+        bridgeCotPublisher = pub
+    }
+
+    private fun meshConfigForChannel(channel: String): com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig {
+        val cfg =
+            settings.channelMulticastConfigFor(channel)
+                ?: com.atakmap.android.xv.transport.multicast.ChannelMulticastConfig
+                    .defaultFor(channel)
+        // A shared/known channel remembers its originating server. On a
+        // device with no server identity of its own (wiped / never
+        // enrolled), derive the endpoint from that remembered host and hand
+        // the manager a PINNED copy — otherwise resolveEndpoint has no
+        // identity, no leg ever joins, and PTT bonks. Field repro
+        // 2026-07-16 22:41: a wiped device accepted 11 CoT-shared channels
+        // and brought up zero legs.
+        if (cfg.pinnedGroup != null || activeMumbleHost != null) return cfg
+        val endpoint =
+            settings.channelServer(channel)?.let { host ->
+                runCatching {
+                    com.atakmap.android.xv.transport.multicast.MulticastGroupDerivation.derive(
+                        com.atakmap.android.xv.transport.multicast.ServerIdentity.fromHostname(host),
+                        channel,
+                    )
+                }.getOrNull()
+            }
+        return endpoint?.let { cfg.copy(pinnedGroup = it.groupAddress, pinnedPort = it.port) } ?: cfg
+    }
+
+    // Live Mumble host when connected; otherwise the configured TAK server
+    // (same box for OTS). The fallback is what makes cold-start failover
+    // work: with the server unreachable at plugin load there is no
+    // activeMumbleHost, but derivation only needs the hostname the team
+    // configured, not a live connection to it.
+    private fun meshServerIdentity(): com.atakmap.android.xv.transport.multicast.ServerIdentity? {
+        val host =
+            activeMumbleHost
+                ?: try {
+                    TakServerDiscovery.pickPreferred(settings.persistedPreferredTakHost())?.host
+                } catch (_: Throwable) {
+                    null
+                }
+        return host?.let {
+            runCatching {
+                com.atakmap.android.xv.transport.multicast.ServerIdentity
+                    .fromHostname(it)
+            }.getOrNull()
+        }
+    }
+
+    // Bridge relay: a server-less mesh speaker's frame goes onto the Mumble
+    // channel over OUR session — and ONLY there. Never route this through
+    // sendOpusToActiveTransport: while bridging, that path's mesh copy
+    // (sendTxOpus) is live, so the relayed frame would go straight BACK onto
+    // the group with OUR ssrc — every mesh speaker echoed once by the
+    // bridge, heard doubled by the whole group (field repro 2026-07-16).
+    // Same reasoning for the burst edge: reset only the Mumble sequence,
+    // not the mesh legs' TX state.
+    private fun relayMeshFrameToMumble(
+        opus: ByteArray,
+        burstStart: Boolean,
+        slot: Int,
+    ) {
+        if (burstStart) mumbleTransport()?.beginVoiceBurst(slot)
+        activeTransport?.sendFrame(
+            com.atakmap.android.xv.transport.VoiceFrame(
+                opusPayload = opus,
+                senderId = "self",
+                monotonicTimestampMs = System.nanoTime() / 1_000_000,
+                targetSlot = slot,
+            ),
+        )
+    }
+
+    private fun unwrapMeshKey(
+        wrapped: ByteArray,
+        privateKey: java.security.PrivateKey,
+    ): ByteArray? =
+        try {
+            com.atakmap.android.xv.transport.multicast.TakCertCryptoBox
+                .unwrapChannelKey(wrapped, privateKey)
+        } catch (t: Throwable) {
+            Log.w(TAG, "mesh key unwrap failed", t)
+            null
+        }
+
+    private fun wrapMeshKeyFor(
+        recipientCertDer: ByteArray,
+        key: ByteArray,
+    ): ByteArray? =
+        try {
+            val cert =
+                java.security.cert.CertificateFactory
+                    .getInstance("X.509")
+                    .generateCertificate(recipientCertDer.inputStream())
+                    as java.security.cert.X509Certificate
+            com.atakmap.android.xv.transport.multicast.TakCertCryptoBox
+                .wrapChannelKey(key, cert)
+        } catch (t: Throwable) {
+            Log.w(TAG, "mesh key wrap failed", t)
+            null
+        }
+
+    // Mesh warnings ('W') and the burst-boundary / bridge / failover trace
+    // ('I') go to BOTH logcat and the on-device DiagnosticLogger file, so a
+    // pulled field log captures them (the mesh<->Mumble full-duplex/relay
+    // path included). Messages are already redacted at the emit site.
+    private fun meshLog(
+        severity: Char,
+        msg: String,
+    ) {
+        if (severity == 'W') Log.w("XvMesh", msg) else Log.i("XvMesh", msg)
+        com.atakmap.android.xv.util.DiagnosticLogger.event(
+            tag = "XvMesh",
+            severity = severity,
+            message = msg,
+        )
+    }
+
+    private fun upsertMeshPeer(msg: com.atakmap.android.xv.transport.multicast.ControlPacket.Message.PeerBeacon) {
+        val now = System.currentTimeMillis()
+        presenceRegistry?.upsert(
+            com.atakmap.android.xv.presence.XvPresence(
+                deviceUid = msg.uid,
+                version = "Mesh Peer",
+                capabilities = emptySet(),
+                certFingerprint = null,
+                server = null,
+                channels =
+                msg.channels.map {
+                    com.atakmap.android.xv.presence.XvChannel(
+                        name = it.name,
+                        id = 0,
+                        keyEpoch = it.keyEpoch,
+                        group = it.group,
+                        port = it.port,
+                    )
+                },
+                lastSeenMs = now,
+                mumbleSession = null,
+                callsign = msg.callsign,
+                mumbleConnected = msg.mumbleConnected,
+                isBridging = msg.bridging,
+                bridgeLastSeenMs = now,
+                source = com.atakmap.android.xv.presence.PresenceSource.MESH,
+            ),
+        )
+    }
+
+    // Seed the primary channel: the live Mumble join when there is one,
+    // else the persisted last channel. The persisted fallback is the
+    // cold-start failover case — plugin loads while the server is
+    // unreachable, no Mumble join ever fires, but the operator's channel is
+    // known and the mesh leg must come up anyway.
+    private fun seedMeshPrimaryChannel(manager: MeshVoiceManager) {
+        val liveJoined = joinedChannelsBySlot[0]?.name?.takeIf { it.isNotBlank() }
+        val persistedSeed =
+            settings
+                .persistedPrimaryChannel()
+                .takeIf { it.isNotBlank() && !it.startsWith("TAK PRIVATE - ") }
+        (liveJoined ?: persistedSeed)?.let { manager.onChannelJoined(0, it) }
     }
 
     // ---- comms-plan provisioning (debug carrier; UI carriers reuse these) ----
